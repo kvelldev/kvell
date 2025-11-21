@@ -1,235 +1,148 @@
-# Backend Architecture Rules (FastAPI + Clean Architecture)
 
-## 0. Context & User Story
+# Project Kvell: Backend Architecture & Implementation Guidelines
 
-以下のルールとコード例は、"Project Kvell"におけるコア機能である「薪をくべる」機能を実装するケースを想定しています。
+## 1. Purpose & Scope
+このドキュメントは、Project Kvellのバックエンド開発における **「不変の憲法」** です。
+AIエージェントは、個別のPBI（User Story）を実装する際、必ずこのガイドラインに準拠しなければなりません。
+ここに記載されたルールは、個別の指示がない限り、バックエンドの全ての機能実装に適用されます。
 
+## 2. Tech Stack (Strict)
+以下の技術スタック以外の使用を禁止します。
 
-> User Story:
-As a ユーザー
-I want to 気に入った投稿（Spark）に対して「薪」ボタンを押す
-So that その話題を盛り上げることができる（システム的には薪カウントが増え、一定数を超えると焚き火(Bonfire)になる）
+* **Language:** Python 3.11+
+* **Framework:** FastAPI (Async native)
+* **Database:** MongoDB (via Motor or Beanie) - *No RDBMS/SQL.*
+* **KVS:** Redis (via redis-py) - For counters, rate limiting, and ephemeral states.
+* **Testing:** Pytest
 
+## 3. Architecture Pattern: Clean Architecture
+我々は **Clean Architecture** を採用します。依存性の方向を絶対に遵守してください。
 
-実装の際は、常にこの「ユーザーにとっての価値」と「データの流れ」を意識してください。
+### Layers & Dependency
+1.  **Domain (Inner)**: `src/domain/`
+    * 外部ライブラリ（FastAP等）に依存してはならない。Pydanticのみ許可。
+    * **Entities (`model/`)**: ドメインロジックとデータをカプセル化する。
+    * **Output Ports (`repository/`)**: データの入出力インターフェース。
+    * **Domain Services (`service/`)**: 複数のEntityにまたがるロジック。
+2.  **UseCase (Middle)**: `src/usecase/`
+    * Domain層とUseCase層の定義のみに依存する。
+    * **Input Ports (`interface.py`)**: UseCaseのインターフェース。
+    * **Interactors (`interactor.py`)**: アプリケーション固有のビジネスルール実装。
+3.  **Adapter (Outer)**: `src/adapter/`
+    * 詳細な技術実装（FastAPI, DB接続など）。
+    * **Entrypoints (`entrypoints/`)**: Driving Adapters (例: FastAPI Router)。
+    * **Gateways (`gateways/`)**: Driven Adapters (例: MongoDB Repository 実装)。
 
-## 1. Project Directory Structure (The Map)
+### Dependency Inversion Principle
 
-コーディングを開始する前に、現在のディレクトリ構成を確認した上で、下記のようにファイル作成計画を立ててください。
+DIPを厳密に遵守してください。
+依存の方向は必ず**Outer->Middle->Inner**であり、内側の層はそれより外の層のことを関知してはいけません。
+
+* ❌ Controller (`adapter`) imports Interactor Implementation (`usecase`) -> **Bad**
+* ✅ Controller (`adapter`) imports Input Port (`usecase/interface`) -> **Good**
+* ❌ Interactor (`usecase`) imports Repository Implementation (`adapter`) -> **Bad**
+* ✅ Interactor (`usecase`) imports Repository Interface (`domain`) -> **Good**
+
+## 4. Implementation Principles
+
+### A. Concurrency & Scalability
+Kvellは「瞬間的な熱狂」を扱うため、アクセス集中時の整合性が重要です。
+* **Atomic Operations:** カウンターやステータス変更は、必ずRedisのAtomic操作（`INCR`, `SETNX`等）またはMongoDBのアトミック更新演算子（`$inc`, `$set`）を使用すること。
+* **Read-Modify-Write 禁止:** データをPythonメモリ上に取得して計算し、再度保存する処理は、Race Conditionの温床になるため、高負荷が予想される箇所では禁止します。
+
+### B. Domain Richness
+コードは仕様書です。無機質なSetter/Getterではなく、意味のあるメソッド名を使用してください。
+* `set_status(Status.BURNING)` ではなく -> `ignite()`
+* **Ubiquitous Language:** 変数名やクラス名は、必ず`01_ubiquitous.md`にて定義されたユビキタス言語（`Spark`, `Bonfire`, `Ash`, `Fuel` 等）に従うこと。
+
+## 5. Coding Workflow (Contract-Driven)
+実装は以下のステップで行うこと。**いきなり実装コードを書かないでください。**
+
+1.  **Step 1: Define Contracts (Interfaces)**
+    * Entity, Repository Interface, UseCase Interfaceを定義。
+    * ここで「型の整合性」を確認する。
+2.  **Step 2: Implementation (Core)**
+    * UseCaseの実装（ビジネスロジック）。
+3.  **Step 3: Implementation (Adapter)**
+    * DB操作の実装、APIエンドポイントの実装。
+
+## 6. Directory Structure (The Map)
+ファイル作成時はこの構造に従ってください。
 
 ```text
 src/
-├── domain/                 # 最も内側のレイヤー（外部依存なし）
-│   ├── model/              # Entities (Pydantic/DataClass)
-│   │   ├── spark.py        # 種火 (Entity)
-│   │   └── bonfire.py      # 焚き火 (Entity)
-│   ├── service/            # Domain Services (複数Entityに跨るロジック)
-│   │   └── ignition.py     # 焚き火化判定ロジック
-│   └── repository/         # Repository Interfaces (Output Ports)
-│       ├── spark_repo.py   # class ISparkRepository(ABC)
-│       └── bonfire_repo.py
-├── usecase/                # アプリケーション固有のビジネスルール
-│   ├── add_fuel/           # 機能単位でディレクトリを切る
-│   │   ├── interface.py    # UseCase Interface (Input Ports)
-│   │   └── interactor.py   # UseCase Implementation
+├── domain/
+│   ├── model/              # e.g., spark.py
+│   ├── repository/         # e.g., spark_repository.py (Output Port)
+│   └── service/            # e.g., ignition_service.py
+├── usecase/
+│   ├── {feature_name}/     # e.g., add_fuel/
+│   │   ├── interface.py    # Input Port
+│   │   └── interactor.py   # Implementation
 │   └── dto/                # Data Transfer Objects
-├── driver_adapter/                # Interface Adapters
-│   ├── controller/         # FastAPI Routers
-│   │   └── add_fuel_router.py
-│   └── presenter/          # Response formatting (Optional)
-├── driven_adapter/                  # Frameworks & Drivers (外部依存あり)
-│   ├── repository/         # Repository Implementations
-│   │   ├── redis_spark_repo.py # カウント処理はRedis推奨
-│   │   └── sql_bonfire_repo.py
-│   └── db/
-└── main.py                 # DI Configuration & App Entrypoint
-```
+├── adapter/
+│   ├── entrypoints/        # FastAPI Routers
+│   └── gateways/           # DB Implementations (Mongo/Redis)
+└── main.py
+````
 
+-----
 
+## 7\. Reference Implementation (Few-shot Example)
 
-## 2. Architecture Layers & Dependency Rule
+以下は「薪をくべる」機能の実装例です。
+**注意: これはあくまで構造のサンプルです。実際のタスクは別途提供されるPBIに従ってください。**
 
-Clean Architectureを採用します。
-各レイヤーの説明を下記に記載します。
-
-### Layers
-
-#### The Core
-ビジネスロジックが存在する聖域。外部（DB, Web）のことを一切知らず、依存もしない。
-
-1.  **Domain (domain/model, domain/service)**
-    * **Entity:** コアビジネスルール。他の何にも依存しない。
-    * **Domain Service:** 複数のEntityに跨る純粋なドメインルール。
-2.  **Application (usecase/interactor)**
-    * **UseCase:** ビジネスロジックの実装。EntityとRepository Interfaceにのみ依存する。
-
-#### Ports (Interfaces)
-Coreと外界を繋ぐ契約。**全てCoreパッケージ内に定義される。**
-
-3.  **Input Port (usecase/interface)**
-    * Coreが「外部から何をされたいか」を定義したInterface。
-    * UseCaseがこれを実装(`implements`)する。
-4.  **Output Port (domain/repository)**
-    * Coreが「外部に何をしてほしいか」を定義したInterface。
-    * UseCaseがこれを利用(`uses`)する。
-
-#### Adapters (Outer World)
-Coreを具体的な技術（Web, SQL, Redis）に適合させる変換層。
-
-5.  **Driving Adapter**
-    * **Controller:** HTTPリクエストを受け取り、Input Portを呼び出す。
-6.  **Driven Adapter**
-    * **Repository** Output Portを実装し、具体的なインフラ操作(DB, Redis等)を行う。
-
-
-### Dependency Rule
-
-**Adapters -> Ports (in Core)**
-すべてのアダプターは、Core内で定義されたPortに依存します。
-* Driving Adapterは Input Port を呼ぶ。
-* Driven Adapterは Output Port を実装する。
-* **CoreがAdapterに依存することは絶対にない。**
-
-## 3. Contract-Driven Development
-
-AIは実装コードを書く前に、必ず **「全てのレイヤー間のインターフェース（契約）」** を定義し、コンパイル（型チェック）が通る状態にしてください。
-
-**重要**: 各種シグネチャは`01_ubiquitous.md`にあるユビキタス言語を参考に命名してください。
-
-### Coding Flow
-
-以下の順序でコードを生成・提示してください。
-
-1. Define Contracts (The "What")
-    - Entities
-    - Output Ports
-    - Input Ports
-    - Input/Output DTOs
-2. Wait for Review (※思考プロセス内での自己レビュー、またはユーザー確認)
-3. Implement Details (The "How")
-    - UseCase Implementation
-    - Adapter Implementation
-
-## 4. Implementation Example
-
-下記にFew-shot Promptとして実装例を示します。
-
-### Step 1: Define Contracts
+### [Contract] Domain & Interface
 
 ```python
-# 1. Entities (domain/model/spark.py)
-from pydantic import BaseModel
-from datetime import datetime
-
-class Spark(BaseModel):
-    """種火: ユーザーの投稿。燃料(fuel_count)を持つ。"""
-    id: str
-    content: str
-    fuel_count: int = 0
-
-class Bonfire(BaseModel):
-    """焚き火: Sparkが成長してスレになった状態"""
-    id: str
-    root_spark_id: str
-    ignited_at: datetime
-
-# 2. Domain Service (domain/service/ignition.py)
-class IgnitionService:
-    THRESHOLD = 50
-    
-    @staticmethod
-    def should_ignite(spark: Spark) -> bool:
-        """Sparkが焚き火になるべきか判定する"""
-        return spark.fuel_count >= IgnitionService.THRESHOLD
-
-# 3. Repository Interface (domain/repository/spark_repo.py)
+# src/domain/repository/spark_repository.py
 from abc import ABC, abstractmethod
 from domain.model.spark import Spark
 
 class ISparkRepository(ABC):
     @abstractmethod
-    async def add_fuel(self, spark_id: str) -> Spark:
-        """
-        指定された種火に薪をくべる（カウントアップ）。
-        実装はRedisのINCR等を想定。ロック待ちを発生させないこと。
-        """
+    async def add_fuel_atomic(self, spark_id: str) -> Spark:
+        """Redis/DB上でアトミックに燃料を追加し、更新後のEntityを返す"""
         pass
 
-class IBonfireRepository(ABC):
-    @abstractmethod
-    async def save(self, bonfire: Bonfire) -> None:
-        pass
-
-# 4. UseCase Input Port (usecase/add_fuel/interface.py)
+# src/usecase/add_fuel/interface.py
 from abc import ABC, abstractmethod
-from usecase.dto.add_fuel_dto import AddFuelInput
+from usecase.dto.fuel_dto import AddFuelInput
 
 class IAddFuelUseCase(ABC):
     @abstractmethod
-    async def add_fuel(self, input_data: AddFuelInput) -> None:
-        """薪をくべるビジネスロジックの契約"""
+    async def execute(self, input_data: AddFuelInput) -> None:
         pass
 ```
 
-
-### Step 2: Implement Details
+### [Logic] UseCase Implementation
 
 ```python
-# 5. UseCase Implementation (usecase/add_fuel/interactor.py)
-from domain.repository.spark_repo import ISparkRepository
-from domain.repository.bonfire_repo import IBonfireRepository
-from domain.service.ignition import IgnitionService
-from usecase.add_fuel.interface import IAddFuelUseCase
-from usecase.dto.add_fuel_dto import AddFuelInput
-# ... imports
-
+# src/usecase/add_fuel/interactor.py
 class AddFuelInteractor(IAddFuelUseCase):
-    def __init__(
-        self, 
-        spark_repo: ISparkRepository,
-        bonfire_repo: IBonfireRepository
-    ):
+    def __init__(self, spark_repo: ISparkRepository, ignition_service: IgnitionService):
         self.spark_repo = spark_repo
-        self.bonfire_repo = bonfire_repo
+        self.ignition_service = ignition_service
 
-    async def add_fuel(self, input_data: AddFuelInput) -> None:
-        # 1. 薪をくべる
-        spark = await self.spark_repo.add_fuel(input_data.spark_id)
-        
-        # 2. 焚き火化判定 (Domain Service)
-        # ドメインルールに基づき、焚き火に昇格させるか判断
-        if IgnitionService.should_ignite(spark):
-            new_bonfire = Bonfire(
-                id="...", 
-                root_spark_id=spark.id, 
-                ignited_at=now()
-            )
-            await self.bonfire_repo.save(new_bonfire)
+    async def execute(self, input_data: AddFuelInput) -> None:
+        # 1. Atomic Update in Gateway
+        updated_spark = await self.spark_repo.add_fuel_atomic(input_data.spark_id)
+
+        # 2. Domain Service Check
+        if self.ignition_service.should_ignite(updated_spark):
+            # ... Ignition logic
+            pass
 ```
 
-### Step 3: Adapter (Controller)
+### [Adapter] Gateway Implementation
 
 ```python
-# 6. Controller (adapter/controller/add_fuel_router.py)
-from fastapi import APIRouter, Depends
-from usecase.add_fuel.interface import IAddFuelUseCase
-from usecase.dto.add_fuel_dto import AddFuelInput
-
-router = APIRouter()
-
-@router.post("/add_fuel")
-async def add_fuel(
-    input_data: AddFuelInput,
-    usecase: IAddFuelUseCase = Depends(get_add_fuel_usecase) # DI
-):
-    await usecase.add_fuel(input_data)
+# src/adapter/gateways/redis_spark_repository.py
+class RedisSparkRepository(ISparkRepository):
+    async def add_fuel_atomic(self, spark_id: str) -> Spark:
+        # Use Redis INCR for thread-safe counting
+        new_count = await self.redis.incr(f"spark:{spark_id}:fuel")
+        # ... Map to Entity and return
 ```
 
-## 5. YAGNI & Shortcut Rules
-
-複雑なビジネスロジックを持たない単純なCRUD操作（例: お知らせ一覧の取得）については、UseCase層の作成を省略し、ControllerからRepositoryを直接呼び出すことを許可します。
-
-ただし、以下の条件を厳守してください:
-
-- **Interfaceの使用は必須**: Controllerは `SQLNewsRepository` ではなく `INewsRepository` (Interface) に依存すること。
-- **ディレクトリ構造**: 省略する場合も `domain/repository` にInterfaceを置くこと。
