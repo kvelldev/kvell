@@ -1,0 +1,94 @@
+[project]
+name = "kvell-api"
+version = "0.1.0"
+description = "Kvell Backend API"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.121.3",
+    "pydantic>=2.12.4",
+    "uvicorn>=0.38.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pyright>=1.1.407",
+    "pytest>=9.0.1",
+    "ruff>=0.14.6",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D203", "D213", # Docstring競合回避
+    "COM812", "ISC001", # Formatter競合回避
+    "ANN101", # selfの型定義不要
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "N802", "D", "ANN"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+# srcディレクトリをimportのルートとして認識させる
+extraPaths = ["src"]
+
+typeCheckingMode = "strict"
+# ==============================
+# 未使用コードを検出
+# ==============================
+reportUnusedImport = true
+reportUnusedVariable = true
+reportUnusedClass = true
+reportUnusedFunction = true
+reportUnusedCoroutine = true
+reportUnusedExpression = true
+
+# ==============================
+# 型の不明確さを禁止
+# ==============================
+reportMissingTypeStubs = true
+reportUnknownMemberType = true
+reportUnknownArgumentType = true
+reportUnknownLambdaType = true
+reportUnknownVariableType = true
+reportUnknownParameterType = true
+
+# ==============================
+# 不要・矛盾を検出
+# ==============================
+reportUnnecessaryCast = true
+reportUnnecessaryComparison = true
+reportUnnecessaryContains = true
+reportUnnecessaryIsInstance = true
+
+# ==============================
+# 型システムの誤用
+# ==============================
+reportInvalidTypeVarUse = true
+reportIncompatibleMethodOverride = true
+reportIncompatibleVariableOverride = true
+reportOverlappingOverload = true
+
+# ==============================
+# import やモジュールの問題
+# ==============================
+reportMissingImports = true
+reportMissingModuleSource = true
+reportPrivateUsage = true
+
+
+
+[tool.pytest.ini_options]
+# src配下のモジュールを直接importできるようにする
+pythonpath = ["src"]
+
+testpaths = ["tests"]
+addopts = "-v --strict-markers --strict-config"
