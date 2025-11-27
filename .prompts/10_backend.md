@@ -84,7 +84,7 @@ src/
 │   ├── entrypoints/        # FastAPI Routers
 │   └── gateways/           # DB Implementations (Mongo/Redis)
 └── main.py
-````
+```
 
 -----
 
