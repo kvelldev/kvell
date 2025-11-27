@@ -1,59 +1,67 @@
 /**
- * Health Check UseCase Hook
- * 
- * Custom hook for health check operations.
+ * Health Check UseCase Hooks
+ *
+ * Custom hooks for health check operations using SWR.
+ * Depends on IHealthRepository (Domain Interface) following DIP.
  */
 
-import { useState } from 'react';
-import type { HealthMessage } from '@/domain/model/health';
-import { saveHealthMessage, getLatestHealthMessage } from '@/adapter/repository/healthRepository';
+import useSWR from "swr";
+import useSWRMutation from "swr/mutation";
+import type { HealthMessage } from "@/domain/model/health";
+import type { IHealthRepository } from "@/domain/repository/healthRepository";
+import { SWR_KEYS } from "@/usecase/constants";
 
-interface UseHealthCheckReturn {
-  message: HealthMessage | null;
-  isLoading: boolean;
-  error: Error | null;
-  saveMessage: (text: string) => Promise<void>;
-  fetchLatest: () => Promise<void>;
-}
-
-export const useHealthCheck = (): UseHealthCheckReturn => {
-  const [message, setMessage] = useState<HealthMessage | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  const saveMessage = async (text: string): Promise<void> => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const savedMessage = await saveHealthMessage(text);
-      setMessage(savedMessage);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Unknown error'));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const fetchLatest = async (): Promise<void> => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const latestMessage = await getLatestHealthMessage();
-      setMessage(latestMessage);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Unknown error'));
-    } finally {
-      setIsLoading(false);
-    }
-  };
+/**
+ * UseCase Hook for fetching the latest health message (SWR).
+ * @param repository - Repository implementation (injected from outside)
+ * @returns SWR state for latest health message
+ */
+export const useFetchLatestHealthMessage = (repository: IHealthRepository) => {
+  const { data, error, isLoading, mutate } = useSWR<
+    HealthMessage | null,
+    Error
+  >(SWR_KEYS.HEALTH_LATEST, async () => repository.getLatest(), {
+    // Don't revalidate on focus/reconnect for this health check demo
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+  });
 
   return {
-    message,
+    message: data ?? null,
     isLoading,
+    isError: !!error,
     error,
-    saveMessage,
-    fetchLatest,
+    refetch: mutate,
+  };
+};
+
+/**
+ * UseCase Hook for saving a health message (Mutation).
+ * @param repository - Repository implementation (injected from outside)
+ * @returns Mutation state and trigger function
+ */
+export const useSaveHealthMessage = (repository: IHealthRepository) => {
+  const { trigger, isMutating, error } = useSWRMutation<
+    HealthMessage,
+    Error,
+    string,
+    string
+  >(
+    SWR_KEYS.HEALTH_LATEST,
+    async (_key: string, { arg }: { arg: string }) => {
+      const savedMessage = await repository.saveMessage(arg);
+      return savedMessage;
+    },
+    {
+      // Automatically update the cache after successful mutation
+      populateCache: true,
+      revalidate: false,
+    },
+  );
+
+  return {
+    saveMessage: trigger,
+    isSaving: isMutating,
+    error: error ?? null,
   };
 };

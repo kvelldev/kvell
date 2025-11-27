@@ -2,6 +2,8 @@
 
 # Frontend Architecture & Implementation Guidelines
 
+F/Eのタスクでは本ファイルを参照してください。
+
 ## 1\. Purpose & Scope
 
 このドキュメントは、本プロジェクトのフロントエンド開発における **「不変の憲法」** です。
@@ -130,8 +132,9 @@ src/
 │   ├── model/
 │   └── repository/         # Repository Interfaces (DIP)
 ├── usecase/                # Application Logic (Hooks)
-│   └── service/            
+│   └── ports/              # Interfaces defined by UseCase           
 ├── adapter/                # API & Infra
+│   ├── infra/              # Infra Implementations(e.g. SentryLogger)
 │   └── repository/         # Repository Implementations
 ├── components/             # Atomic Design
 │   ├── atoms/              # [Dumb] Button, Icon
@@ -242,167 +245,271 @@ test('passes loading state to children', () => {
 });
 ```
 
+
+```text
+src/
+├── domain/                 # Types & Pure Logic
+│   ├── error/              # AppError definition
+│   ├── model/
+│   └── repository/         # Repository Interfaces (DIP)
+├── usecase/                # Application Logic (Hooks)
+│   └── service/            
+├── adapter/                # API & Infra
+│   ├── networking/         # [DRY] API Client Wrapper
+│   └── repository/         # Repository Implementations
+├── components/             # Atomic Design
+│   ├── atoms/              # [Dumb] Button, Icon
+// ... (以下変更なし)
+```
+
+
 ## 7\. Reference Implementation (Few-shot Example)
 
 以下は具体的な実装例です。あくまで「構造の適用例」として参照してください。
-ここでは例として「薪（Spark）をくべる」というドメインを用いて解説します。
-**Pagesのみがロジックを持つ**点に注目してください。
+ここでは **「Health Check (Server Echo)」** 機能を実装する場合の具体例を示します。
 
-### [Layer 1] Domain & Adapter (DIP Applied)
+
+### [Layer 0] Common Utils (DRY & Error Handling)
+
+API通信のボイラープレート（ヘッダー付与、エラーハンドリング）は、個別のRepositoryに書かず、共通のAdapterに集約します。
 
 ```ts
-// src/domain/model/spark.ts
-export type Spark = {
-  id: string;
-  fuelCount: number;
-  content: string;
-};
+// src/domain/AppError.ts
+import { InternalStatusCodes, internalStatuses } from "@/domain/constants";
 
-// src/domain/repository/sparkRepository.ts (Interface)
-export interface ISparkRepository {
-  addFuel(sparkId: string): Promise<Spark>;
+export class AppError extends Error {
+  constructor(
+    public status: InternalStatusCodes,
+    message?: string,
+    public cause?: Error
+  ) {
+    super(message ?? internalStatuses[status]);
+    this.name = "AppError";
+  }
 }
 
-// src/adapter/repository/sparkRepositoryImpl.ts (Implementation)
-import { ISparkRepository } from '@/domain/repository/sparkRepository';
+// src/adapter/apiClient.ts
+// fetchをラップし、共通のヘッダー処理とAppErrorへの変換を行う
+import { AppError } from "@/domain/error/AppError";
 
-export const sparkRepository: ISparkRepository = {
-  addFuel: async (sparkId: string): Promise<Spark> => {
-    const res = await fetch(`/api/v1/sparks/${sparkId}/fuel`, { method: 'POST' });
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+
+export const apiClient = async <T>(endpoint: string, options?: RequestInit): Promise<T> => {
+  try {
+    const res = await fetch(`${BASE_URL}${endpoint}`, {
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      ...options,
+    });
+
+    if (!res.ok) {
+      // ステータスコードに応じたエラーハンドリング(簡易実装)
+      throw new AppError(res.status as any, `API Error: ${res.statusText}`);
+    }
+
+    // 204 No Contentの場合はnullを返す等の処理もここに記述
+    if (res.status === 204) return null as T;
+
     return res.json();
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError(500, "Network Error", error as Error);
   }
 };
 ```
 
-### [Layer 2] UseCase (Custom Hook)
+### [Layer 1] Domain & Adapter (DIP Applied)
 
 ```ts
-// src/usecase/useFetchTimeline.ts
-import useSWR from 'swr';
-// Repositoryの実装(またはInterface)をimport
-import { sparkRepository } from '@/adapter/repository/sparkRepositoryImpl';
+// src/domain/model/health.ts
+export interface HealthMessage {
+  id: string;
+  message: string;
+  createdAt: string;
+}
 
-export const useFetchTimeline = () => {
-  // Keyはキャッシュキーとして機能する
-  // fetcher関数として、repositoryのメソッドを渡す
+// src/domain/repository/healthRepository.ts (Interface)
+export interface IHealthRepository {
+  getLatest(): Promise<HealthMessage | null>;
+  saveMessage(message: string): Promise<HealthMessage>;
+}
+
+// src/adapter/repository/healthRepositoryImpl.ts (Implementation)
+// 共通化した apiClient を使用することで実装をシンプルに保つ
+import { apiClient } from "@/adapter/apiClient";
+import { IHealthRepository } from "@/domain/repository/healthRepository";
+import { HealthMessage } from "@/domain/model/health";
+
+export class HealthRepositoryImpl implements IHealthRepository {
+  async getLatest(): Promise<HealthMessage | null> {
+    return apiClient<HealthMessage | null>("/api/health/latest");
+  }
+
+  async saveMessage(message: string): Promise<HealthMessage> {
+    return apiClient<HealthMessage>("/api/health/echo", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    });
+  }
+}
+
+// DI用のインスタンス
+export const healthRepository = new HealthRepositoryImpl();
+```
+
+### [Layer 2] UseCase (Custom Hook)
+
+SWR/Mutationを利用し、サーバー状態を管理します。
+
+```ts
+// src/usecase/useHealthCheck.ts
+import useSWR from "swr";
+import useSWRMutation from "swr/mutation";
+import { IHealthRepository } from "@/domain/repository/healthRepository";
+
+const KEYS = { HEALTH_LATEST: "/health/latest" };
+
+// Fetch Hook
+export const useFetchLatestHealthMessage = (repository: IHealthRepository) => {
   const { data, error, isLoading, mutate } = useSWR(
-    '/timeline', 
-    () => sparkRepository.fetchAll()
+    KEYS.HEALTH_LATEST,
+    () => repository.getLatest()
   );
 
   return {
-    sparks: data ?? [],
+    message: data ?? null,
     isLoading,
-    isError: error,
-    mutateTimeline: mutate, // 必要に応じて再取得関数も公開
+    error,      // AppErrorがここに伝播される
+    refetch: mutate,
   };
 };
-```
 
-```ts
-// src/usecase/useAddFuel.ts
-import { useState } from 'react';
-import { useSWRConfig } from 'swr';
-import { sparkRepository } from '@/adapter/repository/sparkRepositoryImpl';
+// Mutation Hook
+export const useSaveHealthMessage = (repository: IHealthRepository) => {
+  const { trigger, isMutating, error } = useSWRMutation(
+    KEYS.HEALTH_LATEST,
+    async (_key, { arg }: { arg: string }) => repository.saveMessage(arg),
+    { populateCache: true, revalidate: false } // 楽観的更新等の設定
+  );
 
-export const useAddFuel = () => {
-  const [isAdding, setIsAdding] = useState(false);
-  const { mutate } = useSWRConfig();
-
-  const addFuel = async (sparkId: string) => {
-    setIsAdding(true);
-    try {
-      // 1. APIコール (Repository)
-      await sparkRepository.addFuel(sparkId);
-      
-      // 2. キャッシュ更新 (Revalidate)
-      // '/timeline' のキーを持つSWRを再取得させる
-      mutate('/timeline'); 
-      
-      // ※ここに「楽観的更新 (Optimistic UI)」のロジックを入れることも可能
-    } finally {
-      setIsAdding(false);
-    }
+  return {
+    saveMessage: trigger,
+    isSaving: isMutating,
+    error,
   };
-
-  return { addFuel, isAdding };
 };
 ```
 
 ### [Layer 3] UI (Atomic Design)
 
-**Atoms / Molecules / Organisms (All Dumb)**
-これらはHooksを知りません。ひたすらPropsを受け取って描画するだけです。
+**Atoms / Molecules / Organisms (Dumb)**
+ロジックを持たず、表示とイベント発火に専念します。
 
-```ts
-// src/components/molecules/FuelButton.tsx (Dumb)
-type Props = {
-  onClick: () => void;
-  disabled: boolean;
-  count: number;
-};
-export const FuelButton = ({ onClick, disabled, count }: Props) => (
-  <button onClick={onClick} disabled={disabled}>
-    🔥 {count}
-  </button>
-);
+```tsx
+// src/components/organisms/HealthCheckMonitor.tsx (Dumb)
+import { HealthMessage } from "@/domain/model/health";
+import { Button } from "@/components/atoms/Button";
 
-// src/components/organisms/SparkCard.tsx (Dumb)
-// 以前はここでHooksを呼んでいたが、それは禁止された。
-// 必要なデータとコールバックは全て親から受け取る。
-import { Spark } from '@/domain/model/spark';
-import { FuelButton } from '@/components/molecules/FuelButton';
+interface Props {
+  inputValue: string;
+  onInputChange: (val: string) => void;
+  onSave: () => void;
+  onFetch: () => void;
+  message: HealthMessage | null;
+  isLoading: boolean;
+  error?: Error;
+}
 
-type SparkCardProps = {
-  spark: Spark;
-  onAddFuel: (id: string) => void; // Action is passed down
-  isProcessing: boolean;
-};
-
-export const SparkCard = ({ spark, onAddFuel, isProcessing }: SparkCardProps) => {
+export const HealthCheckMonitor = ({
+  inputValue,
+  onInputChange,
+  onSave,
+  onFetch,
+  message,
+  isLoading,
+  error,
+}: Props) => {
   return (
-    <div className="card-border">
-      <p>{spark.content}</p>
-      <FuelButton 
-        onClick={() => onAddFuel(spark.id)} 
-        disabled={isProcessing}
-        count={spark.fuelCount}
-      />
+    <div className="p-4 border rounded">
+      {/* 状態表示 */}
+      <div className="mb-4 min-h-[60px]">
+        {isLoading ? (
+          <span className="text-gray-500">Loading...</span>
+        ) : error ? (
+          <span className="text-red-500">Error: {error.message}</span>
+        ) : (
+          <p className="text-xl font-bold">{message?.message ?? "No Data"}</p>
+        )}
+      </div>
+
+      {/* 入力フォーム */}
+      <div className="flex gap-2">
+        <input 
+          value={inputValue}
+          onChange={(e) => onInputChange(e.target.value)}
+          className="border p-2 rounded"
+          disabled={isLoading}
+        />
+        <Button onClick={onSave} disabled={isLoading || !inputValue}>
+          Echo
+        </Button>
+        <Button onClick={onFetch} variant="secondary">
+          Reload
+        </Button>
+      </div>
     </div>
   );
 };
 ```
 
 **Pages (Smart)**
-唯一のSmart Componentです。ここでUseCaseとUIを結合します。
+唯一、RepositoryやUseCaseを知っている場所です。
 
-```ts
-// src/components/pages/TimelinePage.tsx (Smart)
-import { useAddFuel } from '@/usecase/useAddFuel';
-import { useFetchTimeline } from '@/usecase/useFetchTimeline';
-import { TimelineTemplate } from '@/components/templates/TimelineTemplate';
-import { SparkCard } from '@/components/organisms/SparkCard';
+```tsx
+// src/components/pages/HealthCheckPage.tsx (Smart)
+import { useState } from "react";
+import { healthRepository } from "@/adapter/repository/healthRepositoryImpl";
+import { 
+  useFetchLatestHealthMessage, 
+  useSaveHealthMessage 
+} from "@/usecase/useHealthCheck";
+import { HealthCheckMonitor } from "@/components/organisms/HealthCheckMonitor";
+import { HealthCheckTemplate } from "@/components/templates/HealthCheckTemplate";
 
-export const TimelinePage = () => {
-  // UseCases (Hooks) are called here ONLY
-  const { sparks } = useFetchTimeline();
-  const { addFuel, isAdding } = useAddFuel();
+export const HealthCheckPage = () => {
+  // 1. Local State (UI State)
+  const [inputText, setInputText] = useState("");
 
-  // Organismにデータとロジック(関数)を注入する
-  const renderSpark = (spark: Spark) => (
-    <SparkCard 
-       key={spark.id}
-       spark={spark}
-       onAddFuel={addFuel}
-       isProcessing={isAdding}
-    />
-  );
+  // 2. UseCases (Hooks) - Repository Dependency Injection
+  const { message, isLoading: isFetching, error: fetchError, refetch } = 
+    useFetchLatestHealthMessage(healthRepository);
+    
+  const { saveMessage, isSaving, error: saveError } = 
+    useSaveHealthMessage(healthRepository);
 
-  // TemplateにViewの構築を委譲
+  // 3. Event Handlers (Wiring Logic)
+  const handleSave = async () => {
+    if (!inputText) return;
+    await saveMessage(inputText);
+    setInputText(""); // Clear input on success
+  };
+
+  // 4. Render
+  const appError = saveError ?? fetchError;
+  const isLoading = isFetching || isSaving;
+
   return (
-    <TimelineTemplate>
-       {sparks.map(renderSpark)}
-    </TimelineTemplate>
+    <HealthCheckTemplate>
+      <HealthCheckMonitor
+        inputValue={inputText}
+        onInputChange={setInputText}
+        onSave={handleSave}
+        onFetch={() => refetch()}
+        message={message}
+        isLoading={isLoading}
+        error={appError}
+      />
+    </HealthCheckTemplate>
   );
 };
 ```
+

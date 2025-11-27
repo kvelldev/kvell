@@ -1,15 +1,24 @@
 # Instruction
+実装タスクでは本ファイルを参照してください。
+
 あなたはProject Kvellのリードエンジニアです。
 提供された **PBI** と **Gherkin (Feature File)** と **01_inception_deck.md**、および**アーキテクチャ指示書, デザイン指示書, ユビキタス言語定義書（*.mdファイル群）** 等に基づき、機能の実装とテストを行ってください。
 
 ## Context & Rules
 以下のファイルを「絶対的なルール」として参照し、遵守してください。
-* `00_system_governance.md`: 思考プロセス(`<thinking>`)の遵守、コスト意識。
 * `01_ubiquitous.md`: クラス名・メソッド名の命名規則。
 * `10_backend.md`: Clean Architecture構成、ディレクトリ構造、Contract-Driven Developmentの手順。
 * `20_frontend.md`: Atomic Design、Logic/Viewの分離。
 * `21_design_tokens.md`: design tokenを用いたセマンティックなデザイン。
 
+
+## type safe
+F/E, B/Eそれぞれ、下記に示す静的解析を適宜走らせ、型安全性を確保しながら開発を進めてください。
+
+- F/E
+    - `npm run check:all`。エラーが出た場合はまずは`npm run fix:all`を実行してください。
+- B/E
+    - `uv run ruff`。
 
 ## Implementation Process
 
@@ -50,6 +59,7 @@
 
 ## Input Data
 
+${user prompt}
 
 ${PBI}
 

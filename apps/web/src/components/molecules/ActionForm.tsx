@@ -1,0 +1,49 @@
+/**
+ * Action Form Molecule
+ *
+ * Input form with action buttons for health check (Dumb Component).
+ */
+
+import { Input } from "@/components/atoms/Input";
+import { Button } from "@/components/atoms/Button";
+
+interface ActionFormProps {
+  inputValue: string;
+  onInputChange: (value: string) => void;
+  onSave: () => void;
+  onFetch: () => void;
+  isLoading: boolean;
+}
+
+export const ActionForm = ({
+  inputValue,
+  onInputChange,
+  onSave,
+  onFetch,
+  isLoading,
+}: ActionFormProps) => {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Test Message
+        </label>
+        <Input
+          value={inputValue}
+          onChange={onInputChange}
+          placeholder="Enter a test message..."
+          disabled={isLoading}
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <Button onClick={onSave} disabled={isLoading || !inputValue.trim()}>
+          Save to DB
+        </Button>
+        <Button onClick={onFetch} disabled={isLoading} variant="secondary">
+          Fetch Latest
+        </Button>
+      </div>
+    </div>
+  );
+};

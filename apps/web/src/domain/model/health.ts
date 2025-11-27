@@ -1,6 +1,6 @@
 /**
  * Health Check Domain Model
- * 
+ *
  * Domain layer types for health check operations.
  */
 

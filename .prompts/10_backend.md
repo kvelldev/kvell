@@ -1,6 +1,8 @@
 
 # Project Kvell: Backend Architecture & Implementation Guidelines
 
+B/Eのタスクでは本ファイルを参照してください。
+
 ## 1. Purpose & Scope
 このドキュメントは、Project Kvellのバックエンド開発における **「不変の憲法」** です。
 AIエージェントは、個別のPBI（User Story）を実装する際、必ずこのガイドラインに準拠しなければなりません。

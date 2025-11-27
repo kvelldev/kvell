@@ -1,11 +1,11 @@
 /**
  * App Component
- * 
+ *
  * Root application component with routing.
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { HealthCheckPage } from '@/components/pages/HealthCheckPage';
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
 
 function App() {
   return (

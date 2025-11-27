@@ -1,5 +1,7 @@
 # Project Kvell: Design Tokens & SSOT Guidelines (Style Dictionary)
 
+F/Eのタスクでは本ファイルを参照してください。
+
 ## 1. Purpose & SSOT
 Kvellの視覚的アイデンティティ（"Night & Bonfire"）は、全て **JSON形式のDesign Tokens** として管理します。
 これがSSOTです。

@@ -1,21 +1,21 @@
-import js from '@eslint/js';
-import { defineConfig } from 'eslint/config';
-import unicorn from 'eslint-plugin-unicorn';
-import globals from 'globals';
-import tseslint from 'typescript-eslint';
-import prettierConfig from 'eslint-config-prettier';
-import jsdoc from 'eslint-plugin-jsdoc';
-import reactHooks from 'eslint-plugin-react-hooks';
-import reactRefresh from 'eslint-plugin-react-refresh';
+import js from "@eslint/js";
+import { defineConfig } from "eslint/config";
+import unicorn from "eslint-plugin-unicorn";
+import globals from "globals";
+import tseslint from "typescript-eslint";
+import prettierConfig from "eslint-config-prettier";
+import jsdoc from "eslint-plugin-jsdoc";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
 
 export default defineConfig([
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**'],
+    ignores: ["dist/**", "node_modules/**", "coverage/**"],
   },
 
   // 1. Global configs for all files
   js.configs.recommended,
-  unicorn.configs['recommended'],
+  unicorn.configs["recommended"],
   {
     languageOptions: {
       globals: {
@@ -24,18 +24,21 @@ export default defineConfig([
       },
     },
     settings: {
-      'import/resolver': {
+      "import/resolver": {
         typescript: {},
       },
     },
     rules: {
-      complexity: ['error', { max: 10 }],
-      'max-len': ['error', { code: 120, ignoreStrings: true, ignoreTemplateLiterals: true }],
-      'no-console': ['warn', { allow: ['info', 'warn', 'error'] }],
-      'no-underscore-dangle': ['error', { allow: ['_id'] }],
-      'class-methods-use-this': 'off',
-      'unicorn/filename-case': [
-        'error',
+      complexity: ["error", { max: 10 }],
+      "max-len": [
+        "error",
+        { code: 120, ignoreStrings: true, ignoreTemplateLiterals: true },
+      ],
+      "no-console": ["warn", { allow: ["info", "warn", "error"] }],
+      "no-underscore-dangle": ["error", { allow: ["_id"] }],
+      "class-methods-use-this": "off",
+      "unicorn/filename-case": [
+        "error",
         {
           cases: {
             kebabCase: true,
@@ -44,8 +47,8 @@ export default defineConfig([
           },
         },
       ],
-      'unicorn/prevent-abbreviations': [
-        'error',
+      "unicorn/prevent-abbreviations": [
+        "error",
         {
           replacements: {
             props: false,
@@ -59,27 +62,27 @@ export default defineConfig([
           },
         },
       ],
-      'unicorn/catch-error-name': 'off',
-      'unicorn/no-null': 'off',
+      "unicorn/catch-error-name": "off",
+      "unicorn/no-null": "off",
     },
   },
 
   // 2. TypeScript specific configurations
   ...tseslint.configs.strictTypeChecked.map((config) => ({
     ...config,
-    files: ['src/**/*.{ts,tsx}', 'tests/**/*.{ts,tsx}'],
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
   })),
   ...tseslint.configs.stylisticTypeChecked.map((config) => ({
     ...config,
-    files: ['src/**/*.{ts,tsx}', 'tests/**/*.{ts,tsx}'],
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
   })),
 
   // JSDoc Configuration
   {
-    files: ['src/**/*.{ts,tsx}', 'tests/**/*.{ts,tsx}'],
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
     languageOptions: {
       parserOptions: {
-        project: ['./tsconfig.app.json', './tsconfig.node.json'],
+        project: ["./tsconfig.app.json", "./tsconfig.node.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -87,9 +90,9 @@ export default defineConfig([
       jsdoc: jsdoc,
     },
     rules: {
-      ...jsdoc.configs['recommended-typescript-error'].rules,
-      'jsdoc/require-jsdoc': [
-        'error',
+      ...jsdoc.configs["recommended-typescript-error"].rules,
+      "jsdoc/require-jsdoc": [
+        "error",
         {
           publicOnly: true,
           require: {
@@ -98,35 +101,35 @@ export default defineConfig([
             ArrowFunctionExpression: false,
             FunctionDeclaration: false,
           },
-          contexts: ['TSInterfaceDeclaration', 'TSTypeAliasDeclaration'],
+          contexts: ["TSInterfaceDeclaration", "TSTypeAliasDeclaration"],
         },
       ],
-      'jsdoc/require-param': 'off',
-      'jsdoc/require-return': 'off',
+      "jsdoc/require-param": "off",
+      "jsdoc/require-return": "off",
     },
   },
 
   // 3. Config specifically for React component files (.tsx)
   {
-    files: ['src/**/*.tsx', 'tests/unit/**/*.tsx'],
+    files: ["src/**/*.tsx", "tests/unit/**/*.tsx"],
     plugins: {
-      'react-hooks': reactHooks,
-      'react-refresh': reactRefresh,
+      "react-hooks": reactHooks,
+      "react-refresh": reactRefresh,
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': 'warn',
+      "react-refresh/only-export-components": "warn",
     },
   },
 
   // Rule adjustment for test files
   {
-    files: ['tests/unit/**/*.tsx'],
+    files: ["tests/unit/**/*.tsx"],
     rules: {
-      'unicorn/filename-case': [
-        'error',
+      "unicorn/filename-case": [
+        "error",
         {
-          case: 'kebabCase',
+          case: "kebabCase",
           ignore: [/\.test\.tsx$/],
         },
       ],
@@ -135,9 +138,9 @@ export default defineConfig([
 
   // 4. Config for TypeScript declaration files (.d.ts)
   {
-    files: ['**/*.d.ts'],
+    files: ["**/*.d.ts"],
     rules: {
-      'unicorn/prevent-abbreviations': 'off',
+      "unicorn/prevent-abbreviations": "off",
     },
   },
 

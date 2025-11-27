@@ -2,14 +2,14 @@ import { internalStatuses, InternalStatusCodes } from "@/domain/constants";
 
 export default class AppError extends Error {
   public override cause?: Error;
-  public context?: Record<string, any>;
+  public context?: Record<string, unknown>;
   constructor(
     public status: InternalStatusCodes,
     message?: string,
     options?: {
       cause?: Error;
-      context?: Record<string, any>;
-    }
+      context?: Record<string, unknown>;
+    },
   ) {
     super(message ?? internalStatuses[status]);
     this.name = "AppError";
