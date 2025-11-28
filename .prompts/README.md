@@ -17,11 +17,12 @@ git diff apps/web/src > diff.txt
 
 変更されたファイルの中身をすべて取得
 ```shell
-git diff --name-only apps/web/src | xargs -I{} cat "{}" > diff.txt
+git diff --name-only --diff-filter=d apps/web/src apps/web/tests | xargs -I{} cat "{}" > diff.txt
 ```
 
 ```md
 添付インセプションデッキのPJをやってます。Agentic AIにコーディングさせて、diff.txtの結果を得ました。
+添付のアーキテクチャ指示書等を参考にコードレビューをお願いします。
 ```
 
 

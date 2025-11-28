@@ -35,3 +35,25 @@ ultrathink.
 - 1ファイルは200行を目安とします。これを超える場合はリファクタリング（分割）を提案してください。
 
 
+## Contraints
+
+ホストマシンの環境を汚染しないため、以下の行為を固く禁じます。
+
+1. システムパッケージマネージャーの使用禁止
+   - 禁止: apt, apt-get, dnf, yum, pacman, snap等
+   - 禁止: sudo を伴うコマンド全般
+   - 禁止: /usr/local や /etc などのシステムディレクトリへの書き込み
+2. 指定ディレクトリ以外でのパッケージインストール
+   - Python: `/apps/api`での`uv add`のみ許可
+   - Node.js: `/apps/web`でのnpm install のみ許可 (-g は禁止)
+
+上記以外の方法でツールが必要な場合は、インストールせずに代替手段を考えるか、実行前に私に許可を求めてください。
+
+また、コード品質を保つため、以下の行為を固く禁じます。
+
+3. configファイルや静的解析の設定値変更
+   - `pyproject.toml`や、`eslint.config.js`、`tsconfig.json`等。
+4. インラインコメントによる静的解析の回避
+   - Python: `# noqa`, `# type: ignore`, `# fmt: off` 等
+   - TS/JS: `// eslint-disable`, `// @ts-ignore` 等
+

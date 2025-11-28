@@ -17,6 +17,22 @@ export const internalStatuses = {
 } as const;
 
 /**
- *
+ * Type representing valid internal status codes.
  */
 export type InternalStatusCodes = keyof typeof internalStatuses;
+
+/**
+ * Log Event IDs for structured logging.
+ * Use these constants in logger calls for testable, consistent event tracking.
+ */
+export const LOG_EVENTS = {
+  // Health Check
+  HEALTH_CHECK: {
+    FETCH_START: "HEALTH_FETCH_START",
+    FETCH_SUCCESS: "HEALTH_FETCH_SUCCESS",
+    FETCH_ERROR: "HEALTH_FETCH_ERROR",
+    SAVE_START: "HEALTH_SAVE_START",
+    SAVE_SUCCESS: "HEALTH_SAVE_SUCCESS",
+    SAVE_ERROR: "HEALTH_SAVE_ERROR",
+  },
+} as const;

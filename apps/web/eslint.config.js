@@ -7,7 +7,7 @@ import prettierConfig from "eslint-config-prettier";
 import jsdoc from "eslint-plugin-jsdoc";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
-
+import eslintComments from "eslint-plugin-eslint-comments";
 export default defineConfig([
   {
     ignores: ["dist/**", "node_modules/**", "coverage/**"],
@@ -23,12 +23,16 @@ export default defineConfig([
         ...globals.es2022,
       },
     },
+    plugins: {
+      "eslint-comments": eslintComments,
+    },
     settings: {
       "import/resolver": {
         typescript: {},
       },
     },
     rules: {
+      "eslint-comments/no-use": ["error", { allow: [] }],
       complexity: ["error", { max: 10 }],
       "max-len": [
         "error",
@@ -67,7 +71,83 @@ export default defineConfig([
     },
   },
 
-  // 2. TypeScript specific configurations
+  // 2. Clean Architecture Guard Rails
+  // 2-1. Domain
+  {
+    files: ["src/domain/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/usecase/**", "**/adapter/**", "**/components/**"],
+              message:
+                "❌ VIOLATION: Domain layer must be pure. Do not import from outer layers.",
+            },
+            {
+              group: ["react", "react-dom"],
+              message:
+                "❌ VIOLATION: Domain layer must not depend on UI Framework (React).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // 2-2. Usecase
+  {
+    files: ["src/usecase/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/components/**"],
+              message:
+                "❌ VIOLATION: UseCase layer must not depend on UI components.",
+            },
+            {
+              group: ["**/adapter/**"],
+              message:
+                "❌ VIOLATION: UseCase must not depend on Adapter implementations. Use Domain interfaces (DIP).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // 2-3. Dumb Components
+  {
+    files: [
+      "src/components/{atoms,molecules,organisms,templates}/**/*.{ts,tsx}",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              // ロジック禁止（Propsで受け取れ）
+              group: ["**/usecase/**", "@/usecase/**"],
+              message:
+                "❌ VIOLATION: Dumb components cannot import UseCases directly. Pass data/handlers via props.",
+            },
+            {
+              group: ["**/adapter/**", "@/adapter/**"],
+              message:
+                "❌ VIOLATION: UI components cannot access Adapter layer directly.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // 3. TypeScript specific configurations
   ...tseslint.configs.strictTypeChecked.map((config) => ({
     ...config,
     files: ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
@@ -109,7 +189,7 @@ export default defineConfig([
     },
   },
 
-  // 3. Config specifically for React component files (.tsx)
+  // 4. Config specifically for React component files (.tsx)
   {
     files: ["src/**/*.tsx", "tests/unit/**/*.tsx"],
     plugins: {
@@ -124,8 +204,9 @@ export default defineConfig([
 
   // Rule adjustment for test files
   {
-    files: ["tests/unit/**/*.tsx"],
+    files: ["tests/unit/**/*.{ts,tsx}"],
     rules: {
+      "@typescript-eslint/unbound-method": "off",
       "unicorn/filename-case": [
         "error",
         {
@@ -136,7 +217,7 @@ export default defineConfig([
     },
   },
 
-  // 4. Config for TypeScript declaration files (.d.ts)
+  // 5. Config for TypeScript declaration files (.d.ts)
   {
     files: ["**/*.d.ts"],
     rules: {
@@ -144,6 +225,6 @@ export default defineConfig([
     },
   },
 
-  // 5. Disable confliction rules with Prettier (should be last)
+  // 6. Disable confliction rules with Prettier (should be last)
   prettierConfig,
 ]);

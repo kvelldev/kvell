@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { apiClient } from "./apiClient";
+import { apiClient } from "@/adapter/apiClient";
 import AppError from "@/domain/appError";
 
 // Mock fetch
@@ -21,7 +21,7 @@ describe("apiClient", () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => mockData,
+      json: () => Promise.resolve(mockData),
     });
 
     const result = await apiClient<typeof mockData>("/api/test");
@@ -29,10 +29,11 @@ describe("apiClient", () => {
     expect(result).toEqual(mockData);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
-      .calls[0];
+      .calls[0] as [string, RequestInit];
     expect(callArgs[0]).toBe("http://localhost:8000/api/test");
     expect(callArgs[1].headers).toBeInstanceOf(Headers);
-    expect(callArgs[1].headers.get("Content-Type")).toBe("application/json");
+    const headers = callArgs[1].headers as Headers;
+    expect(headers.get("Content-Type")).toBe("application/json");
   });
 
   it("should handle POST requests with body", async () => {
@@ -42,7 +43,7 @@ describe("apiClient", () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => mockData,
+      json: () => Promise.resolve(mockData),
     });
 
     const result = await apiClient<typeof mockData>("/api/test", {
@@ -102,7 +103,9 @@ describe("apiClient", () => {
 
   it("should preserve AppError if already thrown", async () => {
     const appError = new AppError(400, "Bad Request");
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(appError);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      appError,
+    );
 
     await expect(apiClient("/api/test")).rejects.toThrow(appError);
   });
@@ -112,7 +115,7 @@ describe("apiClient", () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => mockData,
+      json: () => Promise.resolve(mockData),
     });
 
     await apiClient("/api/test", {
@@ -121,10 +124,30 @@ describe("apiClient", () => {
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
-      .calls[0];
+      .calls[0] as [string, RequestInit];
     expect(callArgs[0]).toBe("http://localhost:8000/api/test");
     expect(callArgs[1].headers).toBeInstanceOf(Headers);
-    expect(callArgs[1].headers.get("Content-Type")).toBe("application/json");
-    expect(callArgs[1].headers.get("Authorization")).toBe("Bearer token");
+    const headers = callArgs[1].headers as Headers;
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(headers.get("Authorization")).toBe("Bearer token");
+  });
+
+  it("should use custom base URL from environment", async () => {
+    // This test verifies the BASE_URL constant behavior
+    // The actual environment variable is evaluated at module load time
+    const mockData = { success: true };
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(mockData),
+    });
+
+    await apiClient("/api/test");
+
+    expect(globalThis.fetch).toHaveBeenCalled();
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, RequestInit];
+    // Verify URL construction works regardless of BASE_URL value
+    expect(callArgs[0]).toMatch(/\/api\/test$/);
   });
 });

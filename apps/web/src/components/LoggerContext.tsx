@@ -1,17 +1,13 @@
 /**
- * Logger Dependency Injection Context
+ * Logger Provider Component
  *
  * Provides logger instance throughout the application.
  * This allows dependency injection following DIP (Dependency Inversion Principle).
  */
 
-import { createContext, useContext, type ReactNode } from "react";
-import type { ILogger } from "./ILogger";
-
-/**
- * Logger Context for DI
- */
-const LoggerContext = createContext<ILogger | undefined>(undefined);
+import type { ReactNode } from "react";
+import type { ILogger } from "../usecase/ports/ILogger";
+import { LoggerContext } from "../contexts/LoggerContext";
 
 /**
  * Logger Provider Props
@@ -32,17 +28,4 @@ export const LoggerProvider = ({ logger, children }: LoggerProviderProps) => {
   return (
     <LoggerContext.Provider value={logger}>{children}</LoggerContext.Provider>
   );
-};
-
-/**
- * Hook to access logger instance
- * @returns Logger instance
- * @throws {Error} If used outside LoggerProvider
- */
-export const useLogger = (): ILogger => {
-  const logger = useContext(LoggerContext);
-  if (!logger) {
-    throw new Error("useLogger must be used within LoggerProvider");
-  }
-  return logger;
 };

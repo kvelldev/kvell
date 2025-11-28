@@ -28,15 +28,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": [
-    "src",
-    "tests/unit/components/atoms/Button.test.tsx",
-    "tests/unit/components/atoms/Input.test.tsx",
-    "tests/unit/components/molecules/MessageViewer.test.tsx",
-    "tests/unit/components/molecules/ActionForm.test.tsx",
-    "tests/unit/components/organisms/HealthCheckMonitor.test.tsx",
-    "tests/unit/components/pages/HealthCheckPage.test.tsx",
-    "tests/unit/domain/app-error.test.ts",
-    "tests/unit/usecase/useHealthCheck.test.tsx"
-  ]
+  "include": ["src", "tests"]
 }

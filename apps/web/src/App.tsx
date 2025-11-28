@@ -6,7 +6,7 @@
 
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
-import { LoggerProvider } from "@/usecase/ports/LoggerContext";
+import { LoggerProvider } from "@/components/LoggerContext";
 import { sentryLogger } from "@/adapter/infra/sentryLogger";
 
 function App() {

@@ -15,8 +15,8 @@ import {
 } from "@/usecase/useHealthCheck";
 import type { IHealthRepository } from "@/domain/repository/healthRepository";
 import type { HealthMessage } from "@/domain/model/health";
-import { LoggerProvider } from "@/usecase/ports/LoggerContext";
 import type { ILogger } from "@/usecase/ports/ILogger";
+import { LOG_EVENTS } from "@/domain/constants";
 
 // Mock logger
 const mockLogger: ILogger = {
@@ -30,12 +30,10 @@ const mockRepository: IHealthRepository = {
   saveMessage: vi.fn(),
 };
 
-// Wrapper component for hooks
+// Wrapper component for hooks (SWR only - no LoggerProvider needed)
 const createWrapper = () => {
   return ({ children }: { children: ReactNode }) => (
-    <SWRConfig value={{ provider: () => new Map() }}>
-      <LoggerProvider logger={mockLogger}>{children}</LoggerProvider>
-    </SWRConfig>
+    <SWRConfig value={{ provider: () => new Map() }}>{children}</SWRConfig>
   );
 };
 
@@ -54,7 +52,7 @@ describe("useFetchLatestHealthMessage", () => {
     vi.mocked(mockRepository.getLatest).mockResolvedValueOnce(mockMessage);
 
     const { result } = renderHook(
-      () => useFetchLatestHealthMessage(mockRepository),
+      () => useFetchLatestHealthMessage(mockRepository, mockLogger),
       {
         wrapper: createWrapper(),
       },
@@ -72,20 +70,20 @@ describe("useFetchLatestHealthMessage", () => {
     expect(result.current.message).toEqual(mockMessage);
     expect(result.current.isError).toBe(false);
     expect(mockRepository.getLatest).toHaveBeenCalledOnce();
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      "Fetching latest health message",
-    );
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      "Successfully fetched latest health message",
-      { hasData: true },
-    );
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.any(String), {
+      event: LOG_EVENTS.HEALTH_CHECK.FETCH_START,
+    });
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.any(String), {
+      event: LOG_EVENTS.HEALTH_CHECK.FETCH_SUCCESS,
+      hasData: true,
+    });
   });
 
   it("should return null when no message exists", async () => {
     vi.mocked(mockRepository.getLatest).mockResolvedValueOnce(null);
 
     const { result } = renderHook(
-      () => useFetchLatestHealthMessage(mockRepository),
+      () => useFetchLatestHealthMessage(mockRepository, mockLogger),
       {
         wrapper: createWrapper(),
       },
@@ -104,7 +102,7 @@ describe("useFetchLatestHealthMessage", () => {
     vi.mocked(mockRepository.getLatest).mockRejectedValueOnce(error);
 
     const { result } = renderHook(
-      () => useFetchLatestHealthMessage(mockRepository),
+      () => useFetchLatestHealthMessage(mockRepository, mockLogger),
       {
         wrapper: createWrapper(),
       },
@@ -116,9 +114,12 @@ describe("useFetchLatestHealthMessage", () => {
 
     expect(result.current.isError).toBe(true);
     expect(result.current.error).toEqual(error);
-    expect(mockLogger.error).toHaveBeenCalledWith(error, {
-      context: "useFetchLatestHealthMessage",
-    });
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        event: LOG_EVENTS.HEALTH_CHECK.FETCH_ERROR,
+      }),
+    );
   });
 });
 
@@ -137,9 +138,12 @@ describe("useSaveHealthMessage", () => {
 
     vi.mocked(mockRepository.saveMessage).mockResolvedValueOnce(savedMessage);
 
-    const { result } = renderHook(() => useSaveHealthMessage(mockRepository), {
-      wrapper: createWrapper(),
-    });
+    const { result } = renderHook(
+      () => useSaveHealthMessage(mockRepository, mockLogger),
+      {
+        wrapper: createWrapper(),
+      },
+    );
 
     expect(result.current.isSaving).toBe(false);
 
@@ -151,15 +155,14 @@ describe("useSaveHealthMessage", () => {
     });
 
     expect(mockRepository.saveMessage).toHaveBeenCalledWith(inputMessage);
-    expect(mockLogger.info).toHaveBeenCalledWith("Saving health message", {
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.any(String), {
+      event: LOG_EVENTS.HEALTH_CHECK.SAVE_START,
       message: inputMessage,
     });
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      "Successfully saved health message",
-      {
-        id: savedMessage.id,
-      },
-    );
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.any(String), {
+      event: LOG_EVENTS.HEALTH_CHECK.SAVE_SUCCESS,
+      id: savedMessage.id,
+    });
   });
 
   it("should handle save error", async () => {
@@ -167,9 +170,12 @@ describe("useSaveHealthMessage", () => {
     const error = new Error("Save failed");
     vi.mocked(mockRepository.saveMessage).mockRejectedValueOnce(error);
 
-    const { result } = renderHook(() => useSaveHealthMessage(mockRepository), {
-      wrapper: createWrapper(),
-    });
+    const { result } = renderHook(
+      () => useSaveHealthMessage(mockRepository, mockLogger),
+      {
+        wrapper: createWrapper(),
+      },
+    );
 
     await expect(result.current.saveMessage(inputMessage)).rejects.toThrow(
       "Save failed",
@@ -179,9 +185,11 @@ describe("useSaveHealthMessage", () => {
       expect(result.current.error).toEqual(error);
     });
 
-    expect(mockLogger.error).toHaveBeenCalledWith(error, {
-      context: "useSaveHealthMessage",
-      message: inputMessage,
-    });
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({
+        event: LOG_EVENTS.HEALTH_CHECK.SAVE_ERROR,
+      }),
+    );
   });
 });

@@ -13,22 +13,26 @@ import {
 import { healthRepository } from "@/adapter/repository/healthRepository";
 import { HealthCheckTemplate } from "@/components/templates/HealthCheckTemplate";
 import { HealthCheckMonitor } from "@/components/organisms/HealthCheckMonitor";
+import { useLogger } from "@/components/useLogger";
 
 export const HealthCheckPage = () => {
   const [inputText, setInputText] = useState("");
 
-  // Inject repository dependency into UseCases
+  // Get logger from context (Page is responsible for DI)
+  const logger = useLogger();
+
+  // Inject repository and logger dependencies into UseCases
   const {
     message,
     isLoading: isFetching,
     error: fetchError,
     refetch,
-  } = useFetchLatestHealthMessage(healthRepository);
+  } = useFetchLatestHealthMessage(healthRepository, logger);
   const {
     saveMessage,
     isSaving,
     error: saveError,
-  } = useSaveHealthMessage(healthRepository);
+  } = useSaveHealthMessage(healthRepository, logger);
 
   // Event handlers (logic wiring)
   const handleSave = () => {
