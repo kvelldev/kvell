@@ -2,11 +2,12 @@
  * Health Repository Implementation
  *
  * Adapter layer implementation of IHealthRepository.
- * Handles API communication for health check operations.
+ * Handles API communication for health check operations using apiClient.
  */
 
 import type { HealthMessage } from "@/domain/model/health";
 import type { IHealthRepository } from "@/domain/repository/healthRepository";
+import { apiClient } from "@/adapter/apiClient";
 
 /**
  * API response type for health message endpoints
@@ -18,34 +19,14 @@ interface HealthMessageApiResponse {
 }
 
 /**
- * Type-safe environment variable access
- * @returns The API base URL from environment or default value
- */
-const getApiBaseUrl = (): string => {
-  const env = import.meta.env as { VITE_API_BASE_URL?: string };
-  return env.VITE_API_BASE_URL ?? "http://localhost:8000";
-};
-
-const API_BASE_URL = getApiBaseUrl();
-
-/**
  * Health Repository implementation
  */
 class HealthRepositoryImpl implements IHealthRepository {
   async saveMessage(message: string): Promise<HealthMessage> {
-    const response = await fetch(`${API_BASE_URL}/api/health/echo`, {
+    const data = await apiClient<HealthMessageApiResponse>("/api/health/echo", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({ message }),
     });
-
-    if (!response.ok) {
-      throw new Error(`Failed to save message: ${response.statusText}`);
-    }
-
-    const data = (await response.json()) as HealthMessageApiResponse;
 
     return {
       id: data.id,
@@ -55,13 +36,9 @@ class HealthRepositoryImpl implements IHealthRepository {
   }
 
   async getLatest(): Promise<HealthMessage | null> {
-    const response = await fetch(`${API_BASE_URL}/api/health/latest`);
-
-    if (!response.ok) {
-      throw new Error(`Failed to get latest message: ${response.statusText}`);
-    }
-
-    const data = (await response.json()) as HealthMessageApiResponse | null;
+    const data = await apiClient<HealthMessageApiResponse | null>(
+      "/api/health/latest",
+    );
 
     if (!data) {
       return null;
