@@ -1,4 +1,5 @@
 from typing import Final
+
 from fastapi import status
 from src.domain.constants import InternalStatusCode
 

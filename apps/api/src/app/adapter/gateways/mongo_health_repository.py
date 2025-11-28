@@ -3,10 +3,9 @@
 This module implements the health repository using MongoDB.
 """
 
-from motor.motor_asyncio import AsyncIOMotorDatabase
-
 from domain.model.health_message import HealthMessage
 from domain.repository.health_repository import IHealthRepository
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 
 class MongoHealthRepository(IHealthRepository):

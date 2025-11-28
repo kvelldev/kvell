@@ -1,9 +1,10 @@
 import json
 import logging
 import sys
+from datetime import UTC, datetime
+from typing import Any
+
 import sentry_sdk
-from datetime import datetime, timezone
-from typing import Any, Optional
 from usecase.ports.logger import ILogger
 
 
@@ -21,12 +22,12 @@ class JsonLogger(ILogger):
         level: str,
         event_id: str,
         message: str,
-        context: Optional[dict] = None,
-        error: Optional[Exception] = None,
+        context: dict | None = None,
+        error: Exception | None = None,
     ):
         # 構造化ログの構築
         log_entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": level,
             "service": self.service_name,
             "event_id": event_id,
@@ -41,12 +42,12 @@ class JsonLogger(ILogger):
         print(json.dumps(log_entry, ensure_ascii=False))
 
     def info(
-        self, event_id: str, message: str, context: Optional[dict[str, Any]] = None
+        self, event_id: str, message: str, context: dict[str, Any] | None = None
     ) -> None:
         self._log("INFO", event_id, message, context)
 
     def warn(
-        self, event_id: str, message: str, context: Optional[dict[str, Any]] = None
+        self, event_id: str, message: str, context: dict[str, Any] | None = None
     ) -> None:
         self._log("WARN", event_id, message, context)
 
@@ -54,8 +55,8 @@ class JsonLogger(ILogger):
         self,
         event_id: str,
         message: str,
-        error: Optional[Exception] = None,
-        context: Optional[dict[str, Any]] = None,
+        error: Exception | None = None,
+        context: dict[str, Any] | None = None,
     ) -> None:
         # 1. CloudWatchへ出力
         self._log("ERROR", event_id, message, context, error)

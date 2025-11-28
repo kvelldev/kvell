@@ -7,11 +7,10 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from adapter.entrypoints.health_router import router as health_router
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from adapter.entrypoints.health_router import router as health_router
 from infra.database import Database
 
 # Load environment variables

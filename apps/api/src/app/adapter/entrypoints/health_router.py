@@ -6,12 +6,12 @@ This module defines API endpoints for health check operations.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-
-from adapter.gateways.mongo_health_repository import MongoHealthRepository
 from infra.database import Database
 from usecase.dto.health_dto import HealthOutput, SaveHealthInput
 from usecase.health_check.interactor import HealthCheckInteractor
 from usecase.health_check.interface import IHealthCheckUseCase
+
+from adapter.gateways.mongo_health_repository import MongoHealthRepository
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 

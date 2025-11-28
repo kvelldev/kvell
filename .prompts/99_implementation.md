@@ -18,7 +18,7 @@ F/E, B/Eそれぞれ、下記に示す静的解析を適宜走らせ、型安全
 - F/E
     - `npm run check:all`。エラーが出た場合はまずは`npm run fix:all`を実行してください。
 - B/E
-    - `uv run ruff`。
+    - `uv run task check-all`。エラーが出た場合はまずは`uv run task fix-all`を実行してください。
 
 ## Implementation Process
 

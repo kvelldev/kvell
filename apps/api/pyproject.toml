@@ -14,11 +14,14 @@ dependencies = [
     "sentry-sdk>=2.46.0",
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
+    "import-linter",
     "pyright>=1.1.407",
     "pytest>=9.0.1",
+    "pytest-cov>=7.0.0",
     "ruff>=0.14.6",
+    "taskipy>=1.14.1",
 ]
 
 [tool.ruff]
@@ -39,6 +42,31 @@ ignore = [
 
 [tool.ruff.format]
 quote-style = "double"
+
+# Clean Architecture Guard Rails
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "Clean Architecture Layers"
+type = "layers"
+layers = [
+    "adapter",
+    "usecase",
+    "domain",
+]
+
+[tool.taskipy.tasks]
+test = "pytest"
+coverage = "pytest --cov=src --cov-report=term-missing"
+type-check = "pyright"
+lint = "ruff check . && lint-imports"
+format-check = "ruff format --check ."
+check-all = "task type-check && task lint && task format-check && task test"
+lint-fix = "ruff check --fix ."
+format-fix = "ruff format ."
+fix-all = "task format-fix && task lint-fix"
+
 
 [tool.pyright]
 # srcディレクトリをimportのルートとして認識させる
