@@ -1,3 +1,9 @@
+"""JSON structured logger implementation.
+
+This module provides a JSON-based logger that outputs structured logs
+for CloudWatch and sends errors to Sentry.
+"""
+
 import json
 import logging
 import sys
@@ -5,13 +11,22 @@ from datetime import UTC, datetime
 from typing import Any
 
 import sentry_sdk
-from usecase.ports.logger import ILogger
+
+from app.usecase.ports.logger import ILogger
 
 
 class JsonLogger(ILogger):
-    def __init__(self, service_name: str = "kvell-api"):
+    """JSON structured logger implementation."""
+
+    def __init__(self, service_name: str = "kvell-api") -> None:
+        """Initialize the logger.
+
+        Args:
+            service_name: Name of the service for logging context
+
+        """
         self.service_name = service_name
-        # 標準ライブラリのLoggerを設定（JSON化するためフォーマットは無効化）
+        # Setup standard library logger (format disabled for JSON output)
         self._logger = logging.getLogger(service_name)
         self._logger.setLevel(logging.INFO)
         handler = logging.StreamHandler(sys.stdout)
@@ -22,11 +37,11 @@ class JsonLogger(ILogger):
         level: str,
         event_id: str,
         message: str,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
         error: Exception | None = None,
-    ):
+    ) -> None:
         # 構造化ログの構築
-        log_entry = {
+        log_entry: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": level,
             "service": self.service_name,
@@ -38,17 +53,33 @@ class JsonLogger(ILogger):
         if error:
             log_entry["error"] = {"type": type(error).__name__, "message": str(error)}
 
-        # CloudWatch Logsがパースしやすいよう、1行のJSON文字列として出力
-        print(json.dumps(log_entry, ensure_ascii=False))
+        # Output as single-line JSON for CloudWatch Logs parsing
+        sys.stdout.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
     def info(
         self, event_id: str, message: str, context: dict[str, Any] | None = None
     ) -> None:
+        """Log informational message.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            context: Additional context data
+
+        """
         self._log("INFO", event_id, message, context)
 
     def warn(
         self, event_id: str, message: str, context: dict[str, Any] | None = None
     ) -> None:
+        """Log warning message.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            context: Additional context data
+
+        """
         self._log("WARN", event_id, message, context)
 
     def error(
@@ -58,11 +89,20 @@ class JsonLogger(ILogger):
         error: Exception | None = None,
         context: dict[str, Any] | None = None,
     ) -> None:
-        # 1. CloudWatchへ出力
+        """Log error message and send to Sentry.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            error: Exception object if available
+            context: Additional context data
+
+        """
+        # 1. Output to CloudWatch
         self._log("ERROR", event_id, message, context, error)
 
-        # 2. Sentryへ送信 (Sentryが初期化されている場合)
-        #    明示的にcapture_exceptionすることで、コンテキスト情報も付与できる
+        # 2. Send to Sentry (if initialized)
+        #    Explicitly capture_exception to attach context information
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("event_id", event_id)
             if context:

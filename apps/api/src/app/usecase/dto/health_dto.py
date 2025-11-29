@@ -3,17 +3,21 @@
 This module defines Data Transfer Objects for health check use cases.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SaveHealthInput(BaseModel):
     """Input DTO for saving health message."""
+
+    model_config = ConfigDict(frozen=True)
 
     message: str = Field(..., description="Health check message to save")
 
 
 class HealthOutput(BaseModel):
     """Output DTO for health check operations."""
+
+    model_config = ConfigDict(frozen=True)
 
     id: str = Field(..., description="Message ID")
     message: str = Field(..., description="Health check message")

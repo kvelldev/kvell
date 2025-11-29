@@ -12,6 +12,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "redis>=5.2.0",
     "sentry-sdk>=2.46.0",
+    "pydantic-settings>=2.12.0",
 ]
 
 [dependency-groups]
@@ -35,6 +36,7 @@ ignore = [
     "D203", "D213", # Docstring競合回避
     "COM812", "ISC001", # Formatter競合回避
     "ANN101", # selfの型定義不要
+    "B008" # FastAPIのDepends
 ]
 
 [tool.ruff.lint.per-file-ignores]

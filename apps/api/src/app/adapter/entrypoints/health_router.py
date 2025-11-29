@@ -6,26 +6,12 @@ This module defines API endpoints for health check operations.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from infra.database import Database
-from usecase.dto.health_dto import HealthOutput, SaveHealthInput
-from usecase.health_check.interactor import HealthCheckInteractor
-from usecase.health_check.interface import IHealthCheckUseCase
 
-from adapter.gateways.mongo_health_repository import MongoHealthRepository
+from app.adapter.entrypoints.dependencies import get_health_usecase
+from app.usecase.dto.health_dto import HealthOutput, SaveHealthInput
+from app.usecase.health_check.interface import IHealthCheckUseCase
 
 router = APIRouter(prefix="/api/health", tags=["health"])
-
-
-def get_health_usecase() -> IHealthCheckUseCase:
-    """Dependency injection for health check use case.
-
-    Returns:
-        Health check use case instance
-
-    """
-    db = Database.get_database()
-    repository = MongoHealthRepository(db)
-    return HealthCheckInteractor(repository)
 
 
 @router.post("/echo")

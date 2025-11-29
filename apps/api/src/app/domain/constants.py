@@ -1,3 +1,8 @@
+"""Internal status code definitions.
+
+Defines internal status codes and their corresponding messages.
+"""
+
 from typing import Final
 
 INTERNAL_STATUSES: Final[dict[int, str]] = {

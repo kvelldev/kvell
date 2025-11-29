@@ -5,7 +5,7 @@ This module defines the output port for health message persistence.
 
 from abc import ABC, abstractmethod
 
-from domain.model.health_message import HealthMessage
+from app.domain.model.health_message import HealthMessage
 
 
 class IHealthRepository(ABC):

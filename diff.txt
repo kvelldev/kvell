@@ -1,0 +1,632 @@
+"""HTTP status code mapping constants.
+
+Maps internal status codes to HTTP status codes.
+"""
+
+from typing import Final
+
+from fastapi import status
+
+from app.domain.constants import InternalStatusCode
+
+HttpStatusCode = int
+
+INTERNAL_TO_HTTP_MAP: Final[dict[InternalStatusCode, HttpStatusCode]] = {
+    # Success
+    200: status.HTTP_200_OK,
+    201: status.HTTP_201_CREATED,
+    204: status.HTTP_204_NO_CONTENT,
+    # Domain Logic Errors -> 4xx Errors
+    1001: status.HTTP_410_GONE,
+    1002: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    1003: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    1004: status.HTTP_429_TOO_MANY_REQUESTS,
+    1005: status.HTTP_404_NOT_FOUND,
+    # Infrastructure Errors -> 500 Internal Server Error
+    2001: status.HTTP_500_INTERNAL_SERVER_ERROR,
+    2002: status.HTTP_500_INTERNAL_SERVER_ERROR,
+    # Fallback
+    500: status.HTTP_500_INTERNAL_SERVER_ERROR,
+}
+"""Health Check API Router.
+
+This module defines API endpoints for health check operations.
+"""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
+
+from app.adapter.entrypoints.dependencies import get_health_usecase
+from app.usecase.dto.health_dto import HealthOutput, SaveHealthInput
+from app.usecase.health_check.interface import IHealthCheckUseCase
+
+router = APIRouter(prefix="/api/health", tags=["health"])
+
+
+@router.post("/echo")
+async def save_health_message(
+    input_data: SaveHealthInput,
+    usecase: Annotated[IHealthCheckUseCase, Depends(get_health_usecase)],
+) -> HealthOutput:
+    """Save a health check message.
+
+    Args:
+        input_data: Input data containing the message
+        usecase: Health check use case (injected)
+
+    Returns:
+        The saved message details
+
+    """
+    return await usecase.save_message(input_data)
+
+
+@router.get("/latest")
+async def get_latest_message(
+    usecase: Annotated[IHealthCheckUseCase, Depends(get_health_usecase)],
+) -> HealthOutput | None:
+    """Get the latest health check message.
+
+    Args:
+        usecase: Health check use case (injected)
+
+    Returns:
+        The latest message, or None if not found
+
+    """
+    return await usecase.get_latest_message()
+"""MongoDB implementation of Health Repository.
+
+This module implements the health repository using MongoDB.
+"""
+
+from typing import Any
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.errors import PyMongoError
+
+from app.domain.exception import AppError
+from app.domain.model.health_message import HealthMessage
+from app.domain.repository.health_repository import IHealthRepository
+
+
+class MongoHealthRepository(IHealthRepository):
+    """MongoDB implementation of health repository."""
+
+    COLLECTION_NAME = "health_messages"
+
+    def __init__(self, db: AsyncIOMotorDatabase[Any]) -> None:
+        """Initialize the repository.
+
+        Args:
+            db: MongoDB database instance
+
+        """
+        self.collection = db[self.COLLECTION_NAME]
+
+    async def save(self, message: HealthMessage) -> HealthMessage:
+        """Save a health message.
+
+        Args:
+            message: The health message to save
+
+        Returns:
+            The saved health message
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            document = {
+                "id": message.id,
+                "message": message.message,
+                "created_at": message.created_at,
+            }
+
+            await self.collection.insert_one(document)
+        except PyMongoError as e:
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return message
+
+    async def find_latest(self) -> HealthMessage | None:
+        """Find the latest health message.
+
+        Returns:
+            The latest health message, or None if not found
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            document: dict[str, Any] | None = await self.collection.find_one(
+                sort=[("created_at", -1)],
+            )
+        except PyMongoError as e:
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            if document is None:
+                return None
+
+            return HealthMessage(
+                id=document["id"],
+                message=document["message"],
+                created_at=document["created_at"],
+            )
+"""JSON structured logger implementation.
+
+This module provides a JSON-based logger that outputs structured logs
+for CloudWatch and sends errors to Sentry.
+"""
+
+import json
+import logging
+import sys
+from datetime import UTC, datetime
+from typing import Any
+
+import sentry_sdk
+
+from app.usecase.ports.logger import ILogger
+
+
+class JsonLogger(ILogger):
+    """JSON structured logger implementation."""
+
+    def __init__(self, service_name: str = "kvell-api") -> None:
+        """Initialize the logger.
+
+        Args:
+            service_name: Name of the service for logging context
+
+        """
+        self.service_name = service_name
+        # Setup standard library logger (format disabled for JSON output)
+        self._logger = logging.getLogger(service_name)
+        self._logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler(sys.stdout)
+        self._logger.addHandler(handler)
+
+    def _log(
+        self,
+        level: str,
+        event_id: str,
+        message: str,
+        context: dict[str, Any] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        # 構造化ログの構築
+        log_entry: dict[str, Any] = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "level": level,
+            "service": self.service_name,
+            "event_id": event_id,
+            "message": message,
+            "context": context or {},
+        }
+
+        if error:
+            log_entry["error"] = {"type": type(error).__name__, "message": str(error)}
+
+        # Output as single-line JSON for CloudWatch Logs parsing
+        sys.stdout.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+
+    def info(
+        self, event_id: str, message: str, context: dict[str, Any] | None = None
+    ) -> None:
+        """Log informational message.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            context: Additional context data
+
+        """
+        self._log("INFO", event_id, message, context)
+
+    def warn(
+        self, event_id: str, message: str, context: dict[str, Any] | None = None
+    ) -> None:
+        """Log warning message.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            context: Additional context data
+
+        """
+        self._log("WARN", event_id, message, context)
+
+    def error(
+        self,
+        event_id: str,
+        message: str,
+        error: Exception | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Log error message and send to Sentry.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            error: Exception object if available
+            context: Additional context data
+
+        """
+        # 1. Output to CloudWatch
+        self._log("ERROR", event_id, message, context, error)
+
+        # 2. Send to Sentry (if initialized)
+        #    Explicitly capture_exception to attach context information
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("event_id", event_id)
+            if context:
+                scope.set_context("app_context", context)
+            sentry_sdk.capture_exception(
+                error
+            ) if error else sentry_sdk.capture_message(message)
+"""Internal status code definitions.
+
+Defines internal status codes and their corresponding messages.
+"""
+
+from typing import Final
+
+INTERNAL_STATUSES: Final[dict[int, str]] = {
+    # Success
+    200: "OK",
+    201: "Created",
+    204: "No Content",
+    # Domain Errors (Client side origin / Business Logic)
+    1001: "この種火は既に燃え尽きています。",  # Gone (Life expired)
+    1002: "投稿に不適切な表現が含まれています。",  # NG Words (Validation)
+    1003: "投稿文字数が制限を超えています。",  # Length Limit (Validation)
+    1004: "薪をくべるペースが早すぎます。",  # Throttling (Rate Limit)
+    1005: "指定された種火が存在しないか、消滅しています。",  # Not Found
+    # Error caused by Server side (System Error)
+    2001: "DBへの接続中に異常が発生しました",
+    2002: "{tableName}テーブルへのクエリ中に異常が発生しました",
+    500: "Internal Server Error",
+}
+
+InternalStatusCode = int
+"""Health Message Entity.
+
+This module defines the HealthMessage entity for E2E health check.
+"""
+
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class HealthMessage(BaseModel):
+    """Health message entity for system health check."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(..., description="Unique identifier")
+    message: str = Field(..., description="Health check message")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="Creation timestamp",
+    )
+"""Health Repository Interface.
+
+This module defines the output port for health message persistence.
+"""
+
+from abc import ABC, abstractmethod
+
+from app.domain.model.health_message import HealthMessage
+
+
+class IHealthRepository(ABC):
+    """Repository interface for health messages."""
+
+    @abstractmethod
+    async def save(self, message: HealthMessage) -> HealthMessage:
+        """Save a health message.
+
+        Args:
+            message: The health message to save
+
+        Returns:
+            The saved health message
+
+        """
+
+    @abstractmethod
+    async def find_latest(self) -> HealthMessage | None:
+        """Find the latest health message.
+
+        Returns:
+            The latest health message, or None if not found
+
+        """
+"""FastAPI Application Entry Point.
+
+This module initializes the FastAPI application with CORS and database connection.
+"""
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.adapter.entrypoints.error_handler import app_error_handler
+from app.adapter.entrypoints.health_router import router as health_router
+from app.adapter.infra.database import Database
+from app.adapter.infra.settings import settings
+from app.domain.exception import AppError
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Application lifespan manager.
+
+    Args:
+        _app: FastAPI application instance
+
+    Yields:
+        None
+
+    """
+    # Startup
+    Database.connect()
+    yield
+    # Shutdown
+    Database.disconnect()
+
+
+# Create FastAPI application
+app = FastAPI(
+    title="Kvell API",
+    description="Kvell Backend API",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register exception handlers using decorator pattern
+
+
+@app.exception_handler(AppError)
+async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
+    """Handle AppError exceptions.
+
+    Args:
+        _request: FastAPI request (unused but required by signature)
+        exc: Application error
+
+    Returns:
+        JSON response with appropriate HTTP status
+
+    """
+    return await app_error_handler(_request, exc)
+
+
+# Register routers
+app.include_router(health_router)
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    """Root endpoint.
+
+    Returns:
+        Welcome message
+
+    """
+    return {"message": "Welcome to Kvell API"}
+"""Health Check DTOs.
+
+This module defines Data Transfer Objects for health check use cases.
+"""
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SaveHealthInput(BaseModel):
+    """Input DTO for saving health message."""
+
+    model_config = ConfigDict(frozen=True)
+
+    message: str = Field(..., description="Health check message to save")
+
+
+class HealthOutput(BaseModel):
+    """Output DTO for health check operations."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(..., description="Message ID")
+    message: str = Field(..., description="Health check message")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+"""Health Check UseCase Implementation.
+
+This module implements the health check use case logic.
+"""
+
+import uuid
+
+from app.domain.model.health_message import HealthMessage
+from app.domain.repository.health_repository import IHealthRepository
+from app.usecase.dto.health_dto import HealthOutput, SaveHealthInput
+from app.usecase.health_check.interface import IHealthCheckUseCase
+
+
+class HealthCheckInteractor(IHealthCheckUseCase):
+    """Interactor for health check operations."""
+
+    def __init__(self, health_repository: IHealthRepository) -> None:
+        """Initialize the interactor.
+
+        Args:
+            health_repository: Repository for health message persistence
+
+        """
+        self.health_repository = health_repository
+
+    async def save_message(self, input_data: SaveHealthInput) -> HealthOutput:
+        """Save a health check message.
+
+        Args:
+            input_data: Input data containing the message
+
+        Returns:
+            The saved message details
+
+        """
+        # Create entity
+        health_message = HealthMessage(
+            id=str(uuid.uuid4()),
+            message=input_data.message,
+        )
+
+        # Save via repository
+        saved_message = await self.health_repository.save(health_message)
+
+        # Map to output DTO
+        return HealthOutput(
+            id=saved_message.id,
+            message=saved_message.message,
+            created_at=saved_message.created_at.isoformat(),
+        )
+
+    async def get_latest_message(self) -> HealthOutput | None:
+        """Get the latest health check message.
+
+        Returns:
+            The latest message, or None if not found
+
+        """
+        message = await self.health_repository.find_latest()
+
+        if message is None:
+            return None
+
+        return HealthOutput(
+            id=message.id,
+            message=message.message,
+            created_at=message.created_at.isoformat(),
+        )
+"""Health Check UseCase Interface.
+
+This module defines the input port for health check operations.
+"""
+
+from abc import ABC, abstractmethod
+
+from app.usecase.dto.health_dto import HealthOutput, SaveHealthInput
+
+
+class IHealthCheckUseCase(ABC):
+    """UseCase interface for health check operations."""
+
+    @abstractmethod
+    async def save_message(self, input_data: SaveHealthInput) -> HealthOutput:
+        """Save a health check message.
+
+        Args:
+            input_data: Input data containing the message
+
+        Returns:
+            The saved message details
+
+        """
+
+    @abstractmethod
+    async def get_latest_message(self) -> HealthOutput | None:
+        """Get the latest health check message.
+
+        Returns:
+            The latest message, or None if not found
+
+        """
+"""Logger port interface.
+
+Defines the interface for application logging.
+Technical details (Sentry, CloudWatch, Console, etc.) are implemented
+in the adapter layer.
+"""
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+
+class ILogger(ABC):
+    """Logger port interface for application logging.
+
+    Technical details (Sentry, CloudWatch, Console, etc.) are implemented
+    in the adapter layer.
+    """
+
+    @abstractmethod
+    def info(
+        self, event_id: str, message: str, context: dict[str, Any] | None = None
+    ) -> None:
+        """Log informational event.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            context: Additional context data
+
+        """
+
+    @abstractmethod
+    def warn(
+        self, event_id: str, message: str, context: dict[str, Any] | None = None
+    ) -> None:
+        """Log warning event.
+
+        Warning indicates a state that requires attention but is not an error.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            context: Additional context data
+
+        """
+
+    @abstractmethod
+    def error(
+        self,
+        event_id: str,
+        message: str,
+        error: Exception | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Log error event.
+
+        In production environment, this triggers notification to error tracking tools.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            error: Exception object if available
+            context: Additional context data
+
+        """

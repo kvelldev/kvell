@@ -1,7 +1,13 @@
+"""HTTP status code mapping constants.
+
+Maps internal status codes to HTTP status codes.
+"""
+
 from typing import Final
 
 from fastapi import status
-from src.domain.constants import InternalStatusCode
+
+from app.domain.constants import InternalStatusCode
 
 HttpStatusCode = int
 

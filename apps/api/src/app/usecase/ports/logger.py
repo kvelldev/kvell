@@ -1,23 +1,48 @@
+"""Logger port interface.
+
+Defines the interface for application logging.
+Technical details (Sentry, CloudWatch, Console, etc.) are implemented
+in the adapter layer.
+"""
+
 from abc import ABC, abstractmethod
 from typing import Any
 
 
 class ILogger(ABC):
-    """アプリケーションログの出力ポート。
-    技術的な詳細（Sentry, CloudWatch, Console等）はAdapter層で実装する。
+    """Logger port interface for application logging.
+
+    Technical details (Sentry, CloudWatch, Console, etc.) are implemented
+    in the adapter layer.
     """
 
     @abstractmethod
     def info(
         self, event_id: str, message: str, context: dict[str, Any] | None = None
     ) -> None:
-        """正常系イベント"""
+        """Log informational event.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            context: Additional context data
+
+        """
 
     @abstractmethod
     def warn(
         self, event_id: str, message: str, context: dict[str, Any] | None = None
     ) -> None:
-        """警告（エラーではないが注意が必要な状態）"""
+        """Log warning event.
+
+        Warning indicates a state that requires attention but is not an error.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            context: Additional context data
+
+        """
 
     @abstractmethod
     def error(
@@ -27,6 +52,14 @@ class ILogger(ABC):
         error: Exception | None = None,
         context: dict[str, Any] | None = None,
     ) -> None:
-        """異常系イベント。
-        本番環境ではエラー追跡ツールへの通知トリガーとなる。
+        """Log error event.
+
+        In production environment, this triggers notification to error tracking tools.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            error: Exception object if available
+            context: Additional context data
+
         """

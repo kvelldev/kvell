@@ -5,11 +5,10 @@ This module implements the health check use case logic.
 
 import uuid
 
-from domain.model.health_message import HealthMessage
-from domain.repository.health_repository import IHealthRepository
-
-from usecase.dto.health_dto import HealthOutput, SaveHealthInput
-from usecase.health_check.interface import IHealthCheckUseCase
+from app.domain.model.health_message import HealthMessage
+from app.domain.repository.health_repository import IHealthRepository
+from app.usecase.dto.health_dto import HealthOutput, SaveHealthInput
+from app.usecase.health_check.interface import IHealthCheckUseCase
 
 
 class HealthCheckInteractor(IHealthCheckUseCase):

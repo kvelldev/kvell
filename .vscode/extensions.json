@@ -1,7 +1,7 @@
 {
   "recommendations": [
     // Python (Modern Stack)
-    "charliermarsh.ruff", // Ruff公式 (爆速リンター＆フォーマッター)
+    "charliermarsh.ruff", // Ruff公式
     "ms-python.python", // Python基本
     "ms-python.vscode-pylance", // Pyrightベースの型チェック (Pyrightの上位互換的な動きをします)
 

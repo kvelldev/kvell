@@ -5,7 +5,7 @@ This module defines the input port for health check operations.
 
 from abc import ABC, abstractmethod
 
-from usecase.dto.health_dto import HealthOutput, SaveHealthInput
+from app.usecase.dto.health_dto import HealthOutput, SaveHealthInput
 
 
 class IHealthCheckUseCase(ABC):

@@ -3,28 +3,24 @@
 This module manages MongoDB connection using Motor.
 """
 
-import os
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+
+from app.adapter.infra.settings import settings
 
 
 class Database:
     """MongoDB database connection manager."""
 
-    client: AsyncIOMotorClient | None = None
-    db: AsyncIOMotorDatabase | None = None
+    client: AsyncIOMotorClient[Any] | None = None
+    db: AsyncIOMotorDatabase[Any] | None = None
 
     @classmethod
     def connect(cls) -> None:
         """Establish connection to MongoDB."""
-        mongo_uri = os.getenv(
-            "MONGO_URI",
-            "mongodb://localhost:27017",
-        )
-        mongo_db = os.getenv("MONGO_DB", "kvell")
-
-        cls.client = AsyncIOMotorClient(mongo_uri)
-        cls.db = cls.client[mongo_db]
+        cls.client = AsyncIOMotorClient(settings.mongo_uri)
+        cls.db = cls.client[settings.mongo_db]
 
     @classmethod
     def disconnect(cls) -> None:
@@ -33,7 +29,7 @@ class Database:
             cls.client.close()
 
     @classmethod
-    def get_database(cls) -> AsyncIOMotorDatabase:
+    def get_database(cls) -> AsyncIOMotorDatabase[Any]:
         """Get the database instance.
 
         Returns:
