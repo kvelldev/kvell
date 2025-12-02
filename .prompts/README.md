@@ -20,6 +20,10 @@ git diff apps/web/src > diff.txt
 git diff --name-only --diff-filter=d apps/web/src apps/web/tests | xargs -I{} cat "{}" > diff.txt
 ```
 
+```shell
+find apps/web/tests/unit -type f \( -name "*.ts" -o -name "*.js" -o -name "*.json" -o -name "*.py" \) | xargs -I{} cat "{}" > feunit.txt
+```
+
 ```md
 添付インセプションデッキのPJをやってます。Agentic AIにコーディングさせて、diff.txtの結果を得ました。
 添付のアーキテクチャ指示書等を参考にコードレビューをお願いします。

@@ -9,6 +9,7 @@ interface ButtonProps {
   onClick: () => void;
   disabled?: boolean;
   variant?: "primary" | "secondary";
+  testId?: string;
 }
 
 export const Button = ({
@@ -16,6 +17,7 @@ export const Button = ({
   onClick,
   disabled = false,
   variant = "primary",
+  testId,
 }: ButtonProps) => {
   const baseClasses =
     "px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
@@ -29,6 +31,7 @@ export const Button = ({
       onClick={onClick}
       disabled={disabled}
       className={`${baseClasses} ${variantClasses}`}
+      data-testid={testId}
     >
       {children}
     </button>

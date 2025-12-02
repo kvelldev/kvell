@@ -33,14 +33,24 @@ export const ActionForm = ({
           onChange={onInputChange}
           placeholder="Enter a test message..."
           disabled={isLoading}
+          testId="health-echo-input"
         />
       </div>
 
       <div className="flex gap-2">
-        <Button onClick={onSave} disabled={isLoading || !inputValue.trim()}>
+        <Button
+          onClick={onSave}
+          disabled={isLoading || !inputValue.trim()}
+          testId="health-save-button"
+        >
           Save to DB
         </Button>
-        <Button onClick={onFetch} disabled={isLoading} variant="secondary">
+        <Button
+          onClick={onFetch}
+          disabled={isLoading}
+          variant="secondary"
+          testId="health-fetch-button"
+        >
           Fetch Latest
         </Button>
       </div>

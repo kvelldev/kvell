@@ -9,6 +9,7 @@ interface InputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  testId?: string;
 }
 
 export const Input = ({
@@ -16,6 +17,7 @@ export const Input = ({
   onChange,
   placeholder,
   disabled = false,
+  testId,
 }: InputProps) => {
   return (
     <input
@@ -27,6 +29,7 @@ export const Input = ({
       placeholder={placeholder}
       disabled={disabled}
       className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+      data-testid={testId}
     />
   );
 };

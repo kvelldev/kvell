@@ -18,12 +18,19 @@ export const MessageViewer = ({
   error,
 }: MessageViewerProps) => {
   if (isLoading) {
-    return <div className="text-center text-gray-600">Loading...</div>;
+    return (
+      <div className="text-center text-gray-600" data-testid="health-loading-display">
+        Loading...
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
+      <div
+        className="bg-red-50 border border-red-200 rounded-md p-4"
+        data-testid="health-error-display"
+      >
         <p className="text-red-800 text-sm font-medium">Error</p>
         <p className="text-red-600 text-sm">{error.message}</p>
       </div>
@@ -32,7 +39,10 @@ export const MessageViewer = ({
 
   if (message) {
     return (
-      <div className="bg-green-50 border border-green-200 rounded-md p-4">
+      <div
+        className="bg-green-50 border border-green-200 rounded-md p-4"
+        data-testid="health-message-display"
+      >
         <p className="text-green-800 text-sm font-medium">Success</p>
         <p className="text-green-700 text-sm mt-1">
           <strong>Message:</strong> {message.message}
