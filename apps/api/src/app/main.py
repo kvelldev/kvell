@@ -10,11 +10,14 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.adapter.constants import LOG_EVENTS
 from app.adapter.entrypoints.error_handler import app_error_handler
 from app.adapter.entrypoints.health_router import router as health_router
 from app.adapter.infra.database import Database
+from app.adapter.infra.logger import JsonLogger
 from app.adapter.infra.settings import settings
 from app.domain.exception import AppError
+from app.usecase.ports.logger import ILogger
 
 
 @asynccontextmanager
@@ -28,11 +31,34 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         None
 
     """
+    logger: ILogger = JsonLogger(service_name="kvell-api")
+
     # Startup
-    Database.connect()
+    logger.info(LOG_EVENTS.APP_STARTUP, "Kvell API starting up")
+    try:
+        Database.connect()
+        logger.info(LOG_EVENTS.APP_STARTUP, "Database connected")
+    except Exception as e:
+        logger.error(
+            LOG_EVENTS.APP_STARTUP,
+            "Database connection failed",
+            error=e,
+        )
+        raise
+
     yield
+
     # Shutdown
-    Database.disconnect()
+    logger.info(LOG_EVENTS.APP_SHUTDOWN, "Kvell API shutting down")
+    try:
+        Database.disconnect()
+        logger.info(LOG_EVENTS.APP_SHUTDOWN, "Database disconnected")
+    except Exception as e:
+        logger.error(
+            LOG_EVENTS.APP_SHUTDOWN,
+            "Database disconnection error",
+            error=e,
+        )
 
 
 # Create FastAPI application

@@ -15,6 +15,8 @@ test.describe('システムのE2E疎通確認', () => {
 
 // == technical section ==
 
+test.afterEach('AfterEach Hooks', ({ $runScenarioHooks }) => $runScenarioHooks('after', {  }));
+
 test.use({
   $test: [({}, use) => use(test), { scope: 'test', box: true }],
   $uri: [({}, use) => use('e2e/features/health_check.feature'), { scope: 'test', box: true }],

@@ -8,8 +8,10 @@ from typing import Any
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
-from app.adapter.constants import INTERNAL_TO_HTTP_MAP
+from app.adapter.constants import INTERNAL_TO_HTTP_MAP, LOG_EVENTS
+from app.adapter.infra.logger import JsonLogger
 from app.domain.exception import AppError
+from app.usecase.ports.logger import ILogger
 
 
 async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
@@ -23,10 +25,25 @@ async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
         JSON response with appropriate HTTP status code
 
     """
+    # Logger instantiation (DI not available in exception handler)
+    logger: ILogger = JsonLogger(service_name="kvell-api")
+
     # Map internal status code to HTTP status code
     http_status = INTERNAL_TO_HTTP_MAP.get(
         exc.internal_code,
         status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+
+    # Log the error
+    logger.error(
+        LOG_EVENTS.UNHANDLED_ERROR,
+        f"Application error occurred: {str(exc)}",
+        error=exc.cause if exc.cause else exc,
+        context={
+            "internal_code": exc.internal_code,
+            "http_status": http_status,
+            "error_context": exc.context,
+        },
     )
 
     # Build error response

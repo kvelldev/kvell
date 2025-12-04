@@ -9,6 +9,7 @@ from app.domain.model.health_message import HealthMessage
 from app.domain.repository.health_repository import IHealthRepository
 from app.usecase.dto.health_dto import HealthOutput, SaveHealthInput
 from app.usecase.health_check.interactor import HealthCheckInteractor
+from app.usecase.ports.logger import ILogger
 
 
 class TestHealthCheckInteractor:
@@ -20,9 +21,18 @@ class TestHealthCheckInteractor:
         return AsyncMock(spec=IHealthRepository)
 
     @pytest.fixture
-    def interactor(self, mock_repository: AsyncMock) -> HealthCheckInteractor:
-        """Create a HealthCheckInteractor with mocked repository."""
-        return HealthCheckInteractor(health_repository=mock_repository)
+    def mock_logger(self) -> AsyncMock:
+        """Create a mock logger."""
+        return AsyncMock(spec=ILogger)
+
+    @pytest.fixture
+    def interactor(
+        self, mock_repository: AsyncMock, mock_logger: AsyncMock
+    ) -> HealthCheckInteractor:
+        """Create a HealthCheckInteractor with mocked dependencies."""
+        return HealthCheckInteractor(
+            health_repository=mock_repository, logger=mock_logger
+        )
 
     @pytest.mark.asyncio
     async def test_saveMessage_whenCalled_createsEntityAndSaves(
