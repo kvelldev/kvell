@@ -32,8 +32,7 @@ docker compose up -d
 別のターミナルで、APIサーバーを起動してください：
 
 ```bash
-cd apps/api
-uv run fastapi dev src/app/main.py
+cd ~/ws/kvell/apps/api && PYTHONPATH=src uv run uvicorn app.main:app --port 8000 --reload
 ```
 
 APIサーバーは `http://localhost:8000` で起動します。
@@ -43,12 +42,8 @@ APIサーバーは `http://localhost:8000` で起動します。
 ### 通常実行（ヘッドレス）
 
 ```bash
-npm test
+npm run test
 ```
-
-このコマンドは以下を実行します：
-1. `npm run bddgen` - Gherkinから Playwrightテストコードを生成
-2. `playwright test` - テストを実行
 
 ### ブラウザを表示して実行
 
@@ -70,9 +65,9 @@ npm run test:ui
 
 ## 実装ワークフロー
 
-1. **Define:** `features/*.feature` にGherkinシナリオを記述
-2. **Implement:** `steps/*.ts` にStep Definitionsを実装
-3. **Generate:** `npm run bddgen` でテストコードを生成
+1. **Define:** `features/*.feature` にGherkinシナリオを記述(人間)
+2. **Implement:** `steps/*.ts` にStep Definitionsを実装(AI)
+3. **Generate:** `npm run bddgen` でテストコードを生成(自動生成)
 4. **Run:** `npm test` でテストを実行
 
 ## Data Management

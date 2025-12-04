@@ -5,10 +5,12 @@ This module initializes the FastAPI application with CORS and database connectio
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pymongo.errors import PyMongoError
 
 from app.adapter.constants import LOG_EVENTS
 from app.adapter.entrypoints.error_handler import app_error_handler
@@ -17,7 +19,9 @@ from app.adapter.infra.database import Database
 from app.adapter.infra.logger import JsonLogger
 from app.adapter.infra.settings import settings
 from app.domain.exception import AppError
-from app.usecase.ports.logger import ILogger
+
+if TYPE_CHECKING:
+    from app.usecase.ports.logger import ILogger
 
 
 @asynccontextmanager
@@ -38,8 +42,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         Database.connect()
         logger.info(LOG_EVENTS.APP_STARTUP, "Database connected")
-    except Exception as e:
-        logger.error(
+    except (PyMongoError, OSError, ConnectionError) as e:
+        logger.exception(
             LOG_EVENTS.APP_STARTUP,
             "Database connection failed",
             error=e,
@@ -53,8 +57,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         Database.disconnect()
         logger.info(LOG_EVENTS.APP_SHUTDOWN, "Database disconnected")
-    except Exception as e:
-        logger.error(
+    except (PyMongoError, OSError, ConnectionError) as e:
+        logger.exception(
             LOG_EVENTS.APP_SHUTDOWN,
             "Database disconnection error",
             error=e,

@@ -68,7 +68,7 @@ class MongoHealthRepository(IHealthRepository):
                 context={"message_id": message.id},
             )
         except PyMongoError as e:
-            self.logger.error(
+            self.logger.exception(
                 LOG_EVENTS.DB_QUERY_ERROR,
                 f"Failed to save health message: {self.COLLECTION_NAME}",
                 error=e,
@@ -106,7 +106,7 @@ class MongoHealthRepository(IHealthRepository):
                 sort=[("created_at", -1)],
             )
         except PyMongoError as e:
-            self.logger.error(
+            self.logger.exception(
                 LOG_EVENTS.DB_QUERY_ERROR,
                 f"Failed to query health message: {self.COLLECTION_NAME}",
                 error=e,

@@ -110,3 +110,25 @@ class JsonLogger(ILogger):
             sentry_sdk.capture_exception(
                 error
             ) if error else sentry_sdk.capture_message(message)
+
+    def exception(
+        self,
+        event_id: str,
+        message: str,
+        error: Exception | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Log exception with traceback information.
+
+        Should be called from exception handler blocks.
+        This method is an alias for error() as both provide full exception context.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            error: Exception object if available
+            context: Additional context data
+
+        """
+        # Delegate to error method - both capture full exception context
+        self.error(event_id, message, error, context)

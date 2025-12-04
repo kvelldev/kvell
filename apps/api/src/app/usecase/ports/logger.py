@@ -63,3 +63,24 @@ class ILogger(ABC):
             context: Additional context data
 
         """
+
+    @abstractmethod
+    def exception(
+        self,
+        event_id: str,
+        message: str,
+        error: Exception | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Log exception with traceback information.
+
+        Should be called from exception handler blocks.
+        In production environment, this triggers notification to error tracking tools.
+
+        Args:
+            event_id: Event identifier
+            message: Log message
+            error: Exception object if available
+            context: Additional context data
+
+        """

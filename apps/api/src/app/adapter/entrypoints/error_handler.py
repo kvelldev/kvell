@@ -3,7 +3,7 @@
 Converts application errors to appropriate HTTP responses.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
@@ -11,7 +11,9 @@ from fastapi.responses import JSONResponse
 from app.adapter.constants import INTERNAL_TO_HTTP_MAP, LOG_EVENTS
 from app.adapter.infra.logger import JsonLogger
 from app.domain.exception import AppError
-from app.usecase.ports.logger import ILogger
+
+if TYPE_CHECKING:
+    from app.usecase.ports.logger import ILogger
 
 
 async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
@@ -37,7 +39,7 @@ async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
     # Log the error
     logger.error(
         LOG_EVENTS.UNHANDLED_ERROR,
-        f"Application error occurred: {str(exc)}",
+        f"Application error occurred: {exc!s}",
         error=exc.cause if exc.cause else exc,
         context={
             "internal_code": exc.internal_code,

@@ -166,6 +166,8 @@ src/
 各レイヤーの責務分離に基づき、テストの「対象（Unit）」と「モック（Boundary）」を明確に定義します。
 テストフレームワークは **Vitest + React Testing Library** を使用します。
 
+
+
 ### A. Level 1: Domain Unit Testing
 
   * **Target:** `src/domain/`, `src/utils/`
@@ -258,8 +260,10 @@ test('passes loading state to children', () => {
 });
 ```
 
+### E. Integration Testing
 
-
+**CSSセレクタやテキスト依存のテストは禁止します。**
+フロントエンド実装者は、Integrationテストの安定化のため、操作・検証対象となる主要な要素に必ず `data-testid` 属性を付与する義務を負います。
 
 ## 7\. Reference Implementation (Few-shot Example)
 

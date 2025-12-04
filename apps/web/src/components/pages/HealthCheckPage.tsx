@@ -14,6 +14,7 @@ import { healthRepository } from "@/adapter/repository/healthRepository";
 import { HealthCheckTemplate } from "@/components/templates/HealthCheckTemplate";
 import { HealthCheckMonitor } from "@/components/organisms/HealthCheckMonitor";
 import { useLogger } from "@/components/useLogger";
+import { LOG_EVENTS } from "@/domain/constants";
 
 export const HealthCheckPage = () => {
   const [inputText, setInputText] = useState("");
@@ -37,8 +38,20 @@ export const HealthCheckPage = () => {
   // Event handlers (logic wiring)
   const handleSave = () => {
     if (!inputText.trim()) return;
-    void saveMessage(inputText);
-    setInputText("");
+
+    // Execute async operation without blocking
+    void saveMessage(inputText)
+      .then(() => {
+        setInputText("");
+      })
+      .catch((error: unknown) => {
+        // SWRの状態(error)でUIは制御されるが、
+        // プロセスとしてのUnhandled Rejectionを防ぐためにログを出して握り潰す
+        logger.error(error, {
+          event: LOG_EVENTS.HEALTH_CHECK.SAVE_ERROR,
+          context: "HealthCheckPage.handleSave",
+        });
+      });
   };
 
   const handleFetchLatest = () => {
