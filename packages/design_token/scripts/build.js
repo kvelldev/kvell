@@ -70,7 +70,9 @@ sd.registerFormat({
  * Do not edit directly
  * Generated on ${new Date().toISOString()}
  */
-module.exports = ${JSON.stringify(output, null, 2)};
+const customTheme = ${JSON.stringify(output, null, 2)};
+
+export default customTheme;
 `;
   }
 });

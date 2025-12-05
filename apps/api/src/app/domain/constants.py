@@ -1,0 +1,65 @@
+"""Internal status code definitions and log event IDs.
+
+Defines internal status codes and their corresponding messages.
+Defines event IDs for structured logging.
+"""
+
+from typing import Final
+
+INTERNAL_STATUSES: Final[dict[int, str]] = {
+    # Success
+    200: "OK",
+    201: "Created",
+    204: "No Content",
+    # Domain Errors (Client side origin / Business Logic)
+    1001: "この種火は既に燃え尽きています。",  # Gone (Life expired)
+    1002: "投稿に不適切な表現が含まれています。",  # NG Words (Validation)
+    1003: "投稿文字数が制限を超えています。",  # Length Limit (Validation)
+    1004: "薪をくべるペースが早すぎます。",  # Throttling (Rate Limit)
+    1005: "指定された種火が存在しないか、消滅しています。",  # Not Found
+    # Error caused by Server side (System Error)
+    2001: "DBへの接続中に異常が発生しました",
+    2002: "{tableName}テーブルへのクエリ中に異常が発生しました",
+    500: "Internal Server Error",
+}
+
+InternalStatusCode = int
+
+
+class LogEvents:
+    """Log event ID constants for structured logging.
+
+    All log calls should use these event IDs instead of raw strings.
+    """
+
+    # Health check events
+    HEALTH_CHECK_STARTED: Final[str] = "HEALTH_001"
+    HEALTH_CHECK_SUCCESS: Final[str] = "HEALTH_002"
+    HEALTH_CHECK_FAILED: Final[str] = "HEALTH_003"
+    HEALTH_MESSAGE_SAVED: Final[str] = "HEALTH_004"
+    HEALTH_MESSAGE_RETRIEVED: Final[str] = "HEALTH_005"
+
+    # Spark events
+    SPARK_POST_STARTED: Final[str] = "SPARK_001"
+    SPARK_POST_SUCCESS: Final[str] = "SPARK_002"
+    SPARK_POST_FAILED: Final[str] = "SPARK_003"
+    SPARK_VALIDATION_FAILED: Final[str] = "SPARK_004"
+    SPARK_RATE_LIMIT_EXCEEDED: Final[str] = "SPARK_005"
+    SPARK_NG_WORD_DETECTED: Final[str] = "SPARK_006"
+
+    # Database events
+    DB_CONNECTION_SUCCESS: Final[str] = "DB_001"
+    DB_CONNECTION_FAILED: Final[str] = "DB_002"
+    DB_QUERY_ERROR: Final[str] = "DB_003"
+
+    # Application lifecycle events
+    APP_STARTUP: Final[str] = "APP_001"
+    APP_SHUTDOWN: Final[str] = "APP_002"
+
+    # Error events
+    UNHANDLED_ERROR: Final[str] = "ERROR_001"
+    VALIDATION_ERROR: Final[str] = "ERROR_002"
+
+
+# Singleton instance
+LOG_EVENTS = LogEvents()
