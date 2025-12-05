@@ -17,6 +17,7 @@ interface HealthCheckMonitorProps {
   message: HealthMessage | null;
   isLoading: boolean;
   error: Error | null | undefined;
+  formattedCreatedAt?: string;
 }
 
 export const HealthCheckMonitor = ({
@@ -27,6 +28,7 @@ export const HealthCheckMonitor = ({
   message,
   isLoading,
   error,
+  formattedCreatedAt,
 }: HealthCheckMonitorProps) => {
   return (
     <div className="space-y-6">
@@ -42,7 +44,12 @@ export const HealthCheckMonitor = ({
         isLoading={isLoading}
       />
 
-      <MessageViewer message={message} isLoading={isLoading} error={error} />
+      <MessageViewer
+        message={message}
+        isLoading={isLoading}
+        error={error}
+        formattedCreatedAt={formattedCreatedAt}
+      />
     </div>
   );
 };

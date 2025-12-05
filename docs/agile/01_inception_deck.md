@@ -127,6 +127,7 @@ persona.mdを参照。
   * **Frontend:** React (SPA/PWA) - S3 + CloudFront hosting.
   * **Backend:** FastAPI (Python) - EC2.
   * **DB:** MongoDB (Log storage is temporary/capped).
+  * **KVS:** Redis
   * **Realtime:** WebSocket (FastAPI support).
 * **Safety Valve (パケ死・負荷対策):**
   * CloudFront Geo Restriction（日本国内限定）。

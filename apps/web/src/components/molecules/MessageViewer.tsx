@@ -10,16 +10,21 @@ interface MessageViewerProps {
   message: HealthMessage | null;
   isLoading: boolean;
   error: Error | null | undefined;
+  formattedCreatedAt?: string;
 }
 
 export const MessageViewer = ({
   message,
   isLoading,
   error,
+  formattedCreatedAt,
 }: MessageViewerProps) => {
   if (isLoading) {
     return (
-      <div className="text-center text-ash-500 font-light" data-testid="health-loading-display">
+      <div
+        className="text-center text-ash-500 font-light"
+        data-testid="health-loading-display"
+      >
         Loading...
       </div>
     );
@@ -49,7 +54,7 @@ export const MessageViewer = ({
         </p>
         <p className="text-ash-500 text-xs mt-1">ID: {message.id}</p>
         <p className="text-ash-500 text-xs">
-          Created: {new Date(message.createdAt).toLocaleString()}
+          Created: {formattedCreatedAt ?? message.createdAt}
         </p>
       </div>
     );

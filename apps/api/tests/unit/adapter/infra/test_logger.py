@@ -94,7 +94,7 @@ class TestJsonLogger:
         Result: outputsWarnLevel (level="WARN" in JSON)
         """
         with patch("sys.stdout", mock_stdout):
-            logger.warn("WARN_001", "Warning message")
+            logger.warning("WARN_001", "Warning message")
 
         output = mock_stdout.getvalue()
         log_entry = json.loads(output.strip())
@@ -114,7 +114,7 @@ class TestJsonLogger:
         context = {"resource": "disk", "usage": "90%"}
 
         with patch("sys.stdout", mock_stdout):
-            logger.warn("WARN_002", "High disk usage", context=context)
+            logger.warning("WARN_002", "High disk usage", context=context)
 
         output = mock_stdout.getvalue()
         log_entry = json.loads(output.strip())
@@ -338,7 +338,7 @@ class TestJsonLogger:
         """
         with patch("sys.stdout", mock_stdout):
             logger.info("TEST_007", "First message")
-            logger.warn("TEST_008", "Second message")
+            logger.warning("TEST_008", "Second message")
             logger.error("TEST_009", "Third message")
 
         output = mock_stdout.getvalue()
@@ -420,7 +420,7 @@ class TestJsonLogger:
         """
         with patch("sys.stdout", mock_stdout):
             logger.info("TEST_012", "Info")
-            logger.warn("TEST_013", "Warn")
+            logger.warning("TEST_013", "Warn")
 
         with (
             patch("sentry_sdk.capture_exception"),

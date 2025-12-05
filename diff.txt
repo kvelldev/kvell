@@ -1,0 +1,892 @@
+/**
+ * App Component
+ *
+ * Root application component with routing and DI providers.
+ */
+
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
+import { SparkPostPage } from "@/components/pages/SparkPostPage";
+import { LoggerProvider } from "@/components/LoggerContext";
+import { sentryLogger } from "@/adapter/infra/sentryLogger";
+
+function App() {
+  return (
+    <LoggerProvider logger={sentryLogger}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Navigate to="/spark" replace />} />
+          <Route path="/spark" element={<SparkPostPage />} />
+          <Route path="/health" element={<HealthCheckPage />} />
+        </Routes>
+      </BrowserRouter>
+    </LoggerProvider>
+  );
+}
+
+export default App;
+/**
+ * Message Viewer Molecule
+ *
+ * Displays health check message or status (Dumb Component).
+ */
+
+import type { HealthMessage } from "@/domain/model/health";
+
+interface MessageViewerProps {
+  message: HealthMessage | null;
+  isLoading: boolean;
+  error: Error | null | undefined;
+}
+
+export const MessageViewer = ({
+  message,
+  isLoading,
+  error,
+}: MessageViewerProps) => {
+  if (isLoading) {
+    return (
+      <div
+        className="text-center text-ash-500 font-light"
+        data-testid="health-loading-display"
+      >
+        Loading...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        className="bg-night-800 border border-ash-500 rounded-card p-4"
+        data-testid="health-error-display"
+      >
+        <p className="text-ash-500 text-sm font-light">Error</p>
+        <p className="text-smoke-100 text-sm mt-1">{error.message}</p>
+      </div>
+    );
+  }
+
+  if (message) {
+    return (
+      <div
+        className="bg-night-800 border border-ember-500 rounded-card shadow-glow-sm p-4"
+        data-testid="health-message-display"
+      >
+        <p className="text-ember-500 text-sm font-light">Success</p>
+        <p className="text-smoke-100 text-sm mt-1">
+          <strong className="text-ember-500">Message:</strong> {message.message}
+        </p>
+        <p className="text-ash-500 text-xs mt-1">ID: {message.id}</p>
+        <p className="text-ash-500 text-xs">
+          Created: {new Date(message.createdAt).toLocaleString()}
+        </p>
+      </div>
+    );
+  }
+
+  return null;
+};
+export const internalStatuses = {
+  // Sucess
+  200: "OK",
+  201: "Created",
+  204: "No Content",
+  // Client Errors
+  400: "Bad Request",
+  401: "Unauthorized",
+  403: "Forbidden",
+  404: "Not Found",
+  409: "Conflict",
+  422: "Unprocessable Entity",
+  // Business Logic Errors
+  1001: "Invalid email format.",
+  // Server Errors
+  500: "Internal Server Error",
+} as const;
+
+/**
+ * Type representing valid internal status codes.
+ */
+export type InternalStatusCodes = keyof typeof internalStatuses;
+
+/**
+ * Log Event IDs for structured logging.
+ * Use these constants in logger calls for testable, consistent event tracking.
+ */
+export const LOG_EVENTS = {
+  // Health Check
+  HEALTH_CHECK: {
+    FETCH_START: "HEALTH_FETCH_START",
+    FETCH_SUCCESS: "HEALTH_FETCH_SUCCESS",
+    FETCH_ERROR: "HEALTH_FETCH_ERROR",
+    SAVE_START: "HEALTH_SAVE_START",
+    SAVE_SUCCESS: "HEALTH_SAVE_SUCCESS",
+    SAVE_ERROR: "HEALTH_SAVE_ERROR",
+  },
+  // Spark Post
+  SPARK: {
+    POST_START: "SPARK_POST_START",
+    POST_SUCCESS: "SPARK_POST_SUCCESS",
+    POST_ERROR: "SPARK_POST_ERROR",
+  },
+} as const;
+/**
+ * UseCase Layer Constants
+ *
+ * SWR cache keys and other usecase-specific constants.
+ */
+
+export const SWR_KEYS = {
+  HEALTH_LATEST: "/health/latest",
+  SPARK_POST: "/spark/post",
+} as const;
+# Frontend Integration Tests
+
+## Overview
+
+This directory contains integration tests for the frontend application. Integration tests verify the complete flow from UI components through business logic to API calls, testing the integration of multiple layers without mocking internal dependencies.
+
+## Test Strategy
+
+### What Are Integration Tests?
+
+Integration tests sit between unit tests and E2E tests:
+
+- **Unit Tests** (`tests/unit/`): Test individual components/functions in isolation with mocked dependencies
+- **Integration Tests** (`tests/integration/`): Test multiple layers working together (Page → UseCase → Repository → API)
+- **E2E Tests** (`apps/tests/e2e/`): Test the entire system including real backend and browser
+
+### What We Test
+
+Integration tests focus on:
+
+1. **Component Integration**: How Page components integrate with UseCase hooks and UI components
+2. **Data Flow**: Data flowing from API → Repository → UseCase → UI
+3. **User Interactions**: Actual user actions (typing, clicking) and their effects
+4. **State Management**: How SWR caching and state updates work across layers
+5. **Error Handling**: How errors propagate through layers and are displayed in UI
+
+### What We Mock
+
+We only mock the **HTTP boundary** using MSW (Mock Service Worker):
+
+- ✅ **Mocked**: HTTP requests/responses (API endpoints)
+- ❌ **Not Mocked**: Repository implementations, UseCase hooks, UI components
+- ❌ **Not Mocked**: React state management, SWR caching behavior
+
+This approach provides:
+
+- **Realistic Integration**: Tests real component interactions
+- **Fast Execution**: No real backend needed (MSW intercepts HTTP)
+- **Deterministic**: Controlled API responses, no flakiness
+
+## Technology Stack
+
+- **Test Framework**: Vitest
+- **Test Utilities**: React Testing Library, Testing Library User Event
+- **API Mocking**: MSW (Mock Service Worker)
+
+## Running Tests
+
+### Run All Tests
+
+```bash
+npm test
+```
+
+### Run Integration Tests Only
+
+```bash
+npm test tests/integration/
+```
+
+### Run Specific Test File
+
+```bash
+npm test tests/integration/health-check.test.tsx
+```
+
+### Watch Mode
+
+```bash
+npx vitest tests/integration/ --watch
+```
+
+### Coverage
+
+```bash
+npm run coverage
+```
+
+## File Structure
+
+```
+tests/integration/
+├── README.md              # This file
+├── setup.ts               # MSW configuration and mock data store
+└── health-check.test.tsx  # HealthCheck integration tests
+```
+
+## Writing Integration Tests
+
+### Test Naming Convention
+
+Follow the naming pattern: `test_<action>_when<Condition>_<result>`
+
+```typescript
+it("test_saveMessage_whenValidInput_savesAndDisplaysNewMessage", async () => {
+  /**
+   * Action: saveMessage (user enters text and clicks Echo button)
+   * Condition: whenValidInput (valid message text)
+   * Result: savesAndDisplaysNewMessage (saves to backend and updates UI)
+   */
+  // Test implementation...
+});
+```
+
+### Test Structure
+
+```typescript
+import { describe, it, expect, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { mockHealthStore } from "./setup";
+import "./setup"; // Import to ensure MSW is configured
+
+describe("Feature Integration", () => {
+  beforeEach(() => {
+    mockHealthStore.reset(); // Reset mock data before each test
+  });
+
+  it("test_action_whenCondition_result", async () => {
+    // Arrange: Setup initial state
+    const user = userEvent.setup();
+    render(<YourPage />);
+
+    // Act: Perform user actions
+    await user.click(screen.getByRole("button"));
+
+    // Assert: Verify results
+    await waitFor(() => {
+      expect(screen.getByText("Expected Result")).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### Key Patterns
+
+#### 1. Wait for Async Updates
+
+Always use `waitFor` when testing async operations (data fetching, mutations):
+
+```typescript
+await waitFor(() => {
+  expect(screen.getByText("Loaded Data")).toBeInTheDocument();
+});
+```
+
+#### 2. User Interactions
+
+Use `@testing-library/user-event` for realistic user interactions:
+
+```typescript
+const user = userEvent.setup();
+await user.type(input, "Test message");
+await user.click(button);
+```
+
+#### 3. Mock Data Setup
+
+Use `mockHealthStore` to pre-populate data for tests:
+
+```typescript
+beforeEach(() => {
+  mockHealthStore.add({
+    id: "test-id",
+    message: "Existing message",
+    createdAt: new Date().toISOString(),
+  });
+});
+```
+
+#### 4. Error Simulation
+
+Override MSW handlers to simulate API errors:
+
+```typescript
+import { server } from "./setup";
+import { http, HttpResponse } from "msw";
+
+server.use(
+  http.post("http://localhost:8000/api/health/echo", () => {
+    return HttpResponse.json({ detail: "Error" }, { status: 500 });
+  }),
+);
+```
+
+## Common Issues
+
+### Issue: Tests timeout or hang
+
+**Solution**: Ensure you're using `waitFor` for async operations. Check that MSW handlers are defined correctly.
+
+### Issue: "No handler found for request"
+
+**Solution**: Verify the request URL matches the handler URL exactly. MSW will error on unhandled requests by default (configured in `setup.ts`).
+
+### Issue: State persists between tests
+
+**Solution**: Make sure `mockHealthStore.reset()` is called in `beforeEach`. Check that no global state is leaking.
+
+### Issue: Cannot find element in DOM
+
+**Solution**: Use `screen.debug()` to inspect rendered output. Ensure you're waiting for loading states to complete with `waitFor`.
+
+## Comparison with Backend Integration Tests
+
+### Backend (`apps/api/tests/integration/`)
+
+- Uses real MongoDB database
+- Tests API endpoints with HTTP client
+- Verifies database persistence
+- Setup: `conftest.py` with database fixtures
+
+### Frontend (`apps/web/tests/integration/`)
+
+- Uses MSW to mock API
+- Tests UI components with user interactions
+- Verifies UI rendering and state management
+- Setup: `setup.ts` with MSW and mock data store
+
+Both follow similar principles:
+
+- Test real integration (minimal mocking)
+- Focus on happy paths and error cases
+- Use descriptive test names
+- Verify end-to-end behavior within their layer
+
+## Related Documentation
+
+- [Frontend Architecture Guidelines](../../.prompts/20_frontend.md)
+- [Backend Integration Tests](../../../api/tests/README.md)
+- [E2E Testing Guidelines](../../.prompts/31_E2E.md)
+/**
+ * HealthCheck Integration Tests
+ *
+ * These tests verify the entire flow from Page → UseCase → Repository → API.
+ * Unlike unit tests which mock individual layers, integration tests use MSW
+ * to mock only the HTTP boundary, testing real component integration.
+ *
+ * Test Strategy:
+ * - Use MSW to mock API endpoints (simulates backend behavior)
+ * - Test actual Repository → UseCase → Page integration
+ * - Verify UI rendering and user interactions
+ * - No mocking of internal layers (Repository, UseCase)
+ */
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { SWRConfig } from "swr";
+import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
+import { LoggerProvider } from "@/components/LoggerContext";
+import { mockHealthStore, server } from "./setup";
+import { http, HttpResponse } from "msw";
+import type { HealthMessage } from "@/domain/model/health";
+import type { ILogger } from "@/usecase/ports/ILogger";
+
+// Import setup to ensure MSW is configured
+import "./setup";
+
+/**
+ * Mock logger for integration tests
+ * Provides a no-op logger implementation
+ */
+const mockLogger: ILogger = {
+  info: vi.fn(),
+  error: vi.fn(),
+};
+
+/**
+ * Helper to render HealthCheckPage with necessary providers
+ * Page components need LoggerContext which is provided by App.tsx
+ * @returns Rendered component result from React Testing Library
+ */
+const renderHealthCheckPage = () => {
+  return render(
+    <LoggerProvider logger={mockLogger}>
+      <SWRConfig
+        value={{
+          provider: () => new Map(),
+          onError: () => {
+            // Suppress error logging in tests
+            // SWR will still handle errors internally and update error state
+          },
+        }}
+      >
+        <HealthCheckPage />
+      </SWRConfig>
+    </LoggerProvider>,
+  );
+};
+
+describe("HealthCheck Integration", () => {
+  beforeEach(() => {
+    // Reset mock data store before each test
+    mockHealthStore.reset();
+    // Clear mock logger calls
+    vi.clearAllMocks();
+  });
+
+  describe("Initial Load", () => {
+    it("test_initialLoad_whenNoMessageExists_displaysNoData", async () => {
+      /**
+       * Action: initialLoad (component mount)
+       * Condition: whenNoMessageExists (empty database)
+       * Result: displaysNoData (no message displayed, ready for input)
+       */
+      renderHealthCheckPage();
+
+      // Initially shows loading
+      expect(screen.getByTestId("health-loading-display")).toBeInTheDocument();
+
+      // After loading, loading indicator should disappear
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("health-loading-display"),
+        ).not.toBeInTheDocument();
+      });
+
+      // No message should be displayed (message display is null when no data)
+      expect(
+        screen.queryByTestId("health-message-display"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("health-error-display"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("test_initialLoad_whenMessageExists_displaysMessage", async () => {
+      /**
+       * Action: initialLoad
+       * Condition: whenMessageExists (data in database)
+       * Result: displaysMessage (shows existing message)
+       */
+      // Arrange: Pre-populate mock store with data
+      const existingMessage: HealthMessage = {
+        id: "existing-id",
+        message: "Existing message from DB",
+        createdAt: new Date().toISOString(),
+      };
+      mockHealthStore.add(existingMessage);
+
+      // Act
+      renderHealthCheckPage();
+
+      // Assert: Message should be displayed after loading
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("health-message-display"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 3000 },
+      );
+    });
+  });
+
+  describe("Save Message", () => {
+    it("test_saveMessage_whenValidInput_savesAndDisplaysNewMessage", async () => {
+      /**
+       * Action: saveMessage (user enters text and clicks Save button)
+       * Condition: whenValidInput (valid message text)
+       * Result: savesAndDisplaysNewMessage (saves to backend and updates UI)
+       */
+      const user = userEvent.setup();
+      renderHealthCheckPage();
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("health-loading-display"),
+        ).not.toBeInTheDocument();
+      });
+
+      // Find input and button by test ID
+      const input = screen.getByTestId("health-echo-input");
+      const saveButton = screen.getByTestId("health-save-button");
+
+      // Enter message
+      await user.type(input, "Integration test message");
+      expect(input).toHaveValue("Integration test message");
+
+      // Click Save button
+      await user.click(saveButton);
+
+      // Wait for save to complete and message to be displayed
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("health-message-display"),
+        ).toBeInTheDocument();
+      });
+
+      // Input should be cleared after successful save
+      expect(input).toHaveValue("");
+
+      // Verify message was saved to mock store
+      const latest = mockHealthStore.getLatest();
+      expect(latest).not.toBeNull();
+      expect(latest?.message).toBe("Integration test message");
+    });
+
+    it("test_saveMessage_whenEmptyInput_buttonIsDisabled", async () => {
+      /**
+       * Action: saveMessage
+       * Condition: whenEmptyInput (input field is empty)
+       * Result: buttonIsDisabled (Save button cannot be clicked)
+       */
+      renderHealthCheckPage();
+
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("health-loading-display"),
+        ).not.toBeInTheDocument();
+      });
+
+      const saveButton = screen.getByTestId("health-save-button");
+
+      // Button should be disabled when input is empty
+      expect(saveButton).toBeDisabled();
+    });
+
+    it("test_saveMessage_whenCalledMultipleTimes_displaysLatestMessage", async () => {
+      /**
+       * Action: saveMessage
+       * Condition: whenCalledMultipleTimes (3 messages saved sequentially)
+       * Result: displaysLatestMessage (UI always shows the latest message)
+       */
+      const user = userEvent.setup();
+      renderHealthCheckPage();
+
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("health-loading-display"),
+        ).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("health-echo-input");
+      const saveButton = screen.getByTestId("health-save-button");
+
+      // Save first message
+      await user.type(input, "First message");
+      await user.click(saveButton);
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("health-message-display"),
+        ).toBeInTheDocument();
+      });
+
+      // Save second message
+      await user.type(input, "Second message");
+      await user.click(saveButton);
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("health-message-display"),
+        ).toBeInTheDocument();
+      });
+
+      // Save third message
+      await user.type(input, "Third message");
+      await user.click(saveButton);
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("health-message-display"),
+        ).toBeInTheDocument();
+      });
+
+      // Verify all messages are in mock store
+      expect(mockHealthStore.messages).toHaveLength(3);
+
+      // Verify latest message is displayed
+      const latest = mockHealthStore.getLatest();
+      expect(latest?.message).toBe("Third message");
+    });
+  });
+
+  describe("Reload Message", () => {
+    it("test_reloadMessage_whenDataExists_refetchesAndDisplaysLatest", async () => {
+      /**
+       * Action: reloadMessage (user clicks Fetch button)
+       * Condition: whenDataExists (data exists in backend)
+       * Result: refetchesAndDisplaysLatest (fetches fresh data from API)
+       */
+      const user = userEvent.setup();
+
+      // Pre-populate with initial message
+      const initialMessage: HealthMessage = {
+        id: "initial-id",
+        message: "Initial message",
+        createdAt: new Date().toISOString(),
+      };
+      mockHealthStore.add(initialMessage);
+
+      renderHealthCheckPage();
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("health-message-display"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 3000 },
+      );
+
+      // Simulate backend data change (e.g., another user added a message)
+      const newMessage: HealthMessage = {
+        id: "new-id",
+        message: "Updated message",
+        createdAt: new Date().toISOString(),
+      };
+      mockHealthStore.add(newMessage);
+
+      // Click Fetch button
+      const fetchButton = screen.getByTestId("health-fetch-button");
+      await user.click(fetchButton);
+
+      // Should display the latest message from backend
+      await waitFor(
+        () => {
+          const latest = mockHealthStore.getLatest();
+          expect(latest?.message).toBe("Updated message");
+        },
+        { timeout: 3000 },
+      );
+    });
+  });
+
+  describe("Error Handling", () => {
+    it("test_saveMessage_whenApiError_displaysErrorMessage", async () => {
+      /**
+       * Action: saveMessage
+       * Condition: whenApiError (backend returns 500 error)
+       * Result: displaysErrorMessage (shows error in UI)
+       */
+      const user = userEvent.setup();
+
+      // Override handler to simulate API error
+      server.use(
+        http.post("http://localhost:8000/api/health/echo", () => {
+          return HttpResponse.json(
+            { detail: "Internal Server Error" },
+            { status: 500 },
+          );
+        }),
+      );
+
+      renderHealthCheckPage();
+
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("health-loading-display"),
+        ).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("health-echo-input");
+      const saveButton = screen.getByTestId("health-save-button");
+
+      await user.type(input, "Test message");
+      await user.click(saveButton);
+
+      // Should display error message (check for error display element)
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("health-error-display"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 3000 },
+      );
+    });
+
+    it("test_fetchMessage_whenApiError_displaysErrorMessage", async () => {
+      /**
+       * Action: fetchMessage (initial load)
+       * Condition: whenApiError (backend returns 500 error)
+       * Result: displaysErrorMessage (shows error in UI)
+       */
+      // Override handler to simulate API error
+      server.use(
+        http.get("http://localhost:8000/api/health/latest", () => {
+          return HttpResponse.json(
+            { detail: "Internal Server Error" },
+            { status: 500 },
+          );
+        }),
+      );
+
+      renderHealthCheckPage();
+
+      // Should display error message after failed fetch
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("health-error-display"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 3000 },
+      );
+    });
+  });
+
+  describe("Loading State", () => {
+    it("test_saveMessage_whileSaving_disablesControls", async () => {
+      /**
+       * Action: saveMessage
+       * Condition: whileSaving (during API call)
+       * Result: disablesControls (input and buttons are disabled)
+       */
+      const user = userEvent.setup();
+
+      // Delay response to test loading state
+      server.use(
+        http.post("http://localhost:8000/api/health/echo", async () => {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const newMessage: HealthMessage = {
+            id: crypto.randomUUID(),
+            message: "Test message",
+            createdAt: new Date().toISOString(),
+          };
+          return HttpResponse.json(newMessage);
+        }),
+      );
+
+      renderHealthCheckPage();
+
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("health-loading-display"),
+        ).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("health-echo-input");
+      const saveButton = screen.getByTestId("health-save-button");
+      const fetchButton = screen.getByTestId("health-fetch-button");
+
+      await user.type(input, "Test message");
+      await user.click(saveButton);
+
+      // During save, controls should be disabled
+      // Note: This is timing-dependent and may need adjustment
+      expect(input).toBeDisabled();
+      expect(saveButton).toBeDisabled();
+      expect(fetchButton).toBeDisabled();
+
+      // Wait for save to complete
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("health-message-display"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 1000 },
+      );
+    });
+  });
+});
+/**
+ * Button Atom Tests
+ *
+ * Unit tests for Button component (Dumb Component).
+ */
+
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { Button } from "@/components/atoms/Button";
+
+describe("Button", () => {
+  it("should render children correctly", () => {
+    const handleClick = vi.fn();
+    render(<Button onClick={handleClick}>Click Me</Button>);
+
+    expect(screen.getByRole("button")).toHaveTextContent("Click Me");
+  });
+
+  it("should call onClick when clicked", () => {
+    const handleClick = vi.fn();
+    render(<Button onClick={handleClick}>Click Me</Button>);
+
+    fireEvent.click(screen.getByRole("button"));
+
+    expect(handleClick).toHaveBeenCalledOnce();
+  });
+
+  it("should be disabled when disabled prop is true", () => {
+    const handleClick = vi.fn();
+    render(
+      <Button onClick={handleClick} disabled={true}>
+        Click Me
+      </Button>,
+    );
+
+    const button = screen.getByRole("button");
+    expect(button).toBeDisabled();
+
+    fireEvent.click(button);
+    expect(handleClick).not.toHaveBeenCalled();
+  });
+
+  it("should render with primary variant by default", () => {
+    const handleClick = vi.fn();
+    render(<Button onClick={handleClick}>Click Me</Button>);
+
+    const button = screen.getByRole("button");
+    expect(button.className).toContain("bg-ember-500");
+  });
+
+  it("should render with secondary variant when specified", () => {
+    const handleClick = vi.fn();
+    render(
+      <Button onClick={handleClick} variant="secondary">
+        Click Me
+      </Button>,
+    );
+
+    const button = screen.getByRole("button");
+    expect(button.className).toContain("bg-night-800");
+  });
+});
+/**
+ * HealthCheckTemplate Tests
+ *
+ * Unit tests for HealthCheckTemplate component (Dumb Component).
+ */
+
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { HealthCheckTemplate } from "@/components/templates/HealthCheckTemplate";
+
+describe("HealthCheckTemplate", () => {
+  it("should render children", () => {
+    render(
+      <HealthCheckTemplate>
+        <div>Test Content</div>
+      </HealthCheckTemplate>,
+    );
+
+    expect(screen.getByText("Test Content")).toBeInTheDocument();
+  });
+
+  it("should apply layout classes", () => {
+    const { container } = render(
+      <HealthCheckTemplate>
+        <div>Test</div>
+      </HealthCheckTemplate>,
+    );
+
+    const wrapper = container.firstChild as HTMLElement;
+    expect(wrapper.className).toContain("min-h-screen");
+    expect(wrapper.className).toContain("bg-night-900");
+  });
+});

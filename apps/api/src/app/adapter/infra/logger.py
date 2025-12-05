@@ -69,7 +69,7 @@ class JsonLogger(ILogger):
         """
         self._log("INFO", event_id, message, context)
 
-    def warn(
+    def warning(
         self, event_id: str, message: str, context: dict[str, Any] | None = None
     ) -> None:
         """Log warning message.

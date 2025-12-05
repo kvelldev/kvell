@@ -45,7 +45,7 @@ describe("Button", () => {
     render(<Button onClick={handleClick}>Click Me</Button>);
 
     const button = screen.getByRole("button");
-    expect(button.className).toContain("bg-blue-600");
+    expect(button.className).toContain("bg-ember-500");
   });
 
   it("should render with secondary variant when specified", () => {
@@ -57,6 +57,6 @@ describe("Button", () => {
     );
 
     const button = screen.getByRole("button");
-    expect(button.className).toContain("bg-gray-200");
+    expect(button.className).toContain("bg-night-800");
   });
 });

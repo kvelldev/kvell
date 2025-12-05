@@ -10,6 +10,7 @@
  */
 export const DB_COLLECTIONS = {
   HEALTH_MESSAGES: 'health_messages',
+  SPARKS: 'sparks',
 } as const;
 
 /**

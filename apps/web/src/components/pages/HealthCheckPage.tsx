@@ -62,6 +62,11 @@ export const HealthCheckPage = () => {
   const isLoading = isFetching || isSaving;
   const error = saveError ?? fetchError;
 
+  // Format date for display (Smart Component responsibility)
+  const formattedCreatedAt = message?.createdAt
+    ? new Date(message.createdAt).toLocaleString()
+    : undefined;
+
   // Render: delegate to Template and Organism
   return (
     <HealthCheckTemplate>
@@ -73,6 +78,7 @@ export const HealthCheckPage = () => {
         message={message}
         isLoading={isLoading}
         error={error}
+        formattedCreatedAt={formattedCreatedAt}
       />
     </HealthCheckTemplate>
   );
