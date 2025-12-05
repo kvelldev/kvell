@@ -6,4 +6,5 @@
 
 export const SWR_KEYS = {
   HEALTH_LATEST: "/health/latest",
+  SPARK_POST: "/spark/post",
 } as const;

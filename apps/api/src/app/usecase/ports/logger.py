@@ -30,7 +30,7 @@ class ILogger(ABC):
         """
 
     @abstractmethod
-    def warn(
+    def warning(
         self, event_id: str, message: str, context: dict[str, Any] | None = None
     ) -> None:
         """Log warning event.

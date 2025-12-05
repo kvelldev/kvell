@@ -18,7 +18,7 @@ import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
 import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
 import { LoggerProvider } from "@/components/LoggerContext";
-import { mockHealthStore, server } from "./setup";
+import { mockHealthStore, server, BASE_URL } from "./setup";
 import { http, HttpResponse } from "msw";
 import type { HealthMessage } from "@/domain/model/health";
 import type { ILogger } from "@/usecase/ports/ILogger";
@@ -303,7 +303,7 @@ describe("HealthCheck Integration", () => {
 
       // Override handler to simulate API error
       server.use(
-        http.post("http://localhost:8000/api/health/echo", () => {
+        http.post(`${BASE_URL}/api/health/echo`, () => {
           return HttpResponse.json(
             { detail: "Internal Server Error" },
             { status: 500 },
@@ -328,7 +328,9 @@ describe("HealthCheck Integration", () => {
       // Should display error message (check for error display element)
       await waitFor(
         () => {
-          expect(screen.getByTestId("health-error-display")).toBeInTheDocument();
+          expect(
+            screen.getByTestId("health-error-display"),
+          ).toBeInTheDocument();
         },
         { timeout: 3000 },
       );
@@ -342,7 +344,7 @@ describe("HealthCheck Integration", () => {
        */
       // Override handler to simulate API error
       server.use(
-        http.get("http://localhost:8000/api/health/latest", () => {
+        http.get(`${BASE_URL}/api/health/latest`, () => {
           return HttpResponse.json(
             { detail: "Internal Server Error" },
             { status: 500 },
@@ -355,7 +357,9 @@ describe("HealthCheck Integration", () => {
       // Should display error message after failed fetch
       await waitFor(
         () => {
-          expect(screen.getByTestId("health-error-display")).toBeInTheDocument();
+          expect(
+            screen.getByTestId("health-error-display"),
+          ).toBeInTheDocument();
         },
         { timeout: 3000 },
       );
@@ -373,7 +377,7 @@ describe("HealthCheck Integration", () => {
 
       // Delay response to test loading state
       server.use(
-        http.post("http://localhost:8000/api/health/echo", async () => {
+        http.post(`${BASE_URL}/api/health/echo`, async () => {
           await new Promise((resolve) => setTimeout(resolve, 100));
           const newMessage: HealthMessage = {
             id: crypto.randomUUID(),

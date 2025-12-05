@@ -28,6 +28,6 @@ describe("HealthCheckTemplate", () => {
 
     const wrapper = container.firstChild as HTMLElement;
     expect(wrapper.className).toContain("min-h-screen");
-    expect(wrapper.className).toContain("bg-gray-50");
+    expect(wrapper.className).toContain("bg-night-900");
   });
 });

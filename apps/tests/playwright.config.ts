@@ -13,7 +13,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: 'html',
-  timeout: 90000, // 90 seconds per test
+  timeout: 10000, // 10 seconds per test
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:5173',
     trace: 'on-first-retry',
@@ -36,7 +36,7 @@ export default defineConfig({
     : {
         command: 'cd ../web && npm run dev',
         url: 'http://localhost:5173',
-        reuseExistingServer: true,
-        timeout: 120 * 1000,
+        reuseExistingServer: !process.env.CI,
+        timeout: 60 * 1000,
       },
 });

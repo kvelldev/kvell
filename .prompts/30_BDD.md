@@ -41,5 +41,15 @@ Gherkinの作成にあたり、以下のルールを厳守してください。
     * このGherkinは「E2Eテスト」レベルの振る舞いを記述する。
     * 結合・単体テストレベルの細かすぎる条件分岐はGherkinに含めず、コードレベルのテストに委譲する意識を持つこと。
 6.  **BRIEF原則:** Business logic oriented, Real data, Intent revealing, Essential, Focused.
+7.  **Configuration Management via Background (SSOT):**
+    * **Define in Background:** 閾値、制限値、TTLなどの「システム設定値（Magic Numbers）」は、個別のExampleに散らばらせず、必ず `Background` セクションで一元管理すること。
+    * **Relative Reference:** 各Example内では、具体的な数値を直接書くのではなく、Backgroundで定義した変数名を用いた「相対的な表現」を使用すること。これにより、設定値が変わってもシナリオ自体の修正が不要になる。
+    * *Pattern:*
+        ```gherkin
+        Background: System Configuration
+            Given システムの "文字数制限" は "500文字" に設定されている
 
-
+        Example: 境界値テスト
+            # BAD: Given 501文字を入力した
+            # GOOD: Given ユーザーは "文字数制限 + 1文字" のテキストを入力した
+        ```

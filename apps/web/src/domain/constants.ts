@@ -35,4 +35,10 @@ export const LOG_EVENTS = {
     SAVE_SUCCESS: "HEALTH_SAVE_SUCCESS",
     SAVE_ERROR: "HEALTH_SAVE_ERROR",
   },
+  // Spark Post
+  SPARK: {
+    POST_START: "SPARK_POST_START",
+    POST_SUCCESS: "SPARK_POST_SUCCESS",
+    POST_ERROR: "SPARK_POST_ERROR",
+  },
 } as const;

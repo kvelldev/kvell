@@ -10,7 +10,7 @@ import { setupServer } from "msw/node";
 import { beforeAll, afterAll, afterEach } from "vitest";
 import type { HealthMessage } from "@/domain/model/health";
 
-const BASE_URL = "http://localhost:8000";
+export const BASE_URL = "http://localhost:8000";
 
 /**
  * Mock data store for health messages

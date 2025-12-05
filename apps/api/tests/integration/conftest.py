@@ -12,9 +12,11 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import MongoClient
+from redis.asyncio import Redis
 
-from app.adapter.entrypoints.dependencies import get_db
+from app.adapter.entrypoints.dependencies import get_db, get_redis
 from app.adapter.infra.database import Database
+from app.adapter.infra.redis_client import RedisClient
 from app.main import app
 
 
@@ -102,16 +104,35 @@ def clean_db(mongo_client_sync: MongoClient[Any], test_db_name: str) -> None:
 
 
 @pytest_asyncio.fixture
-async def test_client(
-    test_database: AsyncIOMotorDatabase[Any], clean_db: None
-) -> AsyncIterator[AsyncClient]:
-    """Create a FastAPI async test client with real database.
+async def test_redis() -> AsyncIterator[Redis]:  # type: ignore[type-arg]
+    """Create a Redis client for testing.
 
-    This fixture overrides the get_db dependency to use the test database
-    instead of the production database.
+    Yields:
+        Redis client instance
+
+    """
+    # Use Redis DB 1 for testing (default is 0)
+    client: Redis = Redis(host="localhost", port=6379, db=1, decode_responses=True)  # type: ignore[type-arg]
+    yield client
+    # Clean up: flush test database
+    await client.flushdb()  # type: ignore[reportUnknownMemberType]
+    await client.aclose()
+
+
+@pytest_asyncio.fixture
+async def test_client(
+    test_database: AsyncIOMotorDatabase[Any],
+    test_redis: Redis,  # type: ignore[type-arg]
+    clean_db: None,
+) -> AsyncIterator[AsyncClient]:
+    """Create a FastAPI async test client with real database and Redis.
+
+    This fixture overrides the get_db and get_redis dependencies to use test instances
+    instead of production instances.
 
     Args:
         test_database: Test database instance (injected)
+        test_redis: Test Redis instance (injected)
         clean_db: Ensures database is cleaned before test (dependency only)
 
     Yields:
@@ -121,16 +142,21 @@ async def test_client(
     # Ensure clean_db fixture has run (fixture dependency)
     _ = clean_db
 
-    # Initialize Database singleton (required for app lifespan)
+    # Initialize Database and Redis singletons (required for app lifespan)
     Database.connect()
+    await RedisClient.connect()
 
-    # Override the database dependency to use test database
+    # Override the dependencies to use test instances
     def override_get_db() -> AsyncIOMotorDatabase[Any]:
         return test_database
 
-    app.dependency_overrides[get_db] = override_get_db
+    def override_get_redis() -> Redis:  # type: ignore[type-arg]
+        return test_redis
 
-    # Create client with lifespan disabled (we manage DB connection ourselves)
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_redis] = override_get_redis
+
+    # Create client with lifespan disabled (we manage connections ourselves)
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://test",
@@ -140,3 +166,4 @@ async def test_client(
     # Clean up
     app.dependency_overrides.clear()
     Database.disconnect()
+    await RedisClient.disconnect()

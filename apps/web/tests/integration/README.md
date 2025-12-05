@@ -33,6 +33,7 @@ We only mock the **HTTP boundary** using MSW (Mock Service Worker):
 - ❌ **Not Mocked**: React state management, SWR caching behavior
 
 This approach provides:
+
 - **Realistic Integration**: Tests real component interactions
 - **Fast Execution**: No real backend needed (MSW intercepts HTTP)
 - **Deterministic**: Controlled API responses, no flakiness
@@ -217,6 +218,7 @@ server.use(
 - Setup: `setup.ts` with MSW and mock data store
 
 Both follow similar principles:
+
 - Test real integration (minimal mocking)
 - Focus on happy paths and error cases
 - Use descriptive test names
