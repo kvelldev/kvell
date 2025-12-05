@@ -8,7 +8,7 @@ from typing import Any
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo.errors import PyMongoError
 
-from app.adapter.constants import LOG_EVENTS
+from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
 from app.domain.model.health_message import HealthMessage
 from app.domain.repository.health_repository import IHealthRepository

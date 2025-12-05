@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING, Any
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
-from app.adapter.constants import INTERNAL_TO_HTTP_MAP, LOG_EVENTS
+from app.adapter.constants import INTERNAL_TO_HTTP_MAP
 from app.adapter.infra.logger import JsonLogger
+from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
 
 if TYPE_CHECKING:

@@ -5,7 +5,7 @@ This module implements the health check use case logic.
 
 import uuid
 
-from app.adapter.constants import LOG_EVENTS
+from app.domain.constants import LOG_EVENTS
 from app.domain.model.health_message import HealthMessage
 from app.domain.repository.health_repository import IHealthRepository
 from app.usecase.dto.health_dto import HealthOutput, SaveHealthInput

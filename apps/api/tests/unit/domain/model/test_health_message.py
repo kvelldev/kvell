@@ -82,12 +82,12 @@ class TestHealthMessage:
         """
         # Act & Assert - missing id
         with pytest.raises(ValidationError) as exc_info:
-            HealthMessage(message="Test message")
+            HealthMessage.model_validate({"message": "Test message"})
         assert "id" in str(exc_info.value)
 
         # Act & Assert - missing message
         with pytest.raises(ValidationError) as exc_info:
-            HealthMessage(id="test-id")
+            HealthMessage.model_validate({"id": "test-id"})
         assert "message" in str(exc_info.value)
 
     def test_healthMessage_whenCreated_hasCorrectTypes(self) -> None:
@@ -150,7 +150,9 @@ class TestHealthMessage:
         assert health_message.message == long_message
         assert len(health_message.message) == 10000
 
-    def test_createHealthMessage_whenMessageHasSpecialChars_createsSuccessfully(self) -> None:
+    def test_createHealthMessage_whenMessageHasSpecialChars_createsSuccessfully(
+        self,
+    ) -> None:
         """
         Action: createHealthMessage
         Condition: whenMessageHasSpecialChars (Japanese, emoji, HTML)

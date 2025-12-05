@@ -103,13 +103,14 @@ class JsonLogger(ILogger):
 
         # 2. Send to Sentry (if initialized)
         #    Explicitly capture_exception to attach context information
-        with sentry_sdk.push_scope() as scope:
+        with sentry_sdk.isolation_scope() as scope:
             scope.set_tag("event_id", event_id)
             if context:
                 scope.set_context("app_context", context)
-            sentry_sdk.capture_exception(
-                error
-            ) if error else sentry_sdk.capture_message(message)
+            if error:
+                sentry_sdk.capture_exception(error)
+            else:
+                sentry_sdk.capture_message(message)
 
     def exception(
         self,

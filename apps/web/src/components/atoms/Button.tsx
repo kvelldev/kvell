@@ -20,11 +20,11 @@ export const Button = ({
   testId,
 }: ButtonProps) => {
   const baseClasses =
-    "px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+    "px-4 py-2 rounded-button font-light transition-all disabled:opacity-ash disabled:cursor-not-allowed";
   const variantClasses =
     variant === "primary"
-      ? "bg-blue-600 hover:bg-blue-700 text-white"
-      : "bg-gray-200 hover:bg-gray-300 text-gray-800";
+      ? "bg-ember-500 hover:shadow-glow-md text-night-900"
+      : "bg-night-800 hover:shadow-glow-sm text-smoke-100";
 
   return (
     <button

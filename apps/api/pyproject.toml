@@ -64,7 +64,7 @@ layers = [
 test = "pytest"
 coverage = "pytest --cov=src --cov-report=term-missing"
 type-check = "pyright"
-lint = "ruff check . && lint-imports"
+lint = "ruff check . && PYTHONPATH=src lint-imports"
 format-check = "ruff format --check ."
 check-all = "task type-check && task lint && task format-check && task test"
 lint-fix = "ruff check --fix ."

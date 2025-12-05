@@ -7,8 +7,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.adapter.constants import LOG_EVENTS
 from app.adapter.entrypoints.dependencies import get_health_usecase, get_logger
+from app.domain.constants import LOG_EVENTS
 from app.usecase.dto.health_dto import HealthOutput, SaveHealthInput
 from app.usecase.health_check.interface import IHealthCheckUseCase
 from app.usecase.ports.logger import ILogger

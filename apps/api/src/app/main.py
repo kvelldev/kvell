@@ -12,12 +12,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pymongo.errors import PyMongoError
 
-from app.adapter.constants import LOG_EVENTS
 from app.adapter.entrypoints.error_handler import app_error_handler
 from app.adapter.entrypoints.health_router import router as health_router
+from app.adapter.entrypoints.spark_router import router as spark_router
 from app.adapter.infra.database import Database
 from app.adapter.infra.logger import JsonLogger
+from app.adapter.infra.redis_client import RedisClient
 from app.adapter.infra.settings import settings
+from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
 
 if TYPE_CHECKING:
@@ -50,6 +52,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         )
         raise
 
+    try:
+        await RedisClient.connect()
+        logger.info(LOG_EVENTS.APP_STARTUP, "Redis connected")
+    except (OSError, ConnectionError) as e:
+        logger.exception(
+            LOG_EVENTS.APP_STARTUP,
+            "Redis connection failed",
+            error=e,
+        )
+        raise
+
     yield
 
     # Shutdown
@@ -61,6 +74,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         logger.exception(
             LOG_EVENTS.APP_SHUTDOWN,
             "Database disconnection error",
+            error=e,
+        )
+
+    try:
+        await RedisClient.disconnect()
+        logger.info(LOG_EVENTS.APP_SHUTDOWN, "Redis disconnected")
+    except (OSError, ConnectionError) as e:
+        logger.exception(
+            LOG_EVENTS.APP_SHUTDOWN,
+            "Redis disconnection error",
             error=e,
         )
 
@@ -102,6 +125,7 @@ async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
 
 # Register routers
 app.include_router(health_router)
+app.include_router(spark_router)
 
 
 @app.get("/")

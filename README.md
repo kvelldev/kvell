@@ -15,6 +15,11 @@ FastAPI
 
 ### Dev
 
+PBIを取得
+```shell
+gh issue view 12 --json title,body,url
+```
+
 diffを取得
 ```shell
 git diff ${対象ディレクトリ} > diff.txt

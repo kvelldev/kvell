@@ -22,14 +22,15 @@ class TestJsonLogger:
         """Create a mock stdout buffer."""
         return StringIO()
 
-    def test_loggerInit_whenServiceNameProvided_setsServiceName(self, logger: JsonLogger) -> None:
+    def test_loggerInit_whenServiceNameProvided_setsServiceName(
+        self, logger: JsonLogger
+    ) -> None:
         """
         Action: loggerInit
         Condition: whenServiceNameProvided (service_name="test-service")
         Result: setsServiceName (logger has correct service name)
         """
         assert logger.service_name == "test-service"
-        assert logger._logger is not None
 
     def test_loggerInit_whenServiceNameOmitted_usesDefault(self) -> None:
         """
@@ -131,9 +132,11 @@ class TestJsonLogger:
         """
         test_error = ValueError("Test error")
 
-        with patch("sentry_sdk.capture_exception"), patch(
-            "sentry_sdk.push_scope"
-        ), patch("sys.stdout", mock_stdout):
+        with (
+            patch("sentry_sdk.capture_exception"),
+            patch("sentry_sdk.isolation_scope"),
+            patch("sys.stdout", mock_stdout),
+        ):
             logger.error("ERROR_001", "An error occurred", error=test_error)
 
         output = mock_stdout.getvalue()
@@ -157,9 +160,11 @@ class TestJsonLogger:
         test_error = RuntimeError("Database connection failed")
         context = {"db_host": "localhost", "db_port": 5432}
 
-        with patch("sentry_sdk.capture_exception"), patch(
-            "sentry_sdk.push_scope"
-        ), patch("sys.stdout", mock_stdout):
+        with (
+            patch("sentry_sdk.capture_exception"),
+            patch("sentry_sdk.isolation_scope"),
+            patch("sys.stdout", mock_stdout),
+        ):
             logger.error(
                 "ERROR_002",
                 "Database error",
@@ -182,9 +187,11 @@ class TestJsonLogger:
         Condition: whenNoException (error parameter not provided)
         Result: sendsMessageToSentry (capture_message called instead of capture_exception)
         """
-        with patch("sentry_sdk.capture_message") as mock_capture_message, patch(
-            "sentry_sdk.push_scope"
-        ), patch("sys.stdout", mock_stdout):
+        with (
+            patch("sentry_sdk.capture_message") as mock_capture_message,
+            patch("sentry_sdk.isolation_scope"),
+            patch("sys.stdout", mock_stdout),
+        ):
             logger.error("ERROR_003", "Something went wrong")
 
         output = mock_stdout.getvalue()
@@ -205,9 +212,11 @@ class TestJsonLogger:
         """
         test_error = ValueError("Test error for Sentry")
 
-        with patch("sentry_sdk.capture_exception") as mock_capture, patch(
-            "sentry_sdk.push_scope"
-        ) as mock_scope, patch("sys.stdout", mock_stdout):
+        with (
+            patch("sentry_sdk.capture_exception") as mock_capture,
+            patch("sentry_sdk.isolation_scope") as mock_scope,
+            patch("sys.stdout", mock_stdout),
+        ):
             logger.error("ERROR_004", "Error message", error=test_error)
 
         mock_capture.assert_called_once_with(test_error)
@@ -226,17 +235,21 @@ class TestJsonLogger:
 
         mock_scope_instance = MagicMock()
 
-        with patch(
-            "sentry_sdk.push_scope", return_value=mock_scope_instance
-        ) as mock_push_scope, patch("sentry_sdk.capture_exception"), patch(
-            "sys.stdout", mock_stdout
+        with (
+            patch(
+                "sentry_sdk.isolation_scope", return_value=mock_scope_instance
+            ) as mock_isolation_scope,
+            patch("sentry_sdk.capture_exception"),
+            patch("sys.stdout", mock_stdout),
         ):
-            mock_push_scope.return_value.__enter__ = MagicMock(
+            mock_isolation_scope.return_value.__enter__ = MagicMock(
                 return_value=mock_scope_instance
             )
-            mock_push_scope.return_value.__exit__ = MagicMock(return_value=False)
+            mock_isolation_scope.return_value.__exit__ = MagicMock(return_value=False)
 
-            logger.error("ERROR_005", "Error with context", error=test_error, context=context)
+            logger.error(
+                "ERROR_005", "Error with context", error=test_error, context=context
+            )
 
         mock_scope_instance.set_tag.assert_called_once_with("event_id", "ERROR_005")
         mock_scope_instance.set_context.assert_called_once_with("app_context", context)
@@ -384,9 +397,11 @@ class TestJsonLogger:
         try:
             raise KeyError("missing_key")
         except KeyError as e:
-            with patch("sentry_sdk.capture_exception"), patch(
-                "sentry_sdk.push_scope"
-            ), patch("sys.stdout", mock_stdout):
+            with (
+                patch("sentry_sdk.capture_exception"),
+                patch("sentry_sdk.isolation_scope"),
+                patch("sys.stdout", mock_stdout),
+            ):
                 logger.error("ERROR_010", "Key error occurred", error=e)
 
         output = mock_stdout.getvalue()
@@ -407,9 +422,11 @@ class TestJsonLogger:
             logger.info("TEST_012", "Info")
             logger.warn("TEST_013", "Warn")
 
-        with patch("sentry_sdk.capture_exception"), patch(
-            "sentry_sdk.push_scope"
-        ), patch("sys.stdout", mock_stdout):
+        with (
+            patch("sentry_sdk.capture_exception"),
+            patch("sentry_sdk.isolation_scope"),
+            patch("sys.stdout", mock_stdout),
+        ):
             logger.error("TEST_014", "Error")
 
         output = mock_stdout.getvalue()

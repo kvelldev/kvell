@@ -36,6 +36,7 @@ class TestAppErrorHandler:
         assert isinstance(response, JSONResponse)
         assert response.status_code == status.HTTP_410_GONE
         assert response.body is not None
+        assert isinstance(response.body, bytes)
 
         content = response.body.decode()
         assert "1001" in content
@@ -59,7 +60,9 @@ class TestAppErrorHandler:
 
         # Assert
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "1002" in content
         assert "投稿に不適切な表現が含まれています。" in content
 
@@ -81,7 +84,9 @@ class TestAppErrorHandler:
 
         # Assert
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "1003" in content
         assert "投稿文字数が制限を超えています。" in content
 
@@ -103,7 +108,9 @@ class TestAppErrorHandler:
 
         # Assert
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "1004" in content
         assert "薪をくべるペースが早すぎます。" in content
 
@@ -125,7 +132,9 @@ class TestAppErrorHandler:
 
         # Assert
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "1005" in content
         assert "指定された種火が存在しないか、消滅しています。" in content
 
@@ -147,7 +156,9 @@ class TestAppErrorHandler:
 
         # Assert
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "2001" in content
         assert "DBへの接続中に異常が発生しました" in content
 
@@ -169,7 +180,9 @@ class TestAppErrorHandler:
 
         # Assert
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "2002" in content
         assert "sparks" in content
         assert "テーブルへのクエリ中に異常が発生しました" in content
@@ -192,7 +205,9 @@ class TestAppErrorHandler:
 
         # Assert
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "500" in content
         assert "Internal Server Error" in content
 
@@ -213,7 +228,9 @@ class TestAppErrorHandler:
         response = await app_error_handler(mock_request, error)
 
         # Assert
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "error" in content
         assert "code" in content
         assert "1001" in content
@@ -235,7 +252,9 @@ class TestAppErrorHandler:
         response = await app_error_handler(mock_request, error)
 
         # Assert
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "message" in content
         assert "投稿に不適切な表現が含まれています。" in content
 
@@ -257,7 +276,9 @@ class TestAppErrorHandler:
         response = await app_error_handler(mock_request, error)
 
         # Assert
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "context" in content
         assert "tableName" in content
         assert "users" in content
@@ -303,7 +324,9 @@ class TestAppErrorHandler:
 
         # Assert
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "9999" in content
 
     @pytest.mark.asyncio
@@ -348,7 +371,9 @@ class TestAppErrorHandler:
         response = await app_error_handler(mock_request, error)
 
         # Assert
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "spark-123" in content
         assert "user-456" in content
         assert "2025-01-01T12:00:00" in content
@@ -373,7 +398,9 @@ class TestAppErrorHandler:
         # Assert
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         # Cause is not exposed in response (internal detail)
-        content = response.body.decode() if response.body else ""
+        assert response.body is not None
+        assert isinstance(response.body, bytes)
+        content = response.body.decode()
         assert "2001" in content
 
     @pytest.mark.asyncio

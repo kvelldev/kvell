@@ -10,14 +10,25 @@ from typing import Any
 
 from fastapi import Depends
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from redis.asyncio import Redis
 
 from app.adapter.gateways.mongo_health_repository import MongoHealthRepository
+from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+from app.adapter.gateways.redis_rate_limiter import RedisRateLimiter
+from app.adapter.gateways.simple_ip_provider import SimpleIPProvider
 from app.adapter.infra.database import Database
 from app.adapter.infra.logger import JsonLogger
+from app.adapter.infra.redis_client import RedisClient
+from app.adapter.infra.settings import settings
 from app.domain.repository.health_repository import IHealthRepository
+from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.service.identity_provider import IIdentityProvider
+from app.domain.service.rate_limiter import IRateLimiter
 from app.usecase.health_check.interactor import HealthCheckInteractor
 from app.usecase.health_check.interface import IHealthCheckUseCase
 from app.usecase.ports.logger import ILogger
+from app.usecase.post_spark.interactor import PostSparkInteractor
+from app.usecase.post_spark.interface import IPostSparkUseCase
 
 
 def get_db() -> AsyncIOMotorDatabase[Any]:
@@ -84,3 +95,90 @@ def get_health_usecase(
 
     """
     return HealthCheckInteractor(repo, logger)
+
+
+# Spark Dependencies
+
+
+def get_redis() -> Redis:  # type: ignore[type-arg]
+    """Get the Redis client instance.
+
+    Returns:
+        Redis client instance
+
+    """
+    return RedisClient.get_client()
+
+
+def get_spark_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> ISparkRepository:
+    """Get the spark repository instance.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Spark repository instance
+
+    """
+    return MongoSparkRepository(db, logger)
+
+
+def get_identity_provider() -> IIdentityProvider:
+    """Get the identity provider instance.
+
+    Returns:
+        Identity provider instance
+
+    """
+    return SimpleIPProvider(secret_key=settings.identity_secret_key)
+
+
+def get_rate_limiter(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+) -> IRateLimiter:
+    """Get the rate limiter instance.
+
+    Args:
+        redis: Redis client instance (injected)
+
+    Returns:
+        Rate limiter instance
+
+    """
+    return RedisRateLimiter(redis)
+
+
+def get_post_spark_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    identity_provider: IIdentityProvider = Depends(get_identity_provider),
+    rate_limiter: IRateLimiter = Depends(get_rate_limiter),
+    logger: ILogger = Depends(get_logger),
+) -> IPostSparkUseCase:
+    """Get the post spark use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        identity_provider: Identity provider instance (injected)
+        rate_limiter: Rate limiter instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Post spark use case instance
+
+    """
+    return PostSparkInteractor(
+        spark_repository=spark_repository,
+        identity_provider=identity_provider,
+        rate_limiter=rate_limiter,
+        logger=logger,
+        max_length=settings.spark_max_length,
+        rate_limit_count=settings.spark_rate_limit_count,
+        rate_limit_window_seconds=settings.spark_rate_limit_window_seconds,
+        visible_duration_minutes=settings.spark_visible_duration_minutes,
+        ttl_days=settings.spark_ttl_days,
+        ng_words=settings.spark_ng_words_list,
+    )

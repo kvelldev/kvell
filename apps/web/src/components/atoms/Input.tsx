@@ -28,7 +28,7 @@ export const Input = ({
       }}
       placeholder={placeholder}
       disabled={disabled}
-      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+      className="w-full px-4 py-2 bg-night-800 border border-ash-500 rounded-card text-smoke-100 placeholder-ash-500 focus:outline-none focus:shadow-glow-sm disabled:opacity-ash disabled:cursor-not-allowed"
       data-testid={testId}
     />
   );

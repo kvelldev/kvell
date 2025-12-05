@@ -38,8 +38,8 @@ Gherkinの作成にあたり、以下のルールを厳守してください。
     * *BAD:* When ユーザーが"薪"ボタンをクリックする
     * *GOOD:* When ユーザーが種火に薪をくべる
 5.  **Testing Strategy:**
-    * このGherkinは「結合テスト」レベルの振る舞いを記述する。
-    * 単体テストレベルの細かすぎる条件分岐はGherkinに含めず、コードレベルのテストに委譲する意識を持つこと。
+    * このGherkinは「E2Eテスト」レベルの振る舞いを記述する。
+    * 結合・単体テストレベルの細かすぎる条件分岐はGherkinに含めず、コードレベルのテストに委譲する意識を持つこと。
 6.  **BRIEF原則:** Business logic oriented, Real data, Intent revealing, Essential, Focused.
 
 

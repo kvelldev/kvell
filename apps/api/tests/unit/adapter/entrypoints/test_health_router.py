@@ -1,5 +1,6 @@
 """Unit tests for health check router endpoints."""
 
+from collections.abc import Generator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -21,7 +22,7 @@ class TestHealthRouter:
         return AsyncMock(spec=IHealthCheckUseCase)
 
     @pytest.fixture
-    def client(self, mock_usecase: AsyncMock) -> TestClient:
+    def client(self, mock_usecase: AsyncMock) -> Generator[TestClient]:
         """Create test client with mocked use case."""
         app.dependency_overrides[get_health_usecase] = lambda: mock_usecase
         client = TestClient(app)
@@ -161,7 +162,7 @@ class TestHealthRouter:
         response = client.post("/api/health/echo", json=request_body)
 
         # Assert
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         mock_usecase.save_message.assert_not_called()
 
     def test_saveMessage_whenMessageTypeIsInvalid_returns422(
@@ -181,7 +182,7 @@ class TestHealthRouter:
         response = client.post("/api/health/echo", json=request_body)
 
         # Assert
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         mock_usecase.save_message.assert_not_called()
 
     def test_saveMessage_whenMessageIsNull_returns422(
@@ -201,7 +202,7 @@ class TestHealthRouter:
         response = client.post("/api/health/echo", json=request_body)
 
         # Assert
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         mock_usecase.save_message.assert_not_called()
 
     def test_saveMessage_whenJsonIsInvalid_returns422(
@@ -217,12 +218,12 @@ class TestHealthRouter:
         # Act
         response = client.post(
             "/api/health/echo",
-            data="invalid json",
+            content=b"invalid json",
             headers={"Content-Type": "application/json"},
         )
 
         # Assert
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         mock_usecase.save_message.assert_not_called()
 
     def test_getLatest_whenMessageExists_returns200AndData(
@@ -352,12 +353,12 @@ class TestHealthRouter:
         # Act
         response = client.post(
             "/api/health/echo",
-            data=request_body,
+            content=request_body.encode(),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
         # Assert
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         mock_usecase.save_message.assert_not_called()
 
     def test_endpoints_whenWrongMethod_returns405(
