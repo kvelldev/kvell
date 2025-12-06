@@ -22,3 +22,6 @@ class SparkOutput(BaseModel):
     id: str = Field(..., description="Spark ID")
     content: str = Field(..., description="Spark content")
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    visible_until: str = Field(
+        ..., description="Visibility expiration timestamp (ISO format)"
+    )

@@ -4,6 +4,7 @@ This module defines the output port for spark persistence.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 
 from app.domain.model.spark import Spark
 
@@ -34,3 +35,18 @@ class ISparkRepository(ABC):
             The spark if found, None otherwise
 
         """
+
+    @abstractmethod
+    async def find_active_sparks(self, minutes: int) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified minutes.
+
+        Args:
+            minutes: Number of minutes to look back from now
+
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
+
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError

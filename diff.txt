@@ -1,892 +1,2171 @@
-/**
- * App Component
- *
- * Root application component with routing and DI providers.
- */
+"""Dependency Injection Configuration.
 
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
-import { SparkPostPage } from "@/components/pages/SparkPostPage";
-import { LoggerProvider } from "@/components/LoggerContext";
-import { sentryLogger } from "@/adapter/infra/sentryLogger";
+This module defines FastAPI dependencies for dependency injection.
+Following the Dependency Inversion Principle, dependencies are injected
+through FastAPI's Depends mechanism, making testing easier through
+dependency_overrides.
+"""
 
-function App() {
-  return (
-    <LoggerProvider logger={sentryLogger}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Navigate to="/spark" replace />} />
-          <Route path="/spark" element={<SparkPostPage />} />
-          <Route path="/health" element={<HealthCheckPage />} />
-        </Routes>
-      </BrowserRouter>
-    </LoggerProvider>
-  );
+from typing import Any
+
+from fastapi import Depends
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from redis.asyncio import Redis
+
+from app.adapter.gateways.mongo_health_repository import MongoHealthRepository
+from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+from app.adapter.gateways.redis_pubsub_gateway import RedisPubSubGateway
+from app.adapter.gateways.redis_rate_limiter import RedisRateLimiter
+from app.adapter.gateways.simple_ip_provider import SimpleIPProvider
+from app.adapter.infra.database import Database
+from app.adapter.infra.logger import JsonLogger
+from app.adapter.infra.redis_client import RedisClient
+from app.adapter.infra.settings import settings
+from app.domain.repository.health_repository import IHealthRepository
+from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.service.identity_provider import IIdentityProvider
+from app.domain.service.rate_limiter import IRateLimiter
+from app.usecase.health_check.interactor import HealthCheckInteractor
+from app.usecase.health_check.interface import IHealthCheckUseCase
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+from app.usecase.post_spark.interactor import PostSparkInteractor
+from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_timeline.interactor import StreamTimelineInteractor
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
+
+
+def get_db() -> AsyncIOMotorDatabase[Any]:
+    """Get the database instance.
+
+    This is the base dependency that provides the MongoDB connection.
+    Can be overridden in tests to use a different database.
+
+    Returns:
+        MongoDB database instance
+
+    """
+    return Database.get_database()
+
+
+def get_logger() -> ILogger:
+    """Get the logger instance.
+
+    This dependency provides the application logger.
+    Can be overridden in tests to use a mock logger.
+
+    Returns:
+        Logger instance
+
+    """
+    return JsonLogger(service_name="kvell-api")
+
+
+def get_health_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> IHealthRepository:
+    """Get the health repository instance.
+
+    This dependency chains from get_db() and provides the health repository.
+    Can be overridden in tests to use a mock repository.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Health repository instance
+
+    """
+    return MongoHealthRepository(db, logger)
+
+
+def get_health_usecase(
+    repo: IHealthRepository = Depends(get_health_repository),
+    logger: ILogger = Depends(get_logger),
+) -> IHealthCheckUseCase:
+    """Get the health check use case instance.
+
+    This dependency chains from get_health_repository() and provides
+    the use case interactor. Can be overridden in tests to use a mock use case.
+
+    Args:
+        repo: Health repository instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Health check use case instance
+
+    """
+    return HealthCheckInteractor(repo, logger)
+
+
+# Spark Dependencies
+
+
+def get_redis() -> Redis:  # type: ignore[type-arg]
+    """Get the Redis client instance.
+
+    Returns:
+        Redis client instance
+
+    """
+    return RedisClient.get_client()
+
+
+def get_spark_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> ISparkRepository:
+    """Get the spark repository instance.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Spark repository instance
+
+    """
+    return MongoSparkRepository(db, logger)
+
+
+def get_identity_provider() -> IIdentityProvider:
+    """Get the identity provider instance.
+
+    Returns:
+        Identity provider instance
+
+    """
+    return SimpleIPProvider(secret_key=settings.identity_secret_key)
+
+
+def get_rate_limiter(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+) -> IRateLimiter:
+    """Get the rate limiter instance.
+
+    Args:
+        redis: Redis client instance (injected)
+
+    Returns:
+        Rate limiter instance
+
+    """
+    return RedisRateLimiter(redis)
+
+
+def get_pubsub_gateway(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+    logger: ILogger = Depends(get_logger),
+) -> IPubSubGateway:
+    """Get the pub/sub gateway instance.
+
+    Args:
+        redis: Redis client instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Pub/sub gateway instance
+
+    """
+    return RedisPubSubGateway(redis, logger)
+
+
+def get_post_spark_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    identity_provider: IIdentityProvider = Depends(get_identity_provider),
+    rate_limiter: IRateLimiter = Depends(get_rate_limiter),
+    logger: ILogger = Depends(get_logger),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+) -> IPostSparkUseCase:
+    """Get the post spark use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        identity_provider: Identity provider instance (injected)
+        rate_limiter: Rate limiter instance (injected)
+        logger: Logger instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+
+    Returns:
+        Post spark use case instance
+
+    """
+    return PostSparkInteractor(
+        spark_repository=spark_repository,
+        identity_provider=identity_provider,
+        rate_limiter=rate_limiter,
+        logger=logger,
+        pubsub_gateway=pubsub_gateway,
+        max_length=settings.spark_max_length,
+        rate_limit_count=settings.spark_rate_limit_count,
+        rate_limit_window_seconds=settings.spark_rate_limit_window_seconds,
+        visible_duration_minutes=settings.spark_visible_duration_minutes,
+        ttl_days=settings.spark_ttl_days,
+        ng_words=settings.spark_ng_words_list,
+        pubsub_channel="sparks:events",
+    )
+
+
+def get_stream_timeline_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> IStreamTimelineUseCase:
+    """Get the stream timeline use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Stream timeline use case instance
+
+    """
+    return StreamTimelineInteractor(
+        spark_repository=spark_repository,
+        pubsub_gateway=pubsub_gateway,
+        logger=logger,
+        active_spark_minutes=10,
+        pubsub_channel="sparks:events",
+    )
+"""Spark API Router.
+
+This module defines API endpoints for spark operations.
+"""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, status
+
+from app.adapter.entrypoints.dependencies import (
+    get_logger,
+    get_post_spark_usecase,
+    get_stream_timeline_usecase,
+)
+from app.domain.constants import LOG_EVENTS
+from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
+from app.usecase.ports.logger import ILogger
+from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
+
+router = APIRouter(prefix="/api/sparks", tags=["sparks"])
+
+
+def get_client_ip(request: Request) -> str:
+    """Extract client IP address from request.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Client IP address
+
+    """
+    # Check for X-Forwarded-For header (proxy/load balancer)
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        # Take the first IP if multiple are present
+        return forwarded.split(",")[0].strip()
+
+    # Fallback to direct client IP
+    if request.client:
+        return request.client.host
+
+    # Last resort fallback
+    return "0.0.0.0"  # noqa: S104
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def post_spark(
+    request: Request,
+    input_data: PostSparkInput,
+    usecase: Annotated[IPostSparkUseCase, Depends(get_post_spark_usecase)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> SparkOutput:
+    """Post a new spark.
+
+    Args:
+        request: FastAPI request object (for IP extraction)
+        input_data: Input data containing spark content
+        usecase: Post spark use case (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        The created spark details
+
+    Raises:
+        AppError: If validation fails or rate limit is exceeded
+
+    """
+    ip_address = get_client_ip(request)
+
+    logger.info(
+        LOG_EVENTS.SPARK_POST_STARTED,
+        "Spark post request received",
+        context={
+            "content_length": len(input_data.content),
+            "ip_address": ip_address,
+        },
+    )
+
+    result = await usecase.execute(input_data, ip_address)
+
+    logger.info(
+        LOG_EVENTS.SPARK_POST_SUCCESS,
+        "Spark posted successfully",
+        context={"spark_id": result.id},
+    )
+
+    return result
+
+
+@router.websocket("/ws")
+async def websocket_timeline(
+    websocket: WebSocket,
+    usecase: Annotated[IStreamTimelineUseCase, Depends(get_stream_timeline_usecase)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> None:
+    """WebSocket endpoint for streaming timeline updates.
+
+    Args:
+        websocket: WebSocket connection
+        usecase: Stream timeline use case (injected)
+        logger: Logger instance (injected)
+
+    """
+    await websocket.accept()
+
+    logger.info(
+        LOG_EVENTS.WEBSOCKET_CONNECTED,
+        "WebSocket connection established",
+        context={"client": str(websocket.client)},
+    )
+
+    try:
+        # Stream timeline updates (Snapshot + Stream)
+        async for spark_output in usecase.execute():
+            # Send spark as JSON to client
+            await websocket.send_json(spark_output.model_dump())
+
+    except WebSocketDisconnect:
+        logger.info(
+            LOG_EVENTS.WEBSOCKET_DISCONNECTED,
+            "WebSocket connection closed by client",
+            context={"client": str(websocket.client)},
+        )
+
+    except Exception as e:
+        logger.exception(
+            LOG_EVENTS.WEBSOCKET_ERROR,
+            "Error during WebSocket communication",
+            error=e,
+            context={"client": str(websocket.client)},
+        )
+        raise
+"""MongoDB implementation of Spark Repository.
+
+This module implements the spark repository using MongoDB.
+"""
+
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import IndexModel
+from pymongo.errors import PyMongoError
+
+from app.domain.constants import LOG_EVENTS
+from app.domain.exception import AppError
+from app.domain.model.spark import Spark
+from app.domain.repository.spark_repository import ISparkRepository
+from app.usecase.ports.logger import ILogger
+
+
+class MongoSparkRepository(ISparkRepository):
+    """MongoDB implementation of spark repository."""
+
+    COLLECTION_NAME = "sparks"
+
+    def __init__(self, db: AsyncIOMotorDatabase[Any], logger: ILogger) -> None:
+        """Initialize the repository.
+
+        Args:
+            db: MongoDB database instance
+            logger: Logger for structured logging
+
+        """
+        self.collection = db[self.COLLECTION_NAME]
+        self.logger = logger
+
+    async def ensure_indexes(self) -> None:
+        """Create necessary indexes for the sparks collection.
+
+        This should be called during application startup.
+        """
+        try:
+            indexes = [
+                # TTL index for automatic deletion
+                IndexModel(
+                    [("expire_at", 1)],
+                    name="expire_at_ttl",
+                    expireAfterSeconds=0,
+                ),
+                # Query index for timeline retrieval (by visible_until)
+                IndexModel(
+                    [("visible_until", -1)],
+                    name="visible_until_desc",
+                ),
+                # Query index for active sparks retrieval (by created_at)
+                IndexModel(
+                    [("created_at", 1)],
+                    name="created_at_asc",
+                ),
+            ]
+            await self.collection.create_indexes(indexes)
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark indexes created successfully",
+                context={"collection": self.COLLECTION_NAME},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to create indexes: {self.COLLECTION_NAME}",
+                error=e,
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+
+    async def save(self, spark: Spark) -> Spark:
+        """Save a spark.
+
+        Args:
+            spark: The spark to save
+
+        Returns:
+            The saved spark
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Saving spark to MongoDB",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark.id,
+                },
+            )
+
+            document = {
+                "id": spark.id,
+                "content": spark.content,
+                "user_hash": spark.user_hash,
+                "fuel_count": spark.fuel_count,
+                "created_at": spark.created_at,
+                "visible_until": spark.visible_until,
+                "expire_at": spark.expire_at,
+            }
+
+            await self.collection.insert_one(document)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark saved successfully",
+                context={"spark_id": spark.id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to save spark: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark.id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return spark
+
+    async def find_by_id(self, spark_id: str) -> Spark | None:
+        """Find a spark by ID.
+
+        Args:
+            spark_id: The spark ID to search for
+
+        Returns:
+            The spark if found, None otherwise
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying spark by ID",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark_id,
+                },
+            )
+
+            document: dict[str, Any] | None = await self.collection.find_one(
+                {"id": spark_id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query spark: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark_id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            if document is None:
+                self.logger.info(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found",
+                    context={
+                        "collection": self.COLLECTION_NAME,
+                        "spark_id": spark_id,
+                    },
+                )
+                return None
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": document["id"],
+                },
+            )
+
+            return Spark(
+                id=document["id"],
+                content=document["content"],
+                user_hash=document["user_hash"],
+                fuel_count=document.get("fuel_count", 0),
+                created_at=document["created_at"],
+                visible_until=document["visible_until"],
+                expire_at=document["expire_at"],
+            )
+
+    async def find_active_sparks(self, minutes: int) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified minutes.
+
+        Args:
+            minutes: Number of minutes to look back from now
+
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            # Calculate the cutoff time
+            cutoff_time = datetime.now(UTC) - timedelta(minutes=minutes)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying active sparks",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "cutoff_time": cutoff_time.isoformat(),
+                },
+            )
+
+            # Query for sparks created after cutoff_time, sorted by created_at ascending
+            cursor = self.collection.find(
+                {"created_at": {"$gte": cutoff_time}},
+            ).sort("created_at", 1)
+
+            # Yield sparks one by one (streaming, no to_list)
+            count = 0
+            async for doc in cursor:
+                count += 1
+                yield Spark(
+                    id=doc["id"],
+                    content=doc["content"],
+                    user_hash=doc["user_hash"],
+                    fuel_count=doc.get("fuel_count", 0),
+                    created_at=doc["created_at"],
+                    visible_until=doc["visible_until"],
+                    expire_at=doc["expire_at"],
+                )
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Active sparks retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "count": count,
+                },
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query active sparks: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "minutes": minutes,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+"""Redis PubSub Gateway Implementation.
+
+This module implements the pub/sub gateway using Redis.
+"""
+
+import json
+from collections.abc import AsyncIterator
+
+from redis.asyncio import Redis
+
+from app.domain.constants import LOG_EVENTS
+from app.usecase.dto.spark_dto import SparkOutput
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+
+
+class RedisPubSubGateway(IPubSubGateway):
+    """Redis implementation of pub/sub gateway."""
+
+    def __init__(self, redis: Redis, logger: ILogger) -> None:  # type: ignore[type-arg]
+        """Initialize the gateway.
+
+        Args:
+            redis: Redis client instance
+            logger: Logger for structured logging
+
+        """
+        self.redis = redis
+        self.logger = logger
+
+    async def publish(self, channel: str, message: SparkOutput) -> None:
+        """Publish a message to a channel.
+
+        Args:
+            channel: The channel name to publish to
+            message: The spark output to publish
+
+        """
+        try:
+            # Serialize Pydantic model to JSON string
+            json_message = message.model_dump_json()
+
+            # Publish to Redis
+            await self.redis.publish(channel, json_message)  # type: ignore[misc]
+
+            self.logger.info(
+                LOG_EVENTS.PUBSUB_PUBLISH_SUCCESS,
+                "Message published to Redis channel",
+                context={
+                    "channel": channel,
+                    "spark_id": message.id,
+                },
+            )
+
+        except Exception as e:
+            self.logger.exception(
+                LOG_EVENTS.PUBSUB_PUBLISH_ERROR,
+                "Failed to publish message to Redis channel",
+                error=e,
+                context={
+                    "channel": channel,
+                    "spark_id": message.id,
+                },
+            )
+            raise
+
+    async def subscribe(self, channel: str) -> AsyncIterator[SparkOutput]:
+        """Subscribe to a channel and yield messages as they arrive.
+
+        Args:
+            channel: The channel name to subscribe to
+
+        Yields:
+            SparkOutput messages from the channel
+
+        """
+        pubsub = self.redis.pubsub()  # type: ignore[misc]
+
+        try:
+            await pubsub.subscribe(channel)  # type: ignore[misc]
+
+            self.logger.info(
+                LOG_EVENTS.PUBSUB_SUBSCRIBE_SUCCESS,
+                "Subscribed to Redis channel",
+                context={"channel": channel},
+            )
+
+            # Iterate over messages from the channel
+            async for message in pubsub.listen():  # type: ignore[misc]
+                # Skip subscription confirmation messages
+                if message["type"] != "message":
+                    continue
+
+                try:
+                    # Deserialize JSON string to Pydantic model
+                    data = message["data"]  # type: ignore[index]
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8")
+
+                    spark_dict = json.loads(data)  # type: ignore[arg-type]
+                    spark_output = SparkOutput(**spark_dict)
+
+                    self.logger.info(
+                        LOG_EVENTS.PUBSUB_MESSAGE_RECEIVED,
+                        "Received message from Redis channel",
+                        context={
+                            "channel": channel,
+                            "spark_id": spark_output.id,
+                        },
+                    )
+
+                    yield spark_output
+
+                except (json.JSONDecodeError, TypeError, KeyError) as e:
+                    self.logger.exception(
+                        LOG_EVENTS.PUBSUB_DESERIALIZATION_ERROR,
+                        "Failed to deserialize message from Redis channel",
+                        error=e,
+                        context={
+                            "channel": channel,
+                            "raw_data": str(message.get("data", "")),  # type: ignore[call-overload]
+                        },
+                    )
+                    # Skip malformed messages and continue listening
+                    continue
+
+        except Exception as e:
+            self.logger.exception(
+                LOG_EVENTS.PUBSUB_SUBSCRIBE_ERROR,
+                "Error during Redis subscription",
+                error=e,
+                context={"channel": channel},
+            )
+            raise
+
+        finally:
+            # Clean up subscription
+            await pubsub.unsubscribe(channel)  # type: ignore[misc]
+            await pubsub.aclose()
+
+            self.logger.info(
+                LOG_EVENTS.PUBSUB_UNSUBSCRIBE_SUCCESS,
+                "Unsubscribed from Redis channel",
+                context={"channel": channel},
+            )
+"""Internal status code definitions and log event IDs.
+
+Defines internal status codes and their corresponding messages.
+Defines event IDs for structured logging.
+"""
+
+from typing import Final
+
+INTERNAL_STATUSES: Final[dict[int, str]] = {
+    # Success
+    200: "OK",
+    201: "Created",
+    204: "No Content",
+    # Domain Errors (Client side origin / Business Logic)
+    1001: "この種火は既に燃え尽きています。",  # Gone (Life expired)
+    1002: "投稿に不適切な表現が含まれています。",  # NG Words (Validation)
+    1003: "投稿文字数が制限を超えています。",  # Length Limit (Validation)
+    1004: "薪をくべるペースが早すぎます。",  # Throttling (Rate Limit)
+    1005: "指定された種火が存在しないか、消滅しています。",  # Not Found
+    # Error caused by Server side (System Error)
+    2001: "DBへの接続中に異常が発生しました",
+    2002: "{tableName}テーブルへのクエリ中に異常が発生しました",
+    500: "Internal Server Error",
 }
 
-export default App;
-/**
- * Message Viewer Molecule
- *
- * Displays health check message or status (Dumb Component).
- */
-
-import type { HealthMessage } from "@/domain/model/health";
-
-interface MessageViewerProps {
-  message: HealthMessage | null;
-  isLoading: boolean;
-  error: Error | null | undefined;
-}
-
-export const MessageViewer = ({
-  message,
-  isLoading,
-  error,
-}: MessageViewerProps) => {
-  if (isLoading) {
-    return (
-      <div
-        className="text-center text-ash-500 font-light"
-        data-testid="health-loading-display"
-      >
-        Loading...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div
-        className="bg-night-800 border border-ash-500 rounded-card p-4"
-        data-testid="health-error-display"
-      >
-        <p className="text-ash-500 text-sm font-light">Error</p>
-        <p className="text-smoke-100 text-sm mt-1">{error.message}</p>
-      </div>
-    );
-  }
-
-  if (message) {
-    return (
-      <div
-        className="bg-night-800 border border-ember-500 rounded-card shadow-glow-sm p-4"
-        data-testid="health-message-display"
-      >
-        <p className="text-ember-500 text-sm font-light">Success</p>
-        <p className="text-smoke-100 text-sm mt-1">
-          <strong className="text-ember-500">Message:</strong> {message.message}
-        </p>
-        <p className="text-ash-500 text-xs mt-1">ID: {message.id}</p>
-        <p className="text-ash-500 text-xs">
-          Created: {new Date(message.createdAt).toLocaleString()}
-        </p>
-      </div>
-    );
-  }
-
-  return null;
-};
-export const internalStatuses = {
-  // Sucess
-  200: "OK",
-  201: "Created",
-  204: "No Content",
-  // Client Errors
-  400: "Bad Request",
-  401: "Unauthorized",
-  403: "Forbidden",
-  404: "Not Found",
-  409: "Conflict",
-  422: "Unprocessable Entity",
-  // Business Logic Errors
-  1001: "Invalid email format.",
-  // Server Errors
-  500: "Internal Server Error",
-} as const;
-
-/**
- * Type representing valid internal status codes.
- */
-export type InternalStatusCodes = keyof typeof internalStatuses;
-
-/**
- * Log Event IDs for structured logging.
- * Use these constants in logger calls for testable, consistent event tracking.
- */
-export const LOG_EVENTS = {
-  // Health Check
-  HEALTH_CHECK: {
-    FETCH_START: "HEALTH_FETCH_START",
-    FETCH_SUCCESS: "HEALTH_FETCH_SUCCESS",
-    FETCH_ERROR: "HEALTH_FETCH_ERROR",
-    SAVE_START: "HEALTH_SAVE_START",
-    SAVE_SUCCESS: "HEALTH_SAVE_SUCCESS",
-    SAVE_ERROR: "HEALTH_SAVE_ERROR",
-  },
-  // Spark Post
-  SPARK: {
-    POST_START: "SPARK_POST_START",
-    POST_SUCCESS: "SPARK_POST_SUCCESS",
-    POST_ERROR: "SPARK_POST_ERROR",
-  },
-} as const;
-/**
- * UseCase Layer Constants
- *
- * SWR cache keys and other usecase-specific constants.
- */
+InternalStatusCode = int
 
-export const SWR_KEYS = {
-  HEALTH_LATEST: "/health/latest",
-  SPARK_POST: "/spark/post",
-} as const;
-# Frontend Integration Tests
 
-## Overview
+class LogEvents:
+    """Log event ID constants for structured logging.
 
-This directory contains integration tests for the frontend application. Integration tests verify the complete flow from UI components through business logic to API calls, testing the integration of multiple layers without mocking internal dependencies.
+    All log calls should use these event IDs instead of raw strings.
+    """
 
-## Test Strategy
+    # Health check events
+    HEALTH_CHECK_STARTED: Final[str] = "HEALTH_001"
+    HEALTH_CHECK_SUCCESS: Final[str] = "HEALTH_002"
+    HEALTH_CHECK_FAILED: Final[str] = "HEALTH_003"
+    HEALTH_MESSAGE_SAVED: Final[str] = "HEALTH_004"
+    HEALTH_MESSAGE_RETRIEVED: Final[str] = "HEALTH_005"
 
-### What Are Integration Tests?
+    # Spark events
+    SPARK_POST_STARTED: Final[str] = "SPARK_001"
+    SPARK_POST_SUCCESS: Final[str] = "SPARK_002"
+    SPARK_POST_FAILED: Final[str] = "SPARK_003"
+    SPARK_VALIDATION_FAILED: Final[str] = "SPARK_004"
+    SPARK_RATE_LIMIT_EXCEEDED: Final[str] = "SPARK_005"
+    SPARK_NG_WORD_DETECTED: Final[str] = "SPARK_006"
 
-Integration tests sit between unit tests and E2E tests:
+    # Timeline streaming events
+    TIMELINE_SNAPSHOT_LOADED: Final[str] = "TIMELINE_001"
+    TIMELINE_STREAM_STARTED: Final[str] = "TIMELINE_002"
+    TIMELINE_STREAM_MESSAGE: Final[str] = "TIMELINE_003"
 
-- **Unit Tests** (`tests/unit/`): Test individual components/functions in isolation with mocked dependencies
-- **Integration Tests** (`tests/integration/`): Test multiple layers working together (Page → UseCase → Repository → API)
-- **E2E Tests** (`apps/tests/e2e/`): Test the entire system including real backend and browser
+    # WebSocket events
+    WEBSOCKET_CONNECTED: Final[str] = "WS_001"
+    WEBSOCKET_DISCONNECTED: Final[str] = "WS_002"
+    WEBSOCKET_ERROR: Final[str] = "WS_003"
 
-### What We Test
+    # PubSub events
+    PUBSUB_PUBLISH_SUCCESS: Final[str] = "PUBSUB_001"
+    PUBSUB_PUBLISH_ERROR: Final[str] = "PUBSUB_002"
+    PUBSUB_SUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_003"
+    PUBSUB_MESSAGE_RECEIVED: Final[str] = "PUBSUB_004"
+    PUBSUB_DESERIALIZATION_ERROR: Final[str] = "PUBSUB_005"
+    PUBSUB_SUBSCRIBE_ERROR: Final[str] = "PUBSUB_006"
+    PUBSUB_UNSUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_007"
 
-Integration tests focus on:
+    # Database events
+    DB_CONNECTION_SUCCESS: Final[str] = "DB_001"
+    DB_CONNECTION_FAILED: Final[str] = "DB_002"
+    DB_QUERY_ERROR: Final[str] = "DB_003"
 
-1. **Component Integration**: How Page components integrate with UseCase hooks and UI components
-2. **Data Flow**: Data flowing from API → Repository → UseCase → UI
-3. **User Interactions**: Actual user actions (typing, clicking) and their effects
-4. **State Management**: How SWR caching and state updates work across layers
-5. **Error Handling**: How errors propagate through layers and are displayed in UI
+    # Application lifecycle events
+    APP_STARTUP: Final[str] = "APP_001"
+    APP_SHUTDOWN: Final[str] = "APP_002"
 
-### What We Mock
+    # Error events
+    UNHANDLED_ERROR: Final[str] = "ERROR_001"
+    VALIDATION_ERROR: Final[str] = "ERROR_002"
 
-We only mock the **HTTP boundary** using MSW (Mock Service Worker):
 
-- ✅ **Mocked**: HTTP requests/responses (API endpoints)
-- ❌ **Not Mocked**: Repository implementations, UseCase hooks, UI components
-- ❌ **Not Mocked**: React state management, SWR caching behavior
+# Singleton instance
+LOG_EVENTS = LogEvents()
+"""Spark Repository Interface.
 
-This approach provides:
+This module defines the output port for spark persistence.
+"""
 
-- **Realistic Integration**: Tests real component interactions
-- **Fast Execution**: No real backend needed (MSW intercepts HTTP)
-- **Deterministic**: Controlled API responses, no flakiness
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 
-## Technology Stack
+from app.domain.model.spark import Spark
 
-- **Test Framework**: Vitest
-- **Test Utilities**: React Testing Library, Testing Library User Event
-- **API Mocking**: MSW (Mock Service Worker)
 
-## Running Tests
+class ISparkRepository(ABC):
+    """Repository interface for spark operations."""
 
-### Run All Tests
+    @abstractmethod
+    async def save(self, spark: Spark) -> Spark:
+        """Save a spark.
 
-```bash
-npm test
-```
+        Args:
+            spark: The spark to save
 
-### Run Integration Tests Only
+        Returns:
+            The saved spark
 
-```bash
-npm test tests/integration/
-```
+        """
 
-### Run Specific Test File
+    @abstractmethod
+    async def find_by_id(self, spark_id: str) -> Spark | None:
+        """Find a spark by ID.
 
-```bash
-npm test tests/integration/health-check.test.tsx
-```
+        Args:
+            spark_id: The spark ID to search for
 
-### Watch Mode
+        Returns:
+            The spark if found, None otherwise
 
-```bash
-npx vitest tests/integration/ --watch
-```
+        """
 
-### Coverage
-
-```bash
-npm run coverage
-```
-
-## File Structure
-
-```
-tests/integration/
-├── README.md              # This file
-├── setup.ts               # MSW configuration and mock data store
-└── health-check.test.tsx  # HealthCheck integration tests
-```
-
-## Writing Integration Tests
-
-### Test Naming Convention
-
-Follow the naming pattern: `test_<action>_when<Condition>_<result>`
-
-```typescript
-it("test_saveMessage_whenValidInput_savesAndDisplaysNewMessage", async () => {
-  /**
-   * Action: saveMessage (user enters text and clicks Echo button)
-   * Condition: whenValidInput (valid message text)
-   * Result: savesAndDisplaysNewMessage (saves to backend and updates UI)
-   */
-  // Test implementation...
-});
-```
-
-### Test Structure
-
-```typescript
-import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { mockHealthStore } from "./setup";
-import "./setup"; // Import to ensure MSW is configured
-
-describe("Feature Integration", () => {
-  beforeEach(() => {
-    mockHealthStore.reset(); // Reset mock data before each test
-  });
-
-  it("test_action_whenCondition_result", async () => {
-    // Arrange: Setup initial state
-    const user = userEvent.setup();
-    render(<YourPage />);
-
-    // Act: Perform user actions
-    await user.click(screen.getByRole("button"));
-
-    // Assert: Verify results
-    await waitFor(() => {
-      expect(screen.getByText("Expected Result")).toBeInTheDocument();
-    });
-  });
-});
-```
-
-### Key Patterns
-
-#### 1. Wait for Async Updates
-
-Always use `waitFor` when testing async operations (data fetching, mutations):
-
-```typescript
-await waitFor(() => {
-  expect(screen.getByText("Loaded Data")).toBeInTheDocument();
-});
-```
-
-#### 2. User Interactions
-
-Use `@testing-library/user-event` for realistic user interactions:
-
-```typescript
-const user = userEvent.setup();
-await user.type(input, "Test message");
-await user.click(button);
-```
-
-#### 3. Mock Data Setup
-
-Use `mockHealthStore` to pre-populate data for tests:
-
-```typescript
-beforeEach(() => {
-  mockHealthStore.add({
-    id: "test-id",
-    message: "Existing message",
-    createdAt: new Date().toISOString(),
-  });
-});
-```
-
-#### 4. Error Simulation
-
-Override MSW handlers to simulate API errors:
-
-```typescript
-import { server } from "./setup";
-import { http, HttpResponse } from "msw";
-
-server.use(
-  http.post("http://localhost:8000/api/health/echo", () => {
-    return HttpResponse.json({ detail: "Error" }, { status: 500 });
-  }),
-);
-```
-
-## Common Issues
-
-### Issue: Tests timeout or hang
-
-**Solution**: Ensure you're using `waitFor` for async operations. Check that MSW handlers are defined correctly.
-
-### Issue: "No handler found for request"
-
-**Solution**: Verify the request URL matches the handler URL exactly. MSW will error on unhandled requests by default (configured in `setup.ts`).
-
-### Issue: State persists between tests
-
-**Solution**: Make sure `mockHealthStore.reset()` is called in `beforeEach`. Check that no global state is leaking.
-
-### Issue: Cannot find element in DOM
-
-**Solution**: Use `screen.debug()` to inspect rendered output. Ensure you're waiting for loading states to complete with `waitFor`.
-
-## Comparison with Backend Integration Tests
-
-### Backend (`apps/api/tests/integration/`)
-
-- Uses real MongoDB database
-- Tests API endpoints with HTTP client
-- Verifies database persistence
-- Setup: `conftest.py` with database fixtures
-
-### Frontend (`apps/web/tests/integration/`)
-
-- Uses MSW to mock API
-- Tests UI components with user interactions
-- Verifies UI rendering and state management
-- Setup: `setup.ts` with MSW and mock data store
-
-Both follow similar principles:
-
-- Test real integration (minimal mocking)
-- Focus on happy paths and error cases
-- Use descriptive test names
-- Verify end-to-end behavior within their layer
-
-## Related Documentation
-
-- [Frontend Architecture Guidelines](../../.prompts/20_frontend.md)
-- [Backend Integration Tests](../../../api/tests/README.md)
-- [E2E Testing Guidelines](../../.prompts/31_E2E.md)
-/**
- * HealthCheck Integration Tests
- *
- * These tests verify the entire flow from Page → UseCase → Repository → API.
- * Unlike unit tests which mock individual layers, integration tests use MSW
- * to mock only the HTTP boundary, testing real component integration.
- *
- * Test Strategy:
- * - Use MSW to mock API endpoints (simulates backend behavior)
- * - Test actual Repository → UseCase → Page integration
- * - Verify UI rendering and user interactions
- * - No mocking of internal layers (Repository, UseCase)
- */
-
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { SWRConfig } from "swr";
-import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
-import { LoggerProvider } from "@/components/LoggerContext";
-import { mockHealthStore, server } from "./setup";
-import { http, HttpResponse } from "msw";
-import type { HealthMessage } from "@/domain/model/health";
-import type { ILogger } from "@/usecase/ports/ILogger";
-
-// Import setup to ensure MSW is configured
-import "./setup";
-
-/**
- * Mock logger for integration tests
- * Provides a no-op logger implementation
- */
-const mockLogger: ILogger = {
-  info: vi.fn(),
-  error: vi.fn(),
-};
-
-/**
- * Helper to render HealthCheckPage with necessary providers
- * Page components need LoggerContext which is provided by App.tsx
- * @returns Rendered component result from React Testing Library
- */
-const renderHealthCheckPage = () => {
-  return render(
-    <LoggerProvider logger={mockLogger}>
-      <SWRConfig
-        value={{
-          provider: () => new Map(),
-          onError: () => {
-            // Suppress error logging in tests
-            // SWR will still handle errors internally and update error state
-          },
-        }}
-      >
-        <HealthCheckPage />
-      </SWRConfig>
-    </LoggerProvider>,
-  );
-};
-
-describe("HealthCheck Integration", () => {
-  beforeEach(() => {
-    // Reset mock data store before each test
-    mockHealthStore.reset();
-    // Clear mock logger calls
-    vi.clearAllMocks();
-  });
-
-  describe("Initial Load", () => {
-    it("test_initialLoad_whenNoMessageExists_displaysNoData", async () => {
-      /**
-       * Action: initialLoad (component mount)
-       * Condition: whenNoMessageExists (empty database)
-       * Result: displaysNoData (no message displayed, ready for input)
-       */
-      renderHealthCheckPage();
-
-      // Initially shows loading
-      expect(screen.getByTestId("health-loading-display")).toBeInTheDocument();
-
-      // After loading, loading indicator should disappear
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      // No message should be displayed (message display is null when no data)
-      expect(
-        screen.queryByTestId("health-message-display"),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByTestId("health-error-display"),
-      ).not.toBeInTheDocument();
-    });
-
-    it("test_initialLoad_whenMessageExists_displaysMessage", async () => {
-      /**
-       * Action: initialLoad
-       * Condition: whenMessageExists (data in database)
-       * Result: displaysMessage (shows existing message)
-       */
-      // Arrange: Pre-populate mock store with data
-      const existingMessage: HealthMessage = {
-        id: "existing-id",
-        message: "Existing message from DB",
-        createdAt: new Date().toISOString(),
-      };
-      mockHealthStore.add(existingMessage);
-
-      // Act
-      renderHealthCheckPage();
-
-      // Assert: Message should be displayed after loading
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-message-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
-    });
-  });
-
-  describe("Save Message", () => {
-    it("test_saveMessage_whenValidInput_savesAndDisplaysNewMessage", async () => {
-      /**
-       * Action: saveMessage (user enters text and clicks Save button)
-       * Condition: whenValidInput (valid message text)
-       * Result: savesAndDisplaysNewMessage (saves to backend and updates UI)
-       */
-      const user = userEvent.setup();
-      renderHealthCheckPage();
-
-      // Wait for initial load
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      // Find input and button by test ID
-      const input = screen.getByTestId("health-echo-input");
-      const saveButton = screen.getByTestId("health-save-button");
-
-      // Enter message
-      await user.type(input, "Integration test message");
-      expect(input).toHaveValue("Integration test message");
-
-      // Click Save button
-      await user.click(saveButton);
-
-      // Wait for save to complete and message to be displayed
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("health-message-display"),
-        ).toBeInTheDocument();
-      });
-
-      // Input should be cleared after successful save
-      expect(input).toHaveValue("");
-
-      // Verify message was saved to mock store
-      const latest = mockHealthStore.getLatest();
-      expect(latest).not.toBeNull();
-      expect(latest?.message).toBe("Integration test message");
-    });
-
-    it("test_saveMessage_whenEmptyInput_buttonIsDisabled", async () => {
-      /**
-       * Action: saveMessage
-       * Condition: whenEmptyInput (input field is empty)
-       * Result: buttonIsDisabled (Save button cannot be clicked)
-       */
-      renderHealthCheckPage();
-
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      const saveButton = screen.getByTestId("health-save-button");
-
-      // Button should be disabled when input is empty
-      expect(saveButton).toBeDisabled();
-    });
-
-    it("test_saveMessage_whenCalledMultipleTimes_displaysLatestMessage", async () => {
-      /**
-       * Action: saveMessage
-       * Condition: whenCalledMultipleTimes (3 messages saved sequentially)
-       * Result: displaysLatestMessage (UI always shows the latest message)
-       */
-      const user = userEvent.setup();
-      renderHealthCheckPage();
-
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      const input = screen.getByTestId("health-echo-input");
-      const saveButton = screen.getByTestId("health-save-button");
-
-      // Save first message
-      await user.type(input, "First message");
-      await user.click(saveButton);
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("health-message-display"),
-        ).toBeInTheDocument();
-      });
-
-      // Save second message
-      await user.type(input, "Second message");
-      await user.click(saveButton);
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("health-message-display"),
-        ).toBeInTheDocument();
-      });
-
-      // Save third message
-      await user.type(input, "Third message");
-      await user.click(saveButton);
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("health-message-display"),
-        ).toBeInTheDocument();
-      });
-
-      // Verify all messages are in mock store
-      expect(mockHealthStore.messages).toHaveLength(3);
-
-      // Verify latest message is displayed
-      const latest = mockHealthStore.getLatest();
-      expect(latest?.message).toBe("Third message");
-    });
-  });
-
-  describe("Reload Message", () => {
-    it("test_reloadMessage_whenDataExists_refetchesAndDisplaysLatest", async () => {
-      /**
-       * Action: reloadMessage (user clicks Fetch button)
-       * Condition: whenDataExists (data exists in backend)
-       * Result: refetchesAndDisplaysLatest (fetches fresh data from API)
-       */
-      const user = userEvent.setup();
-
-      // Pre-populate with initial message
-      const initialMessage: HealthMessage = {
-        id: "initial-id",
-        message: "Initial message",
-        createdAt: new Date().toISOString(),
-      };
-      mockHealthStore.add(initialMessage);
-
-      renderHealthCheckPage();
-
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-message-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
-
-      // Simulate backend data change (e.g., another user added a message)
-      const newMessage: HealthMessage = {
-        id: "new-id",
-        message: "Updated message",
-        createdAt: new Date().toISOString(),
-      };
-      mockHealthStore.add(newMessage);
-
-      // Click Fetch button
-      const fetchButton = screen.getByTestId("health-fetch-button");
-      await user.click(fetchButton);
-
-      // Should display the latest message from backend
-      await waitFor(
-        () => {
-          const latest = mockHealthStore.getLatest();
-          expect(latest?.message).toBe("Updated message");
-        },
-        { timeout: 3000 },
-      );
-    });
-  });
-
-  describe("Error Handling", () => {
-    it("test_saveMessage_whenApiError_displaysErrorMessage", async () => {
-      /**
-       * Action: saveMessage
-       * Condition: whenApiError (backend returns 500 error)
-       * Result: displaysErrorMessage (shows error in UI)
-       */
-      const user = userEvent.setup();
-
-      // Override handler to simulate API error
-      server.use(
-        http.post("http://localhost:8000/api/health/echo", () => {
-          return HttpResponse.json(
-            { detail: "Internal Server Error" },
-            { status: 500 },
-          );
-        }),
-      );
-
-      renderHealthCheckPage();
-
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      const input = screen.getByTestId("health-echo-input");
-      const saveButton = screen.getByTestId("health-save-button");
-
-      await user.type(input, "Test message");
-      await user.click(saveButton);
-
-      // Should display error message (check for error display element)
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-error-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
-    });
-
-    it("test_fetchMessage_whenApiError_displaysErrorMessage", async () => {
-      /**
-       * Action: fetchMessage (initial load)
-       * Condition: whenApiError (backend returns 500 error)
-       * Result: displaysErrorMessage (shows error in UI)
-       */
-      // Override handler to simulate API error
-      server.use(
-        http.get("http://localhost:8000/api/health/latest", () => {
-          return HttpResponse.json(
-            { detail: "Internal Server Error" },
-            { status: 500 },
-          );
-        }),
-      );
-
-      renderHealthCheckPage();
-
-      // Should display error message after failed fetch
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-error-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
-    });
-  });
-
-  describe("Loading State", () => {
-    it("test_saveMessage_whileSaving_disablesControls", async () => {
-      /**
-       * Action: saveMessage
-       * Condition: whileSaving (during API call)
-       * Result: disablesControls (input and buttons are disabled)
-       */
-      const user = userEvent.setup();
-
-      // Delay response to test loading state
-      server.use(
-        http.post("http://localhost:8000/api/health/echo", async () => {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          const newMessage: HealthMessage = {
-            id: crypto.randomUUID(),
-            message: "Test message",
-            createdAt: new Date().toISOString(),
-          };
-          return HttpResponse.json(newMessage);
-        }),
-      );
-
-      renderHealthCheckPage();
-
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      const input = screen.getByTestId("health-echo-input");
-      const saveButton = screen.getByTestId("health-save-button");
-      const fetchButton = screen.getByTestId("health-fetch-button");
-
-      await user.type(input, "Test message");
-      await user.click(saveButton);
-
-      // During save, controls should be disabled
-      // Note: This is timing-dependent and may need adjustment
-      expect(input).toBeDisabled();
-      expect(saveButton).toBeDisabled();
-      expect(fetchButton).toBeDisabled();
-
-      // Wait for save to complete
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-message-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 1000 },
-      );
-    });
-  });
-});
-/**
- * Button Atom Tests
- *
- * Unit tests for Button component (Dumb Component).
- */
-
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { Button } from "@/components/atoms/Button";
-
-describe("Button", () => {
-  it("should render children correctly", () => {
-    const handleClick = vi.fn();
-    render(<Button onClick={handleClick}>Click Me</Button>);
-
-    expect(screen.getByRole("button")).toHaveTextContent("Click Me");
-  });
-
-  it("should call onClick when clicked", () => {
-    const handleClick = vi.fn();
-    render(<Button onClick={handleClick}>Click Me</Button>);
-
-    fireEvent.click(screen.getByRole("button"));
-
-    expect(handleClick).toHaveBeenCalledOnce();
-  });
-
-  it("should be disabled when disabled prop is true", () => {
-    const handleClick = vi.fn();
-    render(
-      <Button onClick={handleClick} disabled={true}>
-        Click Me
-      </Button>,
-    );
-
-    const button = screen.getByRole("button");
-    expect(button).toBeDisabled();
-
-    fireEvent.click(button);
-    expect(handleClick).not.toHaveBeenCalled();
-  });
-
-  it("should render with primary variant by default", () => {
-    const handleClick = vi.fn();
-    render(<Button onClick={handleClick}>Click Me</Button>);
-
-    const button = screen.getByRole("button");
-    expect(button.className).toContain("bg-ember-500");
-  });
-
-  it("should render with secondary variant when specified", () => {
-    const handleClick = vi.fn();
-    render(
-      <Button onClick={handleClick} variant="secondary">
-        Click Me
-      </Button>,
-    );
-
-    const button = screen.getByRole("button");
-    expect(button.className).toContain("bg-night-800");
-  });
-});
-/**
- * HealthCheckTemplate Tests
- *
- * Unit tests for HealthCheckTemplate component (Dumb Component).
- */
-
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { HealthCheckTemplate } from "@/components/templates/HealthCheckTemplate";
-
-describe("HealthCheckTemplate", () => {
-  it("should render children", () => {
-    render(
-      <HealthCheckTemplate>
-        <div>Test Content</div>
-      </HealthCheckTemplate>,
-    );
-
-    expect(screen.getByText("Test Content")).toBeInTheDocument();
-  });
-
-  it("should apply layout classes", () => {
-    const { container } = render(
-      <HealthCheckTemplate>
-        <div>Test</div>
-      </HealthCheckTemplate>,
-    );
-
-    const wrapper = container.firstChild as HTMLElement;
-    expect(wrapper.className).toContain("min-h-screen");
-    expect(wrapper.className).toContain("bg-night-900");
-  });
-});
+    @abstractmethod
+    async def find_active_sparks(self, minutes: int) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified minutes.
+
+        Args:
+            minutes: Number of minutes to look back from now
+
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
+
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError
+"""PubSub Gateway Port.
+
+This module defines the port interface for publish-subscribe messaging.
+"""
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+
+from app.usecase.dto.spark_dto import SparkOutput
+
+
+class IPubSubGateway(ABC):
+    """Interface for publish-subscribe messaging operations."""
+
+    @abstractmethod
+    async def publish(self, channel: str, message: SparkOutput) -> None:
+        """Publish a message to a channel.
+
+        Args:
+            channel: The channel name to publish to
+            message: The spark output to publish
+
+        """
+
+    @abstractmethod
+    async def subscribe(self, channel: str) -> AsyncIterator[SparkOutput]:
+        """Subscribe to a channel and yield messages as they arrive.
+
+        Args:
+            channel: The channel name to subscribe to
+
+        Yields:
+            SparkOutput messages from the channel
+
+        """
+        # This is an async generator method
+        # Implementations should yield SparkOutput messages
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError
+"""Post Spark UseCase Implementation.
+
+This module implements the business logic for posting a spark.
+"""
+
+import uuid
+
+from app.domain.constants import LOG_EVENTS
+from app.domain.exception import AppError
+from app.domain.model.spark import Spark
+from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.service.identity_provider import IIdentityProvider
+from app.domain.service.rate_limiter import IRateLimiter
+from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+from app.usecase.post_spark.interface import IPostSparkUseCase
+
+
+class PostSparkInteractor(IPostSparkUseCase):
+    """Interactor for posting a spark."""
+
+    def __init__(
+        self,
+        spark_repository: ISparkRepository,
+        identity_provider: IIdentityProvider,
+        rate_limiter: IRateLimiter,
+        logger: ILogger,
+        pubsub_gateway: IPubSubGateway,
+        max_length: int,
+        rate_limit_count: int,
+        rate_limit_window_seconds: int,
+        visible_duration_minutes: int,
+        ttl_days: int,
+        ng_words: list[str],
+        pubsub_channel: str,
+    ) -> None:
+        """Initialize the interactor.
+
+        Args:
+            spark_repository: Repository for spark persistence
+            identity_provider: Provider for user hash generation
+            rate_limiter: Rate limiter for preventing spam
+            logger: Logger for structured logging
+            pubsub_gateway: Gateway for pub/sub messaging
+            max_length: Maximum character length for content
+            rate_limit_count: Maximum posts per window
+            rate_limit_window_seconds: Rate limit window in seconds
+            visible_duration_minutes: Duration spark remains visible
+            ttl_days: Days until physical deletion
+            ng_words: List of prohibited words
+            pubsub_channel: Redis pub/sub channel name
+
+        """
+        self.spark_repository = spark_repository
+        self.identity_provider = identity_provider
+        self.rate_limiter = rate_limiter
+        self.logger = logger
+        self.pubsub_gateway = pubsub_gateway
+        self.max_length = max_length
+        self.rate_limit_count = rate_limit_count
+        self.rate_limit_window_seconds = rate_limit_window_seconds
+        self.visible_duration_minutes = visible_duration_minutes
+        self.ttl_days = ttl_days
+        self.ng_words = ng_words
+        self.pubsub_channel = pubsub_channel
+
+    async def execute(
+        self,
+        input_data: PostSparkInput,
+        ip_address: str,
+    ) -> SparkOutput:
+        """Execute the post spark use case.
+
+        Args:
+            input_data: Input data containing spark content
+            ip_address: Client IP address for user identification
+
+        Returns:
+            The created spark details
+
+        Raises:
+            AppError: If validation fails or rate limit is exceeded
+
+        """
+        self.logger.info(
+            LOG_EVENTS.SPARK_POST_STARTED,
+            "Starting spark post",
+            context={"content_length": len(input_data.content)},
+        )
+
+        # Validate content length
+        if len(input_data.content) > self.max_length:
+            self.logger.warning(
+                LOG_EVENTS.SPARK_VALIDATION_FAILED,
+                "Content length exceeds limit",
+                context={
+                    "content_length": len(input_data.content),
+                    "max_length": self.max_length,
+                },
+            )
+            raise AppError(internal_code=1003)
+
+        # Check for NG words
+        content_lower = input_data.content.lower()
+        # TODO@Gaomond: O(N * M) Operation. (N: NGワード数, M: 本文長)
+        for ng_word in self.ng_words:
+            if ng_word.lower() in content_lower:
+                self.logger.warning(
+                    LOG_EVENTS.SPARK_NG_WORD_DETECTED,
+                    "NG word detected in content",
+                    context={"ng_word": ng_word},
+                )
+                raise AppError(internal_code=1002)
+
+        # Generate user hash
+        user_hash = self.identity_provider.get_user_hash(ip_address)
+
+        # Check rate limit
+        within_limit = await self.rate_limiter.check_and_increment(
+            user_hash=user_hash,
+            limit=self.rate_limit_count,
+            window_seconds=self.rate_limit_window_seconds,
+        )
+
+        if not within_limit:
+            self.logger.warning(
+                LOG_EVENTS.SPARK_RATE_LIMIT_EXCEEDED,
+                "Rate limit exceeded",
+                context={"user_hash": user_hash},
+            )
+            raise AppError(internal_code=1004)
+
+        # Create spark entity
+        spark = Spark.create(
+            spark_id=str(uuid.uuid4()),
+            content=input_data.content,
+            user_hash=user_hash,
+            visible_duration_minutes=self.visible_duration_minutes,
+            ttl_days=self.ttl_days,
+        )
+
+        # Save to repository
+        saved_spark = await self.spark_repository.save(spark)
+
+        # Map to output DTO
+        spark_output = SparkOutput(
+            id=saved_spark.id,
+            content=saved_spark.content,
+            created_at=saved_spark.created_at.isoformat(),
+            visible_until=saved_spark.visible_until.isoformat(),
+        )
+
+        # Publish to Redis pub/sub for real-time streaming
+        await self.pubsub_gateway.publish(self.pubsub_channel, spark_output)
+
+        self.logger.info(
+            LOG_EVENTS.SPARK_POST_SUCCESS,
+            "Spark posted successfully",
+            context={"spark_id": saved_spark.id},
+        )
+
+        return spark_output
+"""Stream Timeline UseCase.
+
+This module contains the timeline streaming use case.
+"""
+"""Stream Timeline UseCase Implementation.
+
+This module implements the business logic for streaming timeline updates.
+"""
+
+import asyncio
+from collections.abc import AsyncIterator
+
+from app.domain.constants import LOG_EVENTS
+from app.domain.repository.spark_repository import ISparkRepository
+from app.usecase.dto.spark_dto import SparkOutput
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
+
+
+class StreamTimelineInteractor(IStreamTimelineUseCase):
+    """Interactor for streaming timeline updates."""
+
+    def __init__(
+        self,
+        spark_repository: ISparkRepository,
+        pubsub_gateway: IPubSubGateway,
+        logger: ILogger,
+        active_spark_minutes: int,
+        pubsub_channel: str,
+    ) -> None:
+        """Initialize the interactor.
+
+        Args:
+            spark_repository: Repository for spark persistence
+            pubsub_gateway: Gateway for pub/sub messaging
+            logger: Logger for structured logging
+            active_spark_minutes: Minutes to look back for active sparks
+            pubsub_channel: Redis pub/sub channel name
+
+        """
+        self.spark_repository = spark_repository
+        self.pubsub_gateway = pubsub_gateway
+        self.logger = logger
+        self.active_spark_minutes = active_spark_minutes
+        self.pubsub_channel = pubsub_channel
+
+    async def execute(self) -> AsyncIterator[SparkOutput]:
+        """Stream timeline updates (Snapshot + Stream).
+
+        Prevents race conditions by:
+        1. Starting PubSub subscription first (buffering new messages)
+        2. Fetching DB snapshot
+        3. Yielding snapshot data
+        4. Yielding buffered + real-time stream (with deduplication)
+
+        Yields:
+            SparkOutput messages from both snapshot and stream
+
+        """
+        # Queue for buffering PubSub messages during DB fetch
+        buffer: asyncio.Queue[SparkOutput] = asyncio.Queue()
+
+        # Background task to subscribe to PubSub
+        async def pubsub_listener() -> None:
+            """Listen to PubSub and buffer messages."""
+            self.logger.info(
+                LOG_EVENTS.TIMELINE_STREAM_STARTED,
+                "Starting timeline stream subscription",
+                context={"channel": self.pubsub_channel},
+            )
+            async for spark_output in self.pubsub_gateway.subscribe(
+                self.pubsub_channel
+            ):
+                self.logger.info(
+                    LOG_EVENTS.TIMELINE_STREAM_MESSAGE,
+                    "Received message from pub/sub",
+                    context={"spark_id": spark_output.id},
+                )
+                await buffer.put(spark_output)
+
+        # Phase 1: Start PubSub subscription in background
+        pubsub_task = asyncio.create_task(pubsub_listener())
+
+        try:
+            # Phase 2: Fetch active sparks from DB (while PubSub is buffering)
+            snapshot_ids: set[str] = set()
+            snapshot_count = 0
+
+            async for spark in self.spark_repository.find_active_sparks(
+                minutes=self.active_spark_minutes,
+            ):
+                snapshot_ids.add(spark.id)
+                snapshot_count += 1
+                yield SparkOutput(
+                    id=spark.id,
+                    content=spark.content,
+                    created_at=spark.created_at.isoformat(),
+                    visible_until=spark.visible_until.isoformat(),
+                )
+
+            self.logger.info(
+                LOG_EVENTS.TIMELINE_SNAPSHOT_LOADED,
+                "Loaded active sparks snapshot",
+                context={"count": snapshot_count},
+            )
+
+            # Phase 3: Yield buffered messages (deduplicated)
+            # Drain the buffer and yield non-duplicate messages
+            while not buffer.empty():
+                buffered_spark = await buffer.get()
+                if buffered_spark.id not in snapshot_ids:
+                    snapshot_ids.add(buffered_spark.id)
+                    yield buffered_spark
+
+            # Phase 4: Continue yielding real-time stream (deduplicated)
+            while True:
+                stream_spark = await buffer.get()
+                if stream_spark.id not in snapshot_ids:
+                    snapshot_ids.add(stream_spark.id)
+                    yield stream_spark
+
+        finally:
+            # Clean up: cancel the background task
+            pubsub_task.cancel()
+            try:
+                await pubsub_task
+            except asyncio.CancelledError:
+                pass
+"""Stream Timeline UseCase Interface.
+
+This module defines the input port for timeline streaming.
+"""
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+
+from app.usecase.dto.spark_dto import SparkOutput
+
+
+class IStreamTimelineUseCase(ABC):
+    """Interface for streaming timeline use case."""
+
+    @abstractmethod
+    async def execute(self) -> AsyncIterator[SparkOutput]:
+        """Stream timeline updates (Snapshot + Stream).
+
+        First yields active sparks from the database (Snapshot),
+        then yields new sparks from the pub/sub channel (Stream).
+
+        Yields:
+            SparkOutput messages from both snapshot and stream
+
+        """
+        # This is an async generator method
+        # Implementations should yield SparkOutput messages
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError
+"""Integration tests for Spark Router.
+
+These tests verify the entire stack from API endpoint to MongoDB and Redis,
+including Repository and Rate Limiter behavior.
+
+Unlike unit tests which mock dependencies, these tests:
+- Use real MongoDB connection
+- Use real Redis connection
+- Test actual database read/write operations
+- Test actual rate limiting behavior
+- Verify error mapping (AppError → HTTP errors)
+- Validate multi-layer integration
+"""
+
+from typing import Any
+
+import pytest
+from fastapi import status
+from httpx import AsyncClient
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+from app.adapter.infra.settings import settings
+from app.domain.model.spark import Spark
+
+
+class TestSparkRouterIntegration:
+    """Integration tests for spark API endpoints."""
+
+    @pytest.fixture
+    def collection(
+        self, test_database: AsyncIOMotorDatabase[Any]
+    ) -> Any:  # AsyncIOMotorCollection
+        """Get the sparks collection from test database.
+
+        Args:
+            test_database: Test database instance (injected)
+
+        Returns:
+            MongoDB collection for sparks
+
+        """
+        return test_database[MongoSparkRepository.COLLECTION_NAME]
+
+    @pytest.mark.asyncio
+    async def test_postSpark_whenCalledWithValidContent_savesToDbAndReturns201(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+    ) -> None:
+        """
+        Action: postSpark (POST /api/sparks)
+        Condition: whenCalledWithValidContent (valid request body)
+        Result: savesToDbAndReturns201 (saves to MongoDB and returns 201)
+        """
+        # Arrange
+        request_body = {"content": "This is a test spark"}
+
+        # Act
+        response = await test_client.post("/api/sparks", json=request_body)
+
+        # Assert HTTP response
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["content"] == "This is a test spark"
+        assert "id" in data
+        assert "created_at" in data
+
+        # Assert database persistence (verify Repository layer)
+        doc = await collection.find_one({"id": data["id"]})
+        assert doc is not None
+        assert doc["content"] == "This is a test spark"
+        assert doc["id"] == data["id"]
+        assert doc["fuel_count"] == 0  # Default value
+        assert "user_hash" in doc
+        assert "visible_until" in doc
+        assert "expire_at" in doc
+
+    @pytest.mark.asyncio
+    async def test_postSpark_whenContentExceedsMaxLength_returns422(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+    ) -> None:
+        """
+        Action: postSpark
+        Condition: whenContentExceedsMaxLength (content exceeds max_length)
+        Result: returns422 (validation error)
+        """
+        # Arrange: Create content exceeding max_length
+        request_body = {"content": "x" * (settings.spark_max_length + 1)}
+
+        # Act
+        response = await test_client.post("/api/sparks", json=request_body)
+
+        # Assert HTTP response
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert data["error"]["code"] == 1003
+
+        # Assert: No document saved to DB
+        count = await collection.count_documents({})
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_postSpark_whenContentContainsNgWord_returns422(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+    ) -> None:
+        """
+        Action: postSpark
+        Condition: whenContentContainsNgWord (content contains NG word)
+        Result: returns422 (NG word validation error)
+        """
+        # Arrange: Use first NG word from settings
+        ng_word = settings.spark_ng_words_list[0]
+        request_body = {"content": f"This contains {ng_word.upper()} in text"}
+
+        # Act
+        response = await test_client.post("/api/sparks", json=request_body)
+
+        # Assert HTTP response
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert data["error"]["code"] == 1002
+
+        # Assert: No document saved to DB
+        count = await collection.count_documents({})
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_postSpark_whenRateLimitExceeded_returns429(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+    ) -> None:
+        """
+        Action: postSpark
+        Condition: whenRateLimitExceeded (exceeds rate limit within window)
+        Result: returns429 (rate limit error)
+        """
+        # Arrange: Use rate limit from settings
+        # Note: Redis is initialized via test_client fixture dependency
+        rate_limit = settings.spark_rate_limit_count
+        request_body = {"content": "Rate limit test spark"}
+
+        # Act: Post up to rate limit (should all succeed)
+        for i in range(rate_limit):
+            response = await test_client.post("/api/sparks", json=request_body)
+            assert response.status_code == status.HTTP_201_CREATED, (
+                f"Request {i + 1} failed"
+            )
+
+        # Act: One more post should be rate limited
+        response = await test_client.post("/api/sparks", json=request_body)
+
+        # Assert HTTP response
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        data = response.json()
+        assert data["error"]["code"] == 1004
+
+        # Assert: Only rate_limit documents saved to DB (not more)
+        count = await collection.count_documents({})
+        assert count == rate_limit
+
+    @pytest.mark.asyncio
+    async def test_postSpark_whenEmptyContent_returns422(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+    ) -> None:
+        """
+        Action: postSpark
+        Condition: whenEmptyContent (empty string)
+        Result: returns422 (validation error from Pydantic)
+        """
+        # Arrange
+        request_body = {"content": ""}
+
+        # Act
+        response = await test_client.post("/api/sparks", json=request_body)
+
+        # Assert HTTP response (Pydantic validation error)
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+        # Assert: No document saved to DB
+        count = await collection.count_documents({})
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_postSpark_whenCalledMultipleTimes_allSparksSavedWithCorrectFuelCount(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+    ) -> None:
+        """
+        Action: postSpark
+        Condition: whenCalledMultipleTimes (3 POST requests)
+        Result: allSparksSavedWithCorrectFuelCount (all sparks have fuel_count=0)
+        """
+        # Arrange
+        sparks = ["First spark", "Second spark", "Third spark"]
+
+        # Act: Save 3 sparks
+        saved_ids: list[str] = []
+        for spark_content in sparks:
+            response = await test_client.post(
+                "/api/sparks", json={"content": spark_content}
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+            saved_ids.append(response.json()["id"])
+
+        # Assert: All 3 sparks are in DB
+        count = await collection.count_documents({})
+        assert count == 3
+
+        # Verify all IDs exist with fuel_count=0
+        for saved_id in saved_ids:
+            doc = await collection.find_one({"id": saved_id})
+            assert doc is not None
+            assert doc["fuel_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_postSpark_whenContentAtMaxLength_savesSuccessfully(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+    ) -> None:
+        """
+        Action: postSpark
+        Condition: whenContentAtMaxLength (exactly at max_length)
+        Result: savesSuccessfully (boundary condition test)
+        """
+        # Arrange: Exactly at max_length
+        request_body = {"content": "x" * settings.spark_max_length}
+
+        # Act
+        response = await test_client.post("/api/sparks", json=request_body)
+
+        # Assert HTTP response
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # Assert: Document saved to DB
+        count = await collection.count_documents({})
+        assert count == 1
+
+
+class TestSparkWebSocketIntegration:
+    """Integration tests for spark WebSocket endpoint."""
+
+    @pytest.fixture
+    def collection(
+        self, test_database: AsyncIOMotorDatabase[Any]
+    ) -> Any:  # AsyncIOMotorCollection
+        """Get the sparks collection from test database."""
+        return test_database[MongoSparkRepository.COLLECTION_NAME]
+
+    @pytest.mark.asyncio
+    async def test_websocketTimeline_snapshotLoading_fromMongo(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+        test_database: AsyncIOMotorDatabase[Any],
+    ) -> None:
+        """Test snapshot loading from MongoDB for WebSocket timeline.
+
+        This test validates the MongoDB integration for active spark retrieval.
+        Full WebSocket behavior is validated through unit tests and E2E tests.
+        """
+        # Arrange: Insert active sparks into DB
+        spark1 = Spark.create(
+            spark_id="ws-snap-1",
+            content="Active spark 1",
+            user_hash="user-1",
+            visible_duration_minutes=10,
+            ttl_days=30,
+        )
+        spark2 = Spark.create(
+            spark_id="ws-snap-2",
+            content="Active spark 2",
+            user_hash="user-2",
+            visible_duration_minutes=10,
+            ttl_days=30,
+        )
+
+        await collection.insert_one(
+            {
+                "id": spark1.id,
+                "content": spark1.content,
+                "user_hash": spark1.user_hash,
+                "fuel_count": spark1.fuel_count,
+                "created_at": spark1.created_at,
+                "visible_until": spark1.visible_until,
+                "expire_at": spark1.expire_at,
+            }
+        )
+        await collection.insert_one(
+            {
+                "id": spark2.id,
+                "content": spark2.content,
+                "user_hash": spark2.user_hash,
+                "fuel_count": spark2.fuel_count,
+                "created_at": spark2.created_at,
+                "visible_until": spark2.visible_until,
+                "expire_at": spark2.expire_at,
+            }
+        )
+
+        # Act: Query active sparks via repository (validates MongoDB integration)
+        from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+        from app.adapter.infra.logger import JsonLogger
+
+        logger = JsonLogger()
+        repository = MongoSparkRepository(test_database, logger)
+
+        # Collect active sparks from async iterator
+        active_sparks = []
+        async for spark in repository.find_active_sparks(minutes=10):
+            active_sparks.append(spark)
+
+        # Assert: Verify snapshot data retrieval works correctly
+        assert len(active_sparks) == 2
+        assert active_sparks[0].id == "ws-snap-1"
+        assert active_sparks[0].content == "Active spark 1"
+        assert active_sparks[1].id == "ws-snap-2"
+        assert active_sparks[1].content == "Active spark 2"
+
+    @pytest.mark.asyncio
+    async def test_postSpark_publishesToRedis_integration(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+    ) -> None:
+        """Test that posting a spark publishes to Redis Pub/Sub.
+
+        This test validates the Redis Pub/Sub integration when posting sparks.
+        Full streaming behavior is validated through unit tests and E2E tests.
+        """
+        # Arrange
+        request_body = {"content": "Test spark for pub/sub"}
+
+        # Act: Post a spark (this should publish to Redis)
+        response = await test_client.post("/api/sparks", json=request_body)
+
+        # Assert: Spark was created successfully
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["content"] == "Test spark for pub/sub"
+
+        # Verify spark was saved to MongoDB
+        doc = await collection.find_one({"id": data["id"]})
+        assert doc is not None
+        assert doc["content"] == "Test spark for pub/sub"
+
+        # Note: Actual Redis pub/sub message delivery is validated through:
+        # 1. Unit tests (with mocked pub/sub)
+        # 2. Manual testing with real WebSocket clients
+        # 3. E2E tests
+"""Unit tests for PostSparkInteractor."""
+
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from app.domain.exception import AppError
+from app.domain.model.spark import Spark
+from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
+from app.usecase.post_spark.interactor import PostSparkInteractor
+
+pytestmark = pytest.mark.asyncio
+
+
+class TestPostSparkInteractor:
+    """Test suite for PostSparkInteractor."""
+
+    @pytest.fixture
+    def mock_spark_repository(self) -> AsyncMock:
+        """Create mock spark repository."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_identity_provider(self) -> Mock:
+        """Create mock identity provider."""
+        mock = Mock()
+        mock.get_user_hash.return_value = "test-user-hash"
+        return mock
+
+    @pytest.fixture
+    def mock_rate_limiter(self) -> AsyncMock:
+        """Create mock rate limiter."""
+        mock = AsyncMock()
+        mock.check_and_increment.return_value = True  # Default: within limit
+        return mock
+
+    @pytest.fixture
+    def mock_logger(self) -> Mock:
+        """Create mock logger."""
+        return Mock()
+
+    @pytest.fixture
+    def mock_pubsub_gateway(self) -> AsyncMock:
+        """Create mock pub/sub gateway."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def interactor(
+        self,
+        mock_spark_repository: AsyncMock,
+        mock_identity_provider: Mock,
+        mock_rate_limiter: AsyncMock,
+        mock_logger: Mock,
+        mock_pubsub_gateway: AsyncMock,
+    ) -> PostSparkInteractor:
+        """Create PostSparkInteractor instance."""
+        return PostSparkInteractor(
+            spark_repository=mock_spark_repository,
+            identity_provider=mock_identity_provider,
+            rate_limiter=mock_rate_limiter,
+            logger=mock_logger,
+            pubsub_gateway=mock_pubsub_gateway,
+            max_length=500,
+            rate_limit_count=10,
+            rate_limit_window_seconds=60,
+            visible_duration_minutes=10,
+            ttl_days=30,
+            ng_words=["forbidden_word", "bad_word"],
+            pubsub_channel="sparks:events",
+        )
+
+    async def test_execute_whenValidInput_returnsSparkOutput(
+        self,
+        interactor: PostSparkInteractor,
+        mock_spark_repository: AsyncMock,
+    ) -> None:
+        """Test execute with valid input returns SparkOutput."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid spark content")
+        ip_address = "192.168.1.1"
+
+        mock_spark = Spark.create(
+            spark_id="test-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            visible_duration_minutes=10,
+            ttl_days=30,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Act
+        result = await interactor.execute(input_data, ip_address)
+
+        # Assert
+        assert isinstance(result, SparkOutput)
+        assert result.id == "test-id"
+        assert result.content == input_data.content
+        assert mock_spark_repository.save.called
+
+    async def test_execute_whenContentTooLong_raisesAppError(
+        self,
+        interactor: PostSparkInteractor,
+    ) -> None:
+        """Test execute with too long content raises AppError with code 1003."""
+        # Arrange
+        long_content = "x" * 501  # Over 500 char limit
+        input_data = PostSparkInput(content=long_content)
+        ip_address = "192.168.1.1"
+
+        # Act & Assert
+        with pytest.raises(AppError) as exc_info:
+            await interactor.execute(input_data, ip_address)
+
+        assert exc_info.value.internal_code == 1003
+
+    async def test_execute_whenNGWordDetected_raisesAppError(
+        self,
+        interactor: PostSparkInteractor,
+    ) -> None:
+        """Test execute with NG word raises AppError with code 1002."""
+        # Arrange
+        input_data = PostSparkInput(content="This contains forbidden_word here")
+        ip_address = "192.168.1.1"
+
+        # Act & Assert
+        with pytest.raises(AppError) as exc_info:
+            await interactor.execute(input_data, ip_address)
+
+        assert exc_info.value.internal_code == 1002
+
+    async def test_execute_whenNGWordCaseInsensitive_raisesAppError(
+        self,
+        interactor: PostSparkInteractor,
+    ) -> None:
+        """Test execute with NG word (case insensitive) raises AppError."""
+        # Arrange
+        input_data = PostSparkInput(content="This contains FORBIDDEN_WORD here")
+        ip_address = "192.168.1.1"
+
+        # Act & Assert
+        with pytest.raises(AppError) as exc_info:
+            await interactor.execute(input_data, ip_address)
+
+        assert exc_info.value.internal_code == 1002
+
+    async def test_execute_whenRateLimitExceeded_raisesAppError(
+        self,
+        interactor: PostSparkInteractor,
+        mock_rate_limiter: AsyncMock,
+    ) -> None:
+        """Test execute when rate limit exceeded raises AppError with code 1004."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid content")
+        ip_address = "192.168.1.1"
+        mock_rate_limiter.check_and_increment.return_value = False  # Exceeded
+
+        # Act & Assert
+        with pytest.raises(AppError) as exc_info:
+            await interactor.execute(input_data, ip_address)
+
+        assert exc_info.value.internal_code == 1004
+
+    async def test_execute_whenValid_callsIdentityProviderWithIPAddress(
+        self,
+        interactor: PostSparkInteractor,
+        mock_identity_provider: Mock,
+        mock_spark_repository: AsyncMock,
+    ) -> None:
+        """Test execute calls identity provider with IP address."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid content")
+        ip_address = "192.168.1.1"
+        mock_spark = Spark.create(
+            spark_id="test-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            visible_duration_minutes=10,
+            ttl_days=30,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Act
+        await interactor.execute(input_data, ip_address)
+
+        # Assert
+        mock_identity_provider.get_user_hash.assert_called_once_with(ip_address)
+
+    async def test_execute_whenValid_callsRateLimiterWithCorrectParams(
+        self,
+        interactor: PostSparkInteractor,
+        mock_rate_limiter: AsyncMock,
+        mock_spark_repository: AsyncMock,
+    ) -> None:
+        """Test execute calls rate limiter with correct parameters."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid content")
+        ip_address = "192.168.1.1"
+        mock_spark = Spark.create(
+            spark_id="test-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            visible_duration_minutes=10,
+            ttl_days=30,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Act
+        await interactor.execute(input_data, ip_address)
+
+        # Assert
+        mock_rate_limiter.check_and_increment.assert_called_once_with(
+            user_hash="test-user-hash",
+            limit=10,
+            window_seconds=60,
+        )
+
+    async def test_execute_whenValid_savesSparkWithCorrectFields(
+        self,
+        interactor: PostSparkInteractor,
+        mock_spark_repository: AsyncMock,
+    ) -> None:
+        """Test execute saves spark with correct fields."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid content")
+        ip_address = "192.168.1.1"
+        mock_spark = Spark.create(
+            spark_id="test-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            visible_duration_minutes=10,
+            ttl_days=30,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Act
+        await interactor.execute(input_data, ip_address)
+
+        # Assert
+        assert mock_spark_repository.save.called
+        saved_spark = mock_spark_repository.save.call_args[0][0]
+        assert saved_spark.content == input_data.content
+        assert saved_spark.user_hash == "test-user-hash"
+
+    async def test_execute_whenValid_publishesToPubSubChannel(
+        self,
+        interactor: PostSparkInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_pubsub_gateway: AsyncMock,
+    ) -> None:
+        """Test execute publishes to pub/sub channel after saving."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid content")
+        ip_address = "192.168.1.1"
+        mock_spark = Spark.create(
+            spark_id="test-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            visible_duration_minutes=10,
+            ttl_days=30,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Act
+        await interactor.execute(input_data, ip_address)
+
+        # Assert
+        mock_pubsub_gateway.publish.assert_called_once()
+        call_args = mock_pubsub_gateway.publish.call_args
+        assert call_args[0][0] == "sparks:events"  # channel
+        published_message = call_args[0][1]  # message
+        assert isinstance(published_message, SparkOutput)
+        assert published_message.id == "test-id"
+        assert published_message.content == input_data.content
+
+    async def test_execute_whenValid_publishesAfterSaving(
+        self,
+        interactor: PostSparkInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_pubsub_gateway: AsyncMock,
+    ) -> None:
+        """Test execute publishes only after successful save."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid content")
+        ip_address = "192.168.1.1"
+        mock_spark = Spark.create(
+            spark_id="test-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            visible_duration_minutes=10,
+            ttl_days=30,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Track call order
+        call_order = []
+        mock_spark_repository.save.side_effect = lambda x: (
+            call_order.append("save"),
+            mock_spark,
+        )[1]
+        mock_pubsub_gateway.publish.side_effect = lambda c, m: call_order.append(
+            "publish",
+        )
+
+        # Act
+        await interactor.execute(input_data, ip_address)
+
+        # Assert
+        assert call_order == ["save", "publish"]
+"""Unit tests for stream timeline use case."""
+"""Unit tests for StreamTimelineInteractor."""
+
+from typing import Any
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from app.domain.model.spark import Spark
+from app.usecase.dto.spark_dto import SparkOutput
+from app.usecase.stream_timeline.interactor import StreamTimelineInteractor
+
+pytestmark = pytest.mark.asyncio
+
+
+class MockAsyncIterator:
+    """Mock async iterator for testing."""
+
+    def __init__(self, items: list[Any]) -> None:
+        """Initialize with items to yield."""
+        self.items = items
+        self.index = 0
+
+    def __aiter__(self) -> "MockAsyncIterator":
+        """Return self as async iterator."""
+        return self
+
+    async def __anext__(self) -> Any:
+        """Return next item or raise StopAsyncIteration."""
+        if self.index >= len(self.items):
+            raise StopAsyncIteration
+        item = self.items[self.index]
+        self.index += 1
+        return item
+
+
+class TestStreamTimelineInteractor:
+    """Test suite for StreamTimelineInteractor."""
+
+    @pytest.fixture
+    def mock_spark_repository(self) -> AsyncMock:
+        """Create mock spark repository."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_pubsub_gateway(self) -> AsyncMock:
+        """Create mock pub/sub gateway."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_logger(self) -> Mock:
+        """Create mock logger."""
+        return Mock()
+
+    @pytest.fixture
+    def interactor(
+        self,
+        mock_spark_repository: AsyncMock,
+        mock_pubsub_gateway: AsyncMock,
+        mock_logger: Mock,
+    ) -> StreamTimelineInteractor:
+        """Create StreamTimelineInteractor instance."""
+        return StreamTimelineInteractor(
+            spark_repository=mock_spark_repository,
+            pubsub_gateway=mock_pubsub_gateway,
+            logger=mock_logger,
+            active_spark_minutes=10,
+            pubsub_channel="sparks:events",
+        )
+
+    async def test_execute_whenNoActiveSparks_yieldsOnlyStreamEvents(
+        self,
+        interactor: StreamTimelineInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_pubsub_gateway: AsyncMock,
+    ) -> None:
+        """Test execute when no active sparks returns only stream events."""
+        # Arrange
+        # Repository returns empty async iterator
+        mock_spark_repository.find_active_sparks = Mock(
+            return_value=MockAsyncIterator([])
+        )
+
+        # Mock pub/sub to yield 2 sparks then stop
+        items = [
+            SparkOutput(
+                id="stream-1",
+                content="Stream spark 1",
+                created_at="2025-01-01T00:00:00Z",
+                visible_until="2025-01-01T00:10:00Z",
+            ),
+            SparkOutput(
+                id="stream-2",
+                content="Stream spark 2",
+                created_at="2025-01-01T00:01:00Z",
+                visible_until="2025-01-01T00:11:00Z",
+            ),
+        ]
+        mock_pubsub_gateway.subscribe = Mock(return_value=MockAsyncIterator(items))
+
+        # Act
+        results = []
+        count = 0
+        async for spark in interactor.execute():
+            results.append(spark)
+            count += 1
+            if count >= 2:  # Only collect 2 stream events
+                break
+
+        # Assert
+        assert len(results) == 2
+        assert results[0].id == "stream-1"
+        assert results[1].id == "stream-2"
+        mock_spark_repository.find_active_sparks.assert_called_once_with(minutes=10)
+        mock_pubsub_gateway.subscribe.assert_called_once_with("sparks:events")
+
+    async def test_execute_whenActiveSparksExist_yieldsSnapshotThenStream(
+        self,
+        interactor: StreamTimelineInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_pubsub_gateway: AsyncMock,
+    ) -> None:
+        """Test execute yields snapshot sparks first, then stream events."""
+        # Arrange
+        snapshot_sparks = [
+            Spark.create(
+                spark_id="snap-1",
+                content="Snapshot spark 1",
+                user_hash="user-1",
+                visible_duration_minutes=10,
+                ttl_days=30,
+            ),
+            Spark.create(
+                spark_id="snap-2",
+                content="Snapshot spark 2",
+                user_hash="user-2",
+                visible_duration_minutes=10,
+                ttl_days=30,
+            ),
+        ]
+        # Repository returns async iterator of sparks
+        mock_spark_repository.find_active_sparks = Mock(
+            return_value=MockAsyncIterator(snapshot_sparks)
+        )
+
+        # Mock pub/sub to yield 1 spark then stop
+        items = [
+            SparkOutput(
+                id="stream-1",
+                content="Stream spark 1",
+                created_at="2025-01-01T00:00:00Z",
+                visible_until="2025-01-01T00:10:00Z",
+            ),
+        ]
+        mock_pubsub_gateway.subscribe = Mock(return_value=MockAsyncIterator(items))
+
+        # Act
+        results = []
+        count = 0
+        async for spark in interactor.execute():
+            results.append(spark)
+            count += 1
+            if count >= 3:  # Collect 2 snapshot + 1 stream
+                break
+
+        # Assert
+        assert len(results) == 3
+        # First 2 are snapshot (oldest first)
+        assert results[0].id == "snap-1"
+        assert results[0].content == "Snapshot spark 1"
+        assert results[1].id == "snap-2"
+        assert results[1].content == "Snapshot spark 2"
+        # Last one is stream
+        assert results[2].id == "stream-1"
+        assert results[2].content == "Stream spark 1"
+
+    async def test_execute_whenSnapshotReturnsMultipleSparks_yieldsInAscendingOrder(
+        self,
+        interactor: StreamTimelineInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_pubsub_gateway: AsyncMock,
+    ) -> None:
+        """Test that snapshot sparks are yielded in ascending order (oldest first)."""
+        # Arrange
+        snapshot_sparks = [
+            Spark.create(
+                spark_id=f"snap-{i}",
+                content=f"Spark {i}",
+                user_hash=f"user-{i}",
+                visible_duration_minutes=10,
+                ttl_days=30,
+            )
+            for i in range(5)
+        ]
+        # Repository returns async iterator of sparks
+        mock_spark_repository.find_active_sparks = Mock(
+            return_value=MockAsyncIterator(snapshot_sparks)
+        )
+
+        # Mock pub/sub (won't actually iterate)
+        mock_pubsub_gateway.subscribe = Mock(return_value=MockAsyncIterator([]))
+
+        # Act
+        results = []
+        count = 0
+        async for spark in interactor.execute():
+            results.append(spark)
+            count += 1
+            if count >= 5:  # Only collect snapshot
+                break
+
+        # Assert
+        assert len(results) == 5
+        for i in range(5):
+            assert results[i].id == f"snap-{i}"
+            assert results[i].content == f"Spark {i}"

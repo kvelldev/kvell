@@ -13,6 +13,7 @@ from app.domain.service.identity_provider import IIdentityProvider
 from app.domain.service.rate_limiter import IRateLimiter
 from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
 from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
 from app.usecase.post_spark.interface import IPostSparkUseCase
 
 
@@ -25,12 +26,14 @@ class PostSparkInteractor(IPostSparkUseCase):
         identity_provider: IIdentityProvider,
         rate_limiter: IRateLimiter,
         logger: ILogger,
+        pubsub_gateway: IPubSubGateway,
         max_length: int,
         rate_limit_count: int,
         rate_limit_window_seconds: int,
         visible_duration_minutes: int,
         ttl_days: int,
         ng_words: list[str],
+        pubsub_channel: str,
     ) -> None:
         """Initialize the interactor.
 
@@ -39,24 +42,28 @@ class PostSparkInteractor(IPostSparkUseCase):
             identity_provider: Provider for user hash generation
             rate_limiter: Rate limiter for preventing spam
             logger: Logger for structured logging
+            pubsub_gateway: Gateway for pub/sub messaging
             max_length: Maximum character length for content
             rate_limit_count: Maximum posts per window
             rate_limit_window_seconds: Rate limit window in seconds
             visible_duration_minutes: Duration spark remains visible
             ttl_days: Days until physical deletion
             ng_words: List of prohibited words
+            pubsub_channel: Redis pub/sub channel name
 
         """
         self.spark_repository = spark_repository
         self.identity_provider = identity_provider
         self.rate_limiter = rate_limiter
         self.logger = logger
+        self.pubsub_gateway = pubsub_gateway
         self.max_length = max_length
         self.rate_limit_count = rate_limit_count
         self.rate_limit_window_seconds = rate_limit_window_seconds
         self.visible_duration_minutes = visible_duration_minutes
         self.ttl_days = ttl_days
         self.ng_words = ng_words
+        self.pubsub_channel = pubsub_channel
 
     async def execute(
         self,
@@ -96,7 +103,7 @@ class PostSparkInteractor(IPostSparkUseCase):
 
         # Check for NG words
         content_lower = input_data.content.lower()
-        # TODO@Geomond: O(N * M) Operation. (N: NGワード数, M: 本文長)
+        # TODO@Gaomond: O(N * M) Operation. (N: NGワード数, M: 本文長)
         for ng_word in self.ng_words:
             if ng_word.lower() in content_lower:
                 self.logger.warning(
@@ -136,15 +143,21 @@ class PostSparkInteractor(IPostSparkUseCase):
         # Save to repository
         saved_spark = await self.spark_repository.save(spark)
 
+        # Map to output DTO
+        spark_output = SparkOutput(
+            id=saved_spark.id,
+            content=saved_spark.content,
+            created_at=saved_spark.created_at.isoformat(),
+            visible_until=saved_spark.visible_until.isoformat(),
+        )
+
+        # Publish to Redis pub/sub for real-time streaming
+        await self.pubsub_gateway.publish(self.pubsub_channel, spark_output)
+
         self.logger.info(
             LOG_EVENTS.SPARK_POST_SUCCESS,
             "Spark posted successfully",
             context={"spark_id": saved_spark.id},
         )
 
-        # Map to output DTO
-        return SparkOutput(
-            id=saved_spark.id,
-            content=saved_spark.content,
-            created_at=saved_spark.created_at.isoformat(),
-        )
+        return spark_output

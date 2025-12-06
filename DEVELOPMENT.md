@@ -26,7 +26,7 @@ git diff ${対象ディレクトリ} > diff.txt
 
 変更されたファイルの中身をすべて取得
 ```shell
-git diff --name-only --diff-filter=d ${対象ディレクトリ} | xargs -I{} cat "{}" > diff.txt
+git diff --cached --name-only --diff-filter=d ${対象ディレクトリ} | xargs -I{} cat "{}" > diff.txt
 ```
 
 対象ディレクトリの実装ファイルをすべて取得
