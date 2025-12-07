@@ -25,7 +25,7 @@ export const ActionForm = ({
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-light text-smoke-100 mb-2">
+        <label className="mb-2 block text-sm font-light text-smoke-100">
           Test Message
         </label>
         <Input

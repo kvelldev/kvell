@@ -8,6 +8,7 @@ import jsdoc from "eslint-plugin-jsdoc";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import eslintComments from "eslint-plugin-eslint-comments";
+import tailwind from "eslint-plugin-tailwindcss"
 export default defineConfig([
   {
     ignores: ["dist/**", "node_modules/**", "coverage/**"],
@@ -16,6 +17,7 @@ export default defineConfig([
   // 1. Global configs for all files
   js.configs.recommended,
   unicorn.configs["recommended"],
+  ...tailwind.configs["flat/recommended"],
   {
     languageOptions: {
       globals: {

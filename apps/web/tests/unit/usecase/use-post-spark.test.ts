@@ -31,11 +31,14 @@ describe("usePostSpark", () => {
   });
 
   it("should successfully post a spark and log events", async () => {
-    // Arrange: Setup mock return value
+    // Arrange: Setup mock return value with dynamic timestamps
+    const now = new Date();
+    const visibleUntil = new Date(now.getTime() + 10 * 60 * 1000); // +10 minutes
     const mockSpark: Spark = {
       id: "spark-123",
       content: "Test spark content",
-      createdAt: "2025-12-05T00:00:00Z",
+      createdAt: now.toISOString(),
+      visibleUntil: visibleUntil.toISOString(),
     };
     vi.mocked(mockRepository.postSpark).mockResolvedValue(mockSpark);
 
@@ -114,11 +117,14 @@ describe("usePostSpark", () => {
   });
 
   it("should track isPosting state during mutation", async () => {
-    // Arrange: Setup mock with delay
+    // Arrange: Setup mock with delay and dynamic timestamps
+    const now = new Date();
+    const visibleUntil = new Date(now.getTime() + 10 * 60 * 1000); // +10 minutes
     const mockSpark: Spark = {
       id: "spark-456",
       content: "Test content",
-      createdAt: "2025-12-05T00:00:00Z",
+      createdAt: now.toISOString(),
+      visibleUntil: visibleUntil.toISOString(),
     };
     vi.mocked(mockRepository.postSpark).mockImplementation(
       () =>

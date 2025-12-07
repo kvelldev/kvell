@@ -22,7 +22,7 @@ export const MessageViewer = ({
   if (isLoading) {
     return (
       <div
-        className="text-center text-ash-500 font-light"
+        className="text-center font-light text-ash-500"
         data-testid="health-loading-display"
       >
         Loading...
@@ -33,11 +33,11 @@ export const MessageViewer = ({
   if (error) {
     return (
       <div
-        className="bg-night-800 border border-ash-500 rounded-card p-4"
+        className="rounded-card border border-ash-500 bg-night-800 p-4"
         data-testid="health-error-display"
       >
-        <p className="text-ash-500 text-sm font-light">Error</p>
-        <p className="text-smoke-100 text-sm mt-1">{error.message}</p>
+        <p className="text-sm font-light text-ash-500">Error</p>
+        <p className="mt-1 text-sm text-smoke-100">{error.message}</p>
       </div>
     );
   }
@@ -45,15 +45,15 @@ export const MessageViewer = ({
   if (message) {
     return (
       <div
-        className="bg-night-800 border border-ember-500 rounded-card shadow-glow-sm p-4"
+        className="rounded-card border border-ember-500 bg-night-800 p-4 shadow-glow-sm"
         data-testid="health-message-display"
       >
-        <p className="text-ember-500 text-sm font-light">Success</p>
-        <p className="text-smoke-100 text-sm mt-1">
+        <p className="text-sm font-light text-ember-500">Success</p>
+        <p className="mt-1 text-sm text-smoke-100">
           <strong className="text-ember-500">Message:</strong> {message.message}
         </p>
-        <p className="text-ash-500 text-xs mt-1">ID: {message.id}</p>
-        <p className="text-ash-500 text-xs">
+        <p className="mt-1 text-xs text-ash-500">ID: {message.id}</p>
+        <p className="text-xs text-ash-500">
           Created: {formattedCreatedAt ?? message.createdAt}
         </p>
       </div>

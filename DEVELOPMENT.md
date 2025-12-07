@@ -6,7 +6,7 @@ TODO:
 
 ### 起動
 Docker
-`cd ~/ws/kvell docker-compose up -d`
+`cd ~/ws/kvell && docker-compose up -d`
 
 FastAPI
 `cd ~/ws/kvell/apps/api && PYTHONPATH=src uv run uvicorn app.main:app --port 8000 --reload`

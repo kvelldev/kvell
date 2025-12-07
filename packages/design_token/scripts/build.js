@@ -39,7 +39,10 @@ sd.registerFormat({
       'radius': 'borderRadius',
       'font': 'fontFamily',
       'animation': 'animation',
-      'opacity': 'opacity'
+      'opacity': 'opacity',
+      'blur': 'blur',
+      'gradient': 'backgroundImage',
+      'keyframes': 'keyframes'
     };
 
     const output = {};

@@ -31,8 +31,8 @@ export const SparkPostForm = ({
   const isSubmitDisabled = isEmpty || isOverLimit || isPosting;
 
   return (
-    <div className="w-full max-w-2xl mx-auto bg-night-800 rounded-card p-6 shadow-glow-sm">
-      <h2 className="text-xl font-light text-ember-500 mb-4">種火を投げる</h2>
+    <div className="mx-auto w-full max-w-2xl rounded-card bg-night-800 p-6 shadow-glow-sm">
+      <h2 className="mb-4 text-xl font-light text-ember-500">種火を投げる</h2>
 
       <SparkInput
         value={content}
@@ -44,7 +44,7 @@ export const SparkPostForm = ({
 
       {error && (
         <div
-          className="mt-3 text-sm text-ember-500 font-light"
+          className="mt-3 text-sm font-light text-ember-500"
           data-testid="spark-error"
         >
           エラー: {error.message}

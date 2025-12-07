@@ -24,6 +24,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.1.4",
+    "react-virtuoso": "^4.17.0",
     "swr": "^2.3.6"
   },
   "devDependencies": {
@@ -43,6 +44,7 @@
     "eslint-plugin-jsdoc": "^61.4.1",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "eslint-plugin-tailwindcss": "^3.18.2",
     "eslint-plugin-unicorn": "^62.0.0",
     "jsdom": "^27.2.0",
     "msw": "^2.12.4",

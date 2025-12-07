@@ -1,8 +1,17 @@
 /** @type {import('tailwindcss').Config} */
 import customTheme from "../../packages/design_token/dist/tailwind.theme.js";
 
-const { colors, boxShadow, borderRadius, opacity, fontFamily, animation } =
-  customTheme;
+const {
+  colors,
+  boxShadow,
+  borderRadius,
+  opacity,
+  fontFamily,
+  animation,
+  blur,
+  backgroundImage,
+  keyframes
+} = customTheme;
 
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
@@ -25,6 +34,9 @@ export default {
     extend: {
       fontFamily: fontFamily.family,
       animation,
+      keyframes,
+      blur,
+      backgroundImage,
     },
   },
   plugins: [],

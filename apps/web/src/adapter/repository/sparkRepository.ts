@@ -16,6 +16,7 @@ interface SparkApiResponse {
   id: string;
   content: string;
   created_at: string;
+  visible_until: string;
 }
 
 /**
@@ -33,6 +34,7 @@ class SparkRepositoryImpl implements ISparkRepository {
       id: data.id,
       content: data.content,
       createdAt: data.created_at,
+      visibleUntil: data.visible_until,
     };
   }
 }

@@ -54,7 +54,7 @@ class Settings(BaseSettings):
         description="Rate limit window duration in seconds",
     )
     spark_visible_duration_minutes: int = Field(
-        default=10,
+        default=1,
         description="Duration in minutes that a spark remains visible",
     )
     spark_ttl_days: int = Field(

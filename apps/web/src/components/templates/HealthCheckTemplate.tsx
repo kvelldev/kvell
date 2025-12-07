@@ -13,8 +13,8 @@ interface HealthCheckTemplateProps {
 
 export const HealthCheckTemplate = ({ children }: HealthCheckTemplateProps) => {
   return (
-    <div className="min-h-screen bg-night-900 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-night-800 rounded-card shadow-glow-md p-6">
+    <div className="flex min-h-screen items-center justify-center bg-night-900 p-4">
+      <div className="w-full max-w-md rounded-card bg-night-800 p-6 shadow-glow-md">
         {children}
       </div>
     </div>

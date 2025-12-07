@@ -11,7 +11,7 @@ interface SparkPostTemplateProps {
 
 export const SparkPostTemplate = ({ children }: SparkPostTemplateProps) => {
   return (
-    <div className="min-h-screen bg-night-900 flex items-center justify-center p-4">
+    <div className="flex min-h-screen items-center justify-center bg-night-900 p-4">
       {children}
     </div>
   );
