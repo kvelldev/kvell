@@ -42,3 +42,9 @@ export const LOG_EVENTS = {
     POST_ERROR: "SPARK_POST_ERROR",
   },
 } as const;
+
+/**
+ * Spark cooling threshold in milliseconds (3 minutes)
+ * Sparks with less than this remaining lifetime will display as "cooling" (ash)
+ */
+export const COOLING_THRESHOLD_MS = 3 * 60 * 1000;

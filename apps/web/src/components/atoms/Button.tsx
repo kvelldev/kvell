@@ -4,6 +4,8 @@
  * Basic button component (Stateless).
  */
 
+import clsx from "clsx";
+
 interface ButtonProps {
   children: React.ReactNode;
   onClick: () => void;
@@ -30,7 +32,7 @@ export const Button = ({
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`${baseClasses} ${variantClasses}`}
+      className={clsx(baseClasses, variantClasses)}
       data-testid={testId}
     >
       {children}

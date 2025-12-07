@@ -5,6 +5,7 @@
  * Combines Textarea atom with validation feedback.
  */
 
+import clsx from "clsx";
 import { Textarea } from "@/components/atoms/Textarea";
 
 interface SparkInputProps {
@@ -44,7 +45,7 @@ export const SparkInput = ({
       />
       <div className="mt-2 flex justify-end">
         <span
-          className={`text-sm font-light ${counterColorClass}`}
+          className={clsx("text-sm font-light", counterColorClass)}
           data-testid={testId ? `${testId}-counter` : undefined}
         >
           {currentLength} / {maxLength}

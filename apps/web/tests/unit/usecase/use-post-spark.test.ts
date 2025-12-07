@@ -97,13 +97,14 @@ describe("usePostSpark", () => {
         // Error is expected, do nothing
       });
 
-    // Wait for mutation to complete
-    await waitFor(() => {
-      expect(result.current.isPosting).toBe(false);
-    });
-
     // Wait for promise to settle
     await postPromise;
+
+    // Wait for mutation to complete and error state to be set
+    await waitFor(() => {
+      expect(result.current.isPosting).toBe(false);
+      expect(result.current.error).toBeTruthy();
+    });
 
     // Assert: Verify error logger was called
     expect(mockLogger.error).toHaveBeenCalledWith(mockError, {

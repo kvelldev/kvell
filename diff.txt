@@ -1,222 +1,84 @@
 /**
- * App Component
+ * Button Atom
  *
- * Root application component with routing and DI providers.
+ * Basic button component (Stateless).
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
-import { SparkPostPage } from "@/components/pages/SparkPostPage";
-import { TimelinePage } from "@/components/pages/TimelinePage";
-import { LoggerProvider } from "@/components/LoggerContext";
-import { sentryLogger } from "@/adapter/infra/sentryLogger";
+import clsx from "clsx";
 
-function App() {
+interface ButtonProps {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  variant?: "primary" | "secondary";
+  testId?: string;
+}
+
+export const Button = ({
+  children,
+  onClick,
+  disabled = false,
+  variant = "primary",
+  testId,
+}: ButtonProps) => {
+  const baseClasses =
+    "px-4 py-2 rounded-button font-light transition-all disabled:opacity-ash disabled:cursor-not-allowed";
+  const variantClasses =
+    variant === "primary"
+      ? "bg-ember-500 hover:shadow-glow-md text-night-900"
+      : "bg-night-800 hover:shadow-glow-sm text-smoke-100";
+
   return (
-    <LoggerProvider logger={sentryLogger}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Navigate to="/timeline" replace />} />
-          <Route path="/timeline" element={<TimelinePage />} />
-          <Route path="/spark" element={<SparkPostPage />} />
-          <Route path="/health" element={<HealthCheckPage />} />
-        </Routes>
-      </BrowserRouter>
-    </LoggerProvider>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={clsx(baseClasses, variantClasses)}
+      data-testid={testId}
+    >
+      {children}
+    </button>
   );
-}
-
-export default App;
-/**
- * Spark Repository Implementation
- *
- * Adapter layer implementation of ISparkRepository.
- * Handles API communication for spark operations using apiClient.
- */
-
-import type { PostSparkRequest, Spark } from "@/domain/model/spark";
-import type { ISparkRepository } from "@/domain/repository/sparkRepository";
-import { apiClient } from "@/adapter/apiClient";
-
-/**
- * API response type for spark endpoints (snake_case from backend)
- */
-interface SparkApiResponse {
-  id: string;
-  content: string;
-  created_at: string;
-  visible_until: string;
-}
-
-/**
- * Spark Repository implementation
- */
-class SparkRepositoryImpl implements ISparkRepository {
-  async postSpark(request: PostSparkRequest): Promise<Spark> {
-    const data = await apiClient<SparkApiResponse>("/api/sparks", {
-      method: "POST",
-      body: JSON.stringify({ content: request.content }),
-    });
-
-    // Transform snake_case API response to camelCase domain model
-    return {
-      id: data.id,
-      content: data.content,
-      createdAt: data.created_at,
-      visibleUntil: data.visible_until,
-    };
-  }
-}
-
-/**
- * Singleton instance of Spark Repository
- */
-export const sparkRepository: ISparkRepository = new SparkRepositoryImpl();
-/**
- * WebSocket Timeline Repository Implementation
- *
- * Adapter layer implementation of ITimelineRepository.
- * Handles WebSocket connection for real-time spark streaming.
- */
-
-import type { Spark } from "@/domain/model/spark";
-import type { ITimelineRepository } from "@/domain/repository/timelineRepository";
-
-/**
- * WebSocket message response type (snake_case from backend)
- */
-interface SparkWebSocketMessage {
-  id: string;
-  content: string;
-  created_at: string;
-  visible_until: string;
-}
-
-/**
- * WebSocket Timeline Repository Implementation
- */
-class WsTimelineRepositoryImpl implements ITimelineRepository {
-  private readonly wsUrl: string;
-
-  constructor() {
-    const baseUrl: string = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
-    // Convert http(s):// to ws(s)://
-    this.wsUrl = baseUrl.replace(/^http/, "ws") + "/api/sparks/ws";
-  }
-
-  connect(
-    onMessage: (spark: Spark) => void,
-    onError: () => void,
-  ): () => void {
-    const ws = new WebSocket(this.wsUrl);
-    let isDisposed = false;
-
-    ws.addEventListener("message", (event) => {
-      if (isDisposed) return;
-      try {
-        const rawData = JSON.parse(
-          event.data as string,
-        ) as SparkWebSocketMessage;
-
-        // Transform snake_case to camelCase domain model
-        const spark: Spark = {
-          id: rawData.id,
-          content: rawData.content,
-          createdAt: rawData.created_at,
-          visibleUntil: rawData.visible_until,
-        };
-
-        onMessage(spark);
-      } catch (error) {
-        console.error("Failed to parse WebSocket message:", error);
-      }
-    });
-
-    ws.addEventListener("error", (event) => {
-      if (isDisposed) return;
-      console.error("WebSocket error:", event);
-      onError();
-    });
-
-    ws.addEventListener("close", (event) => {
-      if (isDisposed) return;
-      // Only trigger error callback on abnormal closures
-      if (!event.wasClean) {
-        console.error("WebSocket closed unexpectedly:", event.code, event.reason);
-        onError();
-      }
-    });
-
-    // Cleanup function to close WebSocket
-    return () => {
-      isDisposed = true;
-      if (
-        ws.readyState === WebSocket.OPEN ||
-        ws.readyState === WebSocket.CONNECTING
-      ) {
-        ws.close();
-      }
-    };
-  }
-}
-
-/**
- * Singleton instance of WebSocket Timeline Repository
- */
-export const wsTimelineRepository: ITimelineRepository =
-  new WsTimelineRepositoryImpl();
+};
 /**
  * SparkCard Atom Component (Dumb)
  *
  * Displays a single spark (種火) with color temperature based heat expression.
  * Pure presentational component with no business logic.
+ * Optimized with React.memo to prevent unnecessary re-renders.
  */
 
+import { memo } from "react";
+import clsx from "clsx";
 import { motion } from "framer-motion";
-import type { Spark } from "@/domain/model/spark";
+import type { SparkViewModel } from "@/domain/model/spark";
 
 /**
  * Props for SparkCard component
  */
 interface SparkCardProps {
   /**
-   * Spark data to display
+   * Spark ViewModel with computed temperature state
    */
-  spark: Spark;
+  spark: SparkViewModel;
 }
 
 /**
- * Cooling threshold in milliseconds (3 minutes)
- * Sparks with less than 3 minutes remaining will display as "cooling"
- */
-const COOLING_THRESHOLD_MS = 3 * 60 * 1000;
-
-/**
- * Calculate remaining lifetime in milliseconds
- * @param visibleUntil - ISO timestamp when spark expires
- * @returns Remaining time in milliseconds
- */
-const calculateRemainingTime = (visibleUntil: string): number => {
-  const now = Date.now();
-  const expirationTime = new Date(visibleUntil).getTime();
-  return Math.max(0, expirationTime - now);
-};
-
-/**
- * SparkCard Component
+ * SparkCard Component (Memoized)
  *
  * Renders a single spark with:
- * - Fade-in animation on mount (opacity only, no persistent opacity reduction)
+ * - Fade-in animation on mount
  * - Color temperature based heat expression (white→ash transition)
  * - Border glow for hot sparks (ember orange)
  * - Text truncation for long content
+ *
+ * Performance:
+ * - Memoized to prevent re-renders when temperature state doesn't change
+ * - Only re-renders if spark.id, spark.content, or spark.temperature changes
  * @returns Rendered spark card element
  */
-export const SparkCard = ({ spark }: SparkCardProps) => {
-  const remainingTime = calculateRemainingTime(spark.visibleUntil);
-  const isHot = remainingTime >= COOLING_THRESHOLD_MS;
-
-  // Color temperature classes
+const SparkCardComponent = ({ spark }: SparkCardProps) => {
+  // Color temperature classes based on pre-computed temperature
+  const isHot = spark.temperature === "hot";
   const textColor = isHot ? "text-smoke-100" : "text-ash-500";
   const borderColor = isHot ? "border-ember-500" : "border-transparent";
 
@@ -225,23 +87,229 @@ export const SparkCard = ({ spark }: SparkCardProps) => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
-      className={`bg-night-800 rounded-card shadow-glow-sm p-4 border-2 ${borderColor} ${textColor} transition-colors duration-1000`}
+      className={clsx(
+        "rounded-card border-2 bg-night-800 p-4 shadow-glow-sm transition-colors duration-1000",
+        borderColor,
+        textColor,
+      )}
       data-testid={`spark-card-${spark.id}`}
     >
-      <p className="font-base text-sm line-clamp-3">{spark.content}</p>
+      <p className="line-clamp-3 font-base text-sm">{spark.content}</p>
     </motion.div>
+  );
+};
+
+/**
+ * Memoized SparkCard
+ * Only re-renders when spark data (id, content, temperature) changes
+ */
+export const SparkCard = memo(SparkCardComponent);
+/**
+ * BaseModal Molecule Component (Dumb)
+ *
+ * Generic modal component providing:
+ * - Backdrop with click-to-close
+ * - Modal container with animations
+ * - Header with title and close button
+ * - Scrollable content area
+ *
+ * Built with Headless UI Dialog for accessibility features:
+ * - Automatic focus management
+ * - Keyboard navigation (ESC to close)
+ * - ARIA attributes
+ * - Focus trap
+ */
+
+import { Dialog, DialogPanel, DialogTitle } from "@headlessui/react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X } from "lucide-react";
+import type { ReactNode } from "react";
+
+/**
+ * Props for BaseModal component
+ */
+interface BaseModalProps {
+  /**
+   * Whether the modal is open
+   */
+  isOpen: boolean;
+
+  /**
+   * Callback to close the modal
+   */
+  onClose: () => void;
+
+  /**
+   * Modal title displayed in header
+   */
+  title: string;
+
+  /**
+   * Modal content
+   */
+  children: ReactNode;
+
+  /**
+   * Optional test ID for backdrop
+   */
+  backdropTestId?: string;
+
+  /**
+   * Optional test ID for modal content
+   */
+  modalTestId?: string;
+
+  /**
+   * Optional test ID for close button
+   */
+  closeButtonTestId?: string;
+}
+
+/**
+ * BaseModal Component
+ *
+ * Features:
+ * - Full-screen backdrop overlay (90% opacity)
+ * - Centered modal with max-width and max-height constraints
+ * - Fade + scale animation on open/close
+ * - Click backdrop or ESC key to dismiss
+ * - Scrollable content area
+ * - Accessibility features via Headless UI Dialog
+ * @returns Rendered modal element
+ */
+export const BaseModal = ({
+  isOpen,
+  onClose,
+  title,
+  children,
+  backdropTestId,
+  modalTestId,
+  closeButtonTestId,
+}: BaseModalProps) => {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <Dialog
+          static
+          open={isOpen}
+          onClose={onClose}
+          className="relative z-50"
+        >
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.9 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 bg-night-900"
+            data-testid={backdropTestId}
+          />
+
+          {/* Modal Container */}
+          <div className="fixed inset-0 flex items-center justify-center p-4">
+            <DialogPanel>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.2 }}
+                className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-card bg-night-800 shadow-glow-md"
+                data-testid={modalTestId}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-ash-500 p-6">
+                  <DialogTitle className="font-base text-xl font-normal text-smoke-100">
+                    {title}
+                  </DialogTitle>
+                  <button
+                    onClick={onClose}
+                    className="text-ash-500 transition-colors hover:text-smoke-100"
+                    data-testid={closeButtonTestId}
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+
+                {/* Content Area (Scrollable) */}
+                <div className="flex-1 overflow-y-auto p-6">{children}</div>
+              </motion.div>
+            </DialogPanel>
+          </div>
+        </Dialog>
+      )}
+    </AnimatePresence>
+  );
+};
+/**
+ * SparkInput Molecule
+ *
+ * Textarea with character counter for spark posting.
+ * Combines Textarea atom with validation feedback.
+ */
+
+import clsx from "clsx";
+import { Textarea } from "@/components/atoms/Textarea";
+
+interface SparkInputProps {
+  value: string;
+  onChange: (value: string) => void;
+  maxLength: number;
+  disabled?: boolean;
+  testId?: string;
+}
+
+export const SparkInput = ({
+  value,
+  onChange,
+  maxLength,
+  disabled = false,
+  testId,
+}: SparkInputProps) => {
+  const currentLength = value.length;
+  const isOverLimit = currentLength > maxLength;
+  const isNearLimit = currentLength > maxLength * 0.8;
+
+  // Character count color based on limit
+  const counterColorClass = isOverLimit
+    ? "text-ember-500" // Over limit: ember (warning)
+    : isNearLimit
+      ? "text-spark-500" // Near limit: spark (attention)
+      : "text-ash-500"; // Normal: ash (neutral)
+
+  return (
+    <div className="w-full">
+      <Textarea
+        value={value}
+        onChange={onChange}
+        placeholder="夜空に種火を投げる..."
+        disabled={disabled}
+        testId={testId}
+      />
+      <div className="mt-2 flex justify-end">
+        <span
+          className={clsx("text-sm font-light", counterColorClass)}
+          data-testid={testId ? `${testId}-counter` : undefined}
+        >
+          {currentLength} / {maxLength}
+        </span>
+      </div>
+    </div>
   );
 };
 /**
  * SparkListModal Organism Component (Dumb)
  *
- * Full-screen modal displaying all currently alive sparks.
+ * Modal displaying all currently alive sparks.
  * Used for "See More" feature to view sparks that have scrolled off-screen.
+ *
+ * Responsibilities:
+ * - Render list of sparks using SparkCard
+ * - Display empty state message when no sparks available
+ * - Compose BaseModal for modal structure
  */
 
-import { motion, AnimatePresence } from "framer-motion";
-import { X } from "lucide-react";
-import type { Spark } from "@/domain/model/spark";
+import type { SparkViewModel } from "@/domain/model/spark";
+import { BaseModal } from "@/components/molecules/BaseModal";
 import { SparkCard } from "@/components/atoms/SparkCard";
 
 /**
@@ -249,9 +317,9 @@ import { SparkCard } from "@/components/atoms/SparkCard";
  */
 interface SparkListModalProps {
   /**
-   * Array of sparks to display
+   * Array of spark ViewModels to display
    */
-  sparks: Spark[];
+  sparks: SparkViewModel[];
 
   /**
    * Whether the modal is open
@@ -268,10 +336,9 @@ interface SparkListModalProps {
  * SparkListModal Component
  *
  * Features:
- * - Full-screen overlay with backdrop
  * - Scrollable list of all alive sparks
  * - Color temperature expression (same as timeline)
- * - Close button and backdrop click to dismiss
+ * - Empty state handling
  * @returns Rendered modal element
  */
 export const SparkListModal = ({
@@ -280,61 +347,25 @@ export const SparkListModal = ({
   onClose,
 }: SparkListModalProps) => {
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 bg-night-900 bg-opacity-90 z-40"
-            onClick={onClose}
-            data-testid="spark-list-backdrop"
-          />
-
-          {/* Modal Content */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            data-testid="spark-list-modal"
-          >
-            <div className="bg-night-800 rounded-card w-full max-w-2xl max-h-[80vh] flex flex-col shadow-glow-md">
-              {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b border-ash-500 border-opacity-ash">
-                <h2 className="text-smoke-100 text-xl font-base font-normal">
-                  全ての種火 ({sparks.length})
-                </h2>
-                <button
-                  onClick={onClose}
-                  className="text-ash-500 hover:text-smoke-100 transition-colors"
-                  data-testid="close-modal-button"
-                >
-                  <X size={24} />
-                </button>
-              </div>
-
-              {/* Spark List */}
-              <div className="overflow-y-auto p-6 space-y-4 flex-1">
-                {sparks.length === 0 ? (
-                  <p className="text-ash-500 text-center py-8">
-                    表示できる種火がありません
-                  </p>
-                ) : (
-                  sparks.map((spark) => (
-                    <SparkCard key={spark.id} spark={spark} />
-                  ))
-                )}
-              </div>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+    <BaseModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`全ての種火 (${String(sparks.length)})`}
+      backdropTestId="spark-list-backdrop"
+      modalTestId="spark-list-modal"
+      closeButtonTestId="close-modal-button"
+    >
+      {/* Spark List */}
+      <div className="space-y-4">
+        {sparks.length === 0 ? (
+          <p className="py-8 text-center text-ash-500">
+            表示できる種火がありません
+          </p>
+        ) : (
+          sparks.map((spark) => <SparkCard key={spark.id} spark={spark} />)
+        )}
+      </div>
+    </BaseModal>
   );
 };
 /**
@@ -345,7 +376,7 @@ export const SparkListModal = ({
  */
 
 import { Virtuoso } from "react-virtuoso";
-import type { Spark } from "@/domain/model/spark";
+import type { SparkViewModel } from "@/domain/model/spark";
 import { SparkCard } from "@/components/atoms/SparkCard";
 
 /**
@@ -353,9 +384,9 @@ import { SparkCard } from "@/components/atoms/SparkCard";
  */
 interface TimelineStreamProps {
   /**
-   * Array of sparks to display (ascending order - oldest first, newest last)
+   * Array of spark ViewModels to display (ascending order - oldest first, newest last)
    */
-  sparks: Spark[];
+  sparks: SparkViewModel[];
 }
 
 /**
@@ -371,7 +402,7 @@ interface TimelineStreamProps {
 export const TimelineStream = ({ sparks }: TimelineStreamProps) => {
   return (
     <div
-      className="relative h-full w-full"
+      className="relative size-full"
       style={{
         // Fade-out mask at top 20% (chimney effect - sparks vanish into the sky)
         maskImage:
@@ -395,116 +426,63 @@ export const TimelineStream = ({ sparks }: TimelineStreamProps) => {
     </div>
   );
 };
-/**
- * Timeline Page (Smart Component)
- *
- * Entry point for the Timeline feature.
- * Handles dependency injection and wiring of UseCase to UI components.
- */
-
-import { useState } from "react";
-import { List } from "lucide-react";
-import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
-import { useTimelineStream } from "@/usecase/useTimelineStream";
-import { TimelineStream } from "@/components/organisms/TimelineStream";
-import { SparkListModal } from "@/components/organisms/SparkListModal";
-import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
-
-/**
- * Timeline Page Component
- *
- * Responsibilities:
- * - Inject wsTimelineRepository into useTimelineStream (DIP)
- * - Pass spark data to TimelineStream organism
- * - Manage "See More" modal state
- * - Display error message if WebSocket connection fails
- * - Wrap content in TimelineTemplate for layout
- * @returns Rendered timeline page
- */
-export const TimelinePage = () => {
-  // UseCase: Connect to WebSocket and receive sparks
-  const { sparks, hasError } = useTimelineStream(wsTimelineRepository);
-
-  // Modal state
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  return (
-    <TimelineTemplate>
-      {hasError ? (
-        <div className="flex h-full w-full items-center justify-center">
-          <div className="text-center">
-            <p className="text-smoke-100 text-xl font-base mb-4">
-              サーバーに接続できません
-            </p>
-            <p className="text-ash-500 text-sm font-base">
-              ネットワーク接続を確認してページを再読み込みしてください
-            </p>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Timeline Stream */}
-          <TimelineStream sparks={sparks} />
-
-          {/* See More Button (Fixed at bottom-right) */}
-          <button
-            onClick={() => {
-              setIsModalOpen(true);
-            }}
-            className="fixed bottom-6 right-6 z-30 bg-ember-500 hover:bg-ember-500 hover:shadow-glow-md text-smoke-100 rounded-button px-6 py-3 flex items-center gap-2 transition-all duration-200"
-            data-testid="see-more-button"
-          >
-            <List size={20} />
-            <span className="font-base text-sm">もっと見る</span>
-          </button>
-
-          {/* Spark List Modal */}
-          <SparkListModal
-            sparks={sparks}
-            isOpen={isModalOpen}
-            onClose={() => {
-              setIsModalOpen(false);
-            }}
-          />
-        </>
-      )}
-    </TimelineTemplate>
-  );
-};
-/**
- * Timeline Template
- *
- * Layout template for timeline page (Dumb Component).
- * Provides full-screen layout for the spark flow experience.
- */
-
-import type { ReactNode } from "react";
-
-interface TimelineTemplateProps {
-  children: ReactNode;
-}
+export const internalStatuses = {
+  // Sucess
+  200: "OK",
+  201: "Created",
+  204: "No Content",
+  // Client Errors
+  400: "Bad Request",
+  401: "Unauthorized",
+  403: "Forbidden",
+  404: "Not Found",
+  409: "Conflict",
+  422: "Unprocessable Entity",
+  // Business Logic Errors
+  1001: "Invalid email format.",
+  // Server Errors
+  500: "Internal Server Error",
+} as const;
 
 /**
- * Timeline Template Component
- *
- * Features:
- * - Full-screen layout (100vh)
- * - Night background (bg-night-900)
- * - Proper z-index layering (z-0 for timeline content)
- * @returns Rendered timeline template layout
+ * Type representing valid internal status codes.
  */
-export const TimelineTemplate = ({ children }: TimelineTemplateProps) => {
-  return (
-    <div className="h-screen w-screen bg-night-900 overflow-hidden">
-      <div className="h-full w-full z-0">{children}</div>
-    </div>
-  );
-};
+export type InternalStatusCodes = keyof typeof internalStatuses;
+
+/**
+ * Log Event IDs for structured logging.
+ * Use these constants in logger calls for testable, consistent event tracking.
+ */
+export const LOG_EVENTS = {
+  // Health Check
+  HEALTH_CHECK: {
+    FETCH_START: "HEALTH_FETCH_START",
+    FETCH_SUCCESS: "HEALTH_FETCH_SUCCESS",
+    FETCH_ERROR: "HEALTH_FETCH_ERROR",
+    SAVE_START: "HEALTH_SAVE_START",
+    SAVE_SUCCESS: "HEALTH_SAVE_SUCCESS",
+    SAVE_ERROR: "HEALTH_SAVE_ERROR",
+  },
+  // Spark Post
+  SPARK: {
+    POST_START: "SPARK_POST_START",
+    POST_SUCCESS: "SPARK_POST_SUCCESS",
+    POST_ERROR: "SPARK_POST_ERROR",
+  },
+} as const;
+
+/**
+ * Spark cooling threshold in milliseconds (3 minutes)
+ * Sparks with less than this remaining lifetime will display as "cooling" (ash)
+ */
+export const COOLING_THRESHOLD_MS = 3 * 60 * 1000;
 /**
  * Spark Domain Model
  *
  * Represents a single spark (種火) - the core unit of all topics in Kvell.
  */
+
+import type { SparkTemperature } from "@/domain/service/sparkService";
 
 /**
  * Spark interface
@@ -532,6 +510,18 @@ export interface Spark {
 }
 
 /**
+ * Spark ViewModel with computed temperature state
+ * Used for UI rendering to avoid recalculation on every render
+ */
+export interface SparkViewModel extends Spark {
+  /**
+   * Computed temperature state ('hot' or 'ash')
+   * Determines visual representation (color, border glow)
+   */
+  temperature: SparkTemperature;
+}
+
+/**
  * Request payload for posting a new spark
  */
 export interface PostSparkRequest {
@@ -541,55 +531,44 @@ export interface PostSparkRequest {
   content: string;
 }
 /**
- * Timeline Repository Interface (DIP)
- *
- * Abstract definition of real-time timeline data streaming operations.
- * Manages WebSocket connection lifecycle and spark streaming.
- */
-
-import type { Spark } from "@/domain/model/spark";
-
-/**
- * Timeline Repository Interface
- *
- * Provides real-time streaming of sparks via WebSocket connection.
- */
-export interface ITimelineRepository {
-  /**
-   * Establish WebSocket connection and start receiving spark messages.
-   * @param onMessage - Callback invoked when a new spark is received
-   * @param onError - Callback invoked when connection fails or closes unexpectedly
-   * @returns Cleanup function to disconnect and close the WebSocket
-   */
-  connect(
-    onMessage: (spark: Spark) => void,
-    onError: () => void,
-  ): () => void;
-}
-/**
  * Timeline Stream UseCase
  *
  * Business logic for real-time timeline spark streaming.
- * Manages WebSocket connection, spark accumulation, deduplication, and TTL cleanup.
+ * Manages WebSocket connection, spark accumulation, deduplication, TTL cleanup,
+ * and temperature calculation for UI rendering.
  */
 
 import { useEffect, useState } from "react";
-import type { Spark } from "@/domain/model/spark";
+import type { Spark, SparkViewModel } from "@/domain/model/spark";
 import type { ITimelineRepository } from "@/domain/repository/timelineRepository";
+import { getSparkTemperature } from "@/domain/service/sparkService";
 
 /**
- * Cleanup interval for removing expired sparks
- * Run cleanup every second for immediate removal of expired sparks
+ * Update interval for temperature recalculation and TTL cleanup
+ * Run every second for immediate removal of expired sparks and temperature updates
  */
-const CLEANUP_INTERVAL_MS = 1000;
+const UPDATE_INTERVAL_MS = 1000;
+
+/**
+ * Compute ViewModels from raw sparks by adding temperature state
+ * @param sparks - Raw spark data from repository
+ * @returns Spark ViewModels with computed temperature
+ */
+const computeViewModels = (sparks: Spark[]): SparkViewModel[] => {
+  return sparks.map((spark) => ({
+    ...spark,
+    temperature: getSparkTemperature(spark),
+  }));
+};
 
 /**
  * Timeline Stream Custom Hook
  * @param repository - Timeline repository implementation (DIP)
- * @returns Object containing current sparks array and connection error state
+ * @returns Object containing current spark ViewModels and connection error state
  */
 export const useTimelineStream = (repository: ITimelineRepository) => {
   const [sparks, setSparks] = useState<Spark[]>([]);
+  const [viewModels, setViewModels] = useState<SparkViewModel[]>([]);
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
@@ -616,26 +595,41 @@ export const useTimelineStream = (repository: ITimelineRepository) => {
       },
     );
 
-    // 2. Setup periodic TTL cleanup based on visibleUntil
-    const cleanupTimer = setInterval(() => {
+    // 2. Setup periodic temperature recalculation and TTL cleanup
+    const updateTimer = setInterval(() => {
       const now = Date.now();
 
-      setSparks((previous) =>
-        previous.filter((spark) => {
+      setSparks((previous) => {
+        // Filter out expired sparks
+        const aliveSparks = previous.filter((spark) => {
           const expirationTime = new Date(spark.visibleUntil).getTime();
-
-          // Keep spark if it hasn't exceeded its visibleUntil time
           return now < expirationTime;
-        }),
-      );
-    }, CLEANUP_INTERVAL_MS);
+        });
+
+        return aliveSparks;
+      });
+    }, UPDATE_INTERVAL_MS);
 
     // 3. Cleanup on unmount
     return () => {
       disconnect();
-      clearInterval(cleanupTimer);
+      clearInterval(updateTimer);
     };
   }, [repository]);
 
-  return { sparks, hasError };
+  // 4. Recompute ViewModels whenever sparks change or timer ticks
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setViewModels(computeViewModels(sparks));
+    }, UPDATE_INTERVAL_MS);
+
+    // Initial computation
+    setViewModels(computeViewModels(sparks));
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [sparks]);
+
+  return { sparks: viewModels, hasError };
 };
