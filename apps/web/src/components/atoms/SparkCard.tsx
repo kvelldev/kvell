@@ -64,7 +64,7 @@ const SparkCardComponent = ({ spark }: SparkCardProps) => {
         borderColor,
         textColor,
       )}
-      data-testid={`spark-card-${spark.id}`}
+      data-testid="spark-item"
     >
       <p className="line-clamp-3 font-base text-sm">{spark.content}</p>
       <div className="mt-2 flex justify-end">

@@ -37,11 +37,11 @@ class ISparkRepository(ABC):
         """
 
     @abstractmethod
-    async def find_active_sparks(self, minutes: int) -> AsyncIterator[Spark]:
-        """Find all active sparks created within the specified minutes.
+    async def find_active_sparks(self, seconds: int) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified seconds.
 
         Args:
-            minutes: Number of minutes to look back from now
+            seconds: Number of seconds to look back from now
 
         Yields:
             Active sparks sorted by created_at in ascending order (oldest first)

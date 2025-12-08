@@ -29,7 +29,9 @@ export const DebugPage = () => {
         <div className="flex items-center justify-between">
           <h2 className="text-xl">💨 Animation Check</h2>
           <button
-            onClick={() => { setKey(k => k + 1 ); }}
+            onClick={() => {
+              setKey((k) => k + 1);
+            }}
             className="rounded-button border border-ash-500 bg-night-800 px-4 py-2 hover:bg-ash-500"
           >
             Replay
@@ -38,10 +40,10 @@ export const DebugPage = () => {
 
         <div className="flex h-40 items-end justify-center gap-10">
           <div key={key} className="origin-bottom animate-smoke">
-             <div className="rounded-card border-2 border-ember-500 p-4 text-smoke-100">
-               Component
-             </div>
-           </div>
+            <div className="rounded-card border-2 border-ember-500 p-4 text-smoke-100">
+              Component
+            </div>
+          </div>
         </div>
       </section>
     </div>

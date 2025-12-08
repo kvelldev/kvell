@@ -23,7 +23,7 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
         spark_repository: ISparkRepository,
         pubsub_gateway: IPubSubGateway,
         logger: ILogger,
-        active_spark_minutes: int,
+        active_spark_seconds: int,
         pubsub_channel: str,
     ) -> None:
         """Initialize the interactor.
@@ -32,14 +32,14 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
             spark_repository: Repository for spark persistence
             pubsub_gateway: Gateway for pub/sub messaging
             logger: Logger for structured logging
-            active_spark_minutes: Minutes to look back for active sparks
+            active_spark_seconds: Seconds to look back for active sparks
             pubsub_channel: Redis pub/sub channel name
 
         """
         self.spark_repository = spark_repository
         self.pubsub_gateway = pubsub_gateway
         self.logger = logger
-        self.active_spark_minutes = active_spark_minutes
+        self.active_spark_seconds = active_spark_seconds
         self.pubsub_channel = pubsub_channel
 
     async def execute(self) -> AsyncIterator[SparkOutput]:
@@ -85,15 +85,15 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
             snapshot_count = 0
 
             async for spark in self.spark_repository.find_active_sparks(
-                minutes=self.active_spark_minutes,
+                seconds=self.active_spark_seconds,
             ):
                 snapshot_ids.add(spark.id)
                 snapshot_count += 1
                 yield SparkOutput(
                     id=spark.id,
                     content=spark.content,
-                    created_at=spark.created_at.isoformat(),
-                    visible_until=spark.visible_until.isoformat(),
+                    created_at=spark.created_at,
+                    decay_at=spark.decay_at,
                 )
 
             self.logger.info(

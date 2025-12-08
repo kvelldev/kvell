@@ -53,13 +53,13 @@ class Settings(BaseSettings):
         default=60,
         description="Rate limit window duration in seconds",
     )
-    spark_visible_duration_minutes: int = Field(
-        default=1,
-        description="Duration in minutes that a spark remains visible",
+    spark_decay_after_seconds: int = Field(
+        default=60,
+        description="Duration in seconds until a spark decays (becomes invisible)",
     )
-    spark_ttl_days: int = Field(
+    spark_vanish_after_days: int = Field(
         default=30,
-        description="Time to live in days before spark is physically deleted",
+        description="Days until spark vanishes (physical deletion via MongoDB TTL)",
     )
     spark_ng_words: str = Field(
         default="forbidden_word",

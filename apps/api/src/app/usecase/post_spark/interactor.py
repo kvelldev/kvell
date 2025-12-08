@@ -30,8 +30,8 @@ class PostSparkInteractor(IPostSparkUseCase):
         max_length: int,
         rate_limit_count: int,
         rate_limit_window_seconds: int,
-        visible_duration_minutes: int,
-        ttl_days: int,
+        decay_after_seconds: int,
+        vanish_after_days: int,
         ng_words: list[str],
         pubsub_channel: str,
     ) -> None:
@@ -46,8 +46,8 @@ class PostSparkInteractor(IPostSparkUseCase):
             max_length: Maximum character length for content
             rate_limit_count: Maximum posts per window
             rate_limit_window_seconds: Rate limit window in seconds
-            visible_duration_minutes: Duration spark remains visible
-            ttl_days: Days until physical deletion
+            decay_after_seconds: Duration in seconds until spark decays
+            vanish_after_days: Days until physical deletion
             ng_words: List of prohibited words
             pubsub_channel: Redis pub/sub channel name
 
@@ -60,8 +60,8 @@ class PostSparkInteractor(IPostSparkUseCase):
         self.max_length = max_length
         self.rate_limit_count = rate_limit_count
         self.rate_limit_window_seconds = rate_limit_window_seconds
-        self.visible_duration_minutes = visible_duration_minutes
-        self.ttl_days = ttl_days
+        self.decay_after_seconds = decay_after_seconds
+        self.vanish_after_days = vanish_after_days
         self.ng_words = ng_words
         self.pubsub_channel = pubsub_channel
 
@@ -136,8 +136,8 @@ class PostSparkInteractor(IPostSparkUseCase):
             spark_id=str(uuid.uuid4()),
             content=input_data.content,
             user_hash=user_hash,
-            visible_duration_minutes=self.visible_duration_minutes,
-            ttl_days=self.ttl_days,
+            decay_after_seconds=self.decay_after_seconds,
+            vanish_after_days=self.vanish_after_days,
         )
 
         # Save to repository
@@ -147,8 +147,8 @@ class PostSparkInteractor(IPostSparkUseCase):
         spark_output = SparkOutput(
             id=saved_spark.id,
             content=saved_spark.content,
-            created_at=saved_spark.created_at.isoformat(),
-            visible_until=saved_spark.visible_until.isoformat(),
+            created_at=saved_spark.created_at,
+            decay_at=saved_spark.decay_at,
         )
 
         # Publish to Redis pub/sub for real-time streaming

@@ -10,7 +10,7 @@ const {
   animation,
   blur,
   backgroundImage,
-  keyframes
+  keyframes,
 } = customTheme;
 
 export default {

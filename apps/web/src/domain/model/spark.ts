@@ -26,9 +26,9 @@ export interface Spark {
   createdAt: string;
 
   /**
-   * ISO timestamp until which the spark remains visible (TTL expiration)
+   * ISO timestamp when the spark decays (becomes invisible)
    */
-  visibleUntil: string;
+  decayAt: string;
 }
 
 /**

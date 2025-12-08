@@ -14,16 +14,16 @@ class TestSpark:
         spark_id = "test-id"
         content = "Test spark content"
         user_hash = "test-hash"
-        visible_duration_minutes = 10
-        ttl_days = 30
+        decay_after_seconds = 600
+        vanish_after_days = 30
 
         # Act
         spark = Spark.create(
             spark_id=spark_id,
             content=content,
             user_hash=user_hash,
-            visible_duration_minutes=visible_duration_minutes,
-            ttl_days=ttl_days,
+            decay_after_seconds=decay_after_seconds,
+            vanish_after_days=vanish_after_days,
         )
 
         # Assert
@@ -31,14 +31,14 @@ class TestSpark:
         assert spark.content == content
         assert spark.user_hash == user_hash
         assert isinstance(spark.created_at, datetime)
-        assert isinstance(spark.visible_until, datetime)
-        assert isinstance(spark.expire_at, datetime)
+        assert isinstance(spark.decay_at, datetime)
+        assert isinstance(spark.vanish_at, datetime)
 
-    def test_create_whenValidInput_calculatesVisibleUntilCorrectly(self) -> None:
-        """Test that visible_until is calculated correctly."""
+    def test_create_whenValidInput_calculatesDecayAtCorrectly(self) -> None:
+        """Test that decay_at is calculated correctly."""
         # Arrange
-        visible_duration_minutes = 10
-        ttl_days = 30
+        decay_after_seconds = 600
+        vanish_after_days = 30
         before = datetime.now(UTC)
 
         # Act
@@ -46,21 +46,21 @@ class TestSpark:
             spark_id="test-id",
             content="test",
             user_hash="hash",
-            visible_duration_minutes=visible_duration_minutes,
-            ttl_days=ttl_days,
+            decay_after_seconds=decay_after_seconds,
+            vanish_after_days=vanish_after_days,
         )
         after = datetime.now(UTC)
 
         # Assert
-        expected_min = before + timedelta(minutes=visible_duration_minutes)
-        expected_max = after + timedelta(minutes=visible_duration_minutes)
-        assert expected_min <= spark.visible_until <= expected_max
+        expected_min = before + timedelta(seconds=decay_after_seconds)
+        expected_max = after + timedelta(seconds=decay_after_seconds)
+        assert expected_min <= spark.decay_at <= expected_max
 
-    def test_create_whenValidInput_calculatesExpireAtCorrectly(self) -> None:
-        """Test that expire_at is calculated correctly."""
+    def test_create_whenValidInput_calculatesVanishAtCorrectly(self) -> None:
+        """Test that vanish_at is calculated correctly."""
         # Arrange
-        visible_duration_minutes = 10
-        ttl_days = 30
+        decay_after_seconds = 600
+        vanish_after_days = 30
         before = datetime.now(UTC)
 
         # Act
@@ -68,15 +68,15 @@ class TestSpark:
             spark_id="test-id",
             content="test",
             user_hash="hash",
-            visible_duration_minutes=visible_duration_minutes,
-            ttl_days=ttl_days,
+            decay_after_seconds=decay_after_seconds,
+            vanish_after_days=vanish_after_days,
         )
         after = datetime.now(UTC)
 
         # Assert
-        expected_min = before + timedelta(days=ttl_days)
-        expected_max = after + timedelta(days=ttl_days)
-        assert expected_min <= spark.expire_at <= expected_max
+        expected_min = before + timedelta(days=vanish_after_days)
+        expected_max = after + timedelta(days=vanish_after_days)
+        assert expected_min <= spark.vanish_at <= expected_max
 
     def test_create_whenDifferentDurations_calculatesTimestampsIndependently(
         self,
@@ -87,17 +87,17 @@ class TestSpark:
             spark_id="id1",
             content="test",
             user_hash="hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         spark2 = Spark.create(
             spark_id="id2",
             content="test",
             user_hash="hash",
-            visible_duration_minutes=20,
-            ttl_days=60,
+            decay_after_seconds=1200,
+            vanish_after_days=60,
         )
 
         # Assert
-        assert spark1.visible_until < spark2.visible_until
-        assert spark1.expire_at < spark2.expire_at
+        assert spark1.decay_at < spark2.decay_at
+        assert spark1.vanish_at < spark2.vanish_at

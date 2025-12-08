@@ -43,3 +43,5 @@ find ${対象ディレクトリ} -type f \( -name "*.ts" -o -name "*.js" -o -nam
 
 ## TODO
 
+- /timeline: リロード時にsparkが0件になるバグ。B/Eにバグはなさそう。F/E側で想定してるデータの形式が違う?
+

@@ -63,8 +63,8 @@ class TestPostSparkInteractor:
             max_length=500,
             rate_limit_count=10,
             rate_limit_window_seconds=60,
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
             ng_words=["forbidden_word", "bad_word"],
             pubsub_channel="sparks:events",
         )
@@ -83,8 +83,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -174,8 +174,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -199,8 +199,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -227,8 +227,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -255,8 +255,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -286,8 +286,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 

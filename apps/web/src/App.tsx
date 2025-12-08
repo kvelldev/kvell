@@ -21,7 +21,7 @@ function App() {
           <Route path="/timeline" element={<TimelinePage />} />
           <Route path="/spark" element={<SparkPostPage />} />
           <Route path="/health" element={<HealthCheckPage />} />
-          <Route path= "/debug" element={<DebugPage />} />
+          <Route path="/debug" element={<DebugPage />} />
         </Routes>
       </BrowserRouter>
     </LoggerProvider>

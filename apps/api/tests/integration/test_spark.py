@@ -74,8 +74,8 @@ class TestSparkRouterIntegration:
         assert doc["id"] == data["id"]
         assert doc["fuel_count"] == 0  # Default value
         assert "user_hash" in doc
-        assert "visible_until" in doc
-        assert "expire_at" in doc
+        assert "decay_at" in doc
+        assert "vanish_at" in doc
 
     @pytest.mark.asyncio
     async def test_postSpark_whenContentExceedsMaxLength_returns422(
@@ -274,15 +274,15 @@ class TestSparkWebSocketIntegration:
             spark_id="ws-snap-1",
             content="Active spark 1",
             user_hash="user-1",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         spark2 = Spark.create(
             spark_id="ws-snap-2",
             content="Active spark 2",
             user_hash="user-2",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
 
         await collection.insert_one(
@@ -292,8 +292,8 @@ class TestSparkWebSocketIntegration:
                 "user_hash": spark1.user_hash,
                 "fuel_count": spark1.fuel_count,
                 "created_at": spark1.created_at,
-                "visible_until": spark1.visible_until,
-                "expire_at": spark1.expire_at,
+                "decay_at": spark1.decay_at,
+                "vanish_at": spark1.vanish_at,
             }
         )
         await collection.insert_one(
@@ -303,8 +303,8 @@ class TestSparkWebSocketIntegration:
                 "user_hash": spark2.user_hash,
                 "fuel_count": spark2.fuel_count,
                 "created_at": spark2.created_at,
-                "visible_until": spark2.visible_until,
-                "expire_at": spark2.expire_at,
+                "decay_at": spark2.decay_at,
+                "vanish_at": spark2.vanish_at,
             }
         )
 
@@ -314,7 +314,7 @@ class TestSparkWebSocketIntegration:
 
         # Collect active sparks from async iterator
         active_sparks: list[Spark] = [
-            spark async for spark in repository.find_active_sparks(minutes=10)
+            spark async for spark in repository.find_active_sparks(seconds=600)
         ]
 
         # Assert: Verify snapshot data retrieval works correctly

@@ -202,8 +202,8 @@ def get_post_spark_usecase(
         max_length=settings.spark_max_length,
         rate_limit_count=settings.spark_rate_limit_count,
         rate_limit_window_seconds=settings.spark_rate_limit_window_seconds,
-        visible_duration_minutes=settings.spark_visible_duration_minutes,
-        ttl_days=settings.spark_ttl_days,
+        decay_after_seconds=settings.spark_decay_after_seconds,
+        vanish_after_days=settings.spark_vanish_after_days,
         ng_words=settings.spark_ng_words_list,
         pubsub_channel="sparks:events",
     )
@@ -229,6 +229,6 @@ def get_stream_timeline_usecase(
         spark_repository=spark_repository,
         pubsub_gateway=pubsub_gateway,
         logger=logger,
-        active_spark_minutes=10,
+        active_spark_seconds=settings.spark_decay_after_seconds,
         pubsub_channel="sparks:events",
     )

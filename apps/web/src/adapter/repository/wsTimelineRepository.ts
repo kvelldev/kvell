@@ -15,7 +15,7 @@ interface SparkWebSocketMessage {
   id: string;
   content: string;
   created_at: string;
-  visible_until: string;
+  decay_at: string;
 }
 
 /**
@@ -25,15 +25,14 @@ class WsTimelineRepositoryImpl implements ITimelineRepository {
   private readonly wsUrl: string;
 
   constructor() {
-    const baseUrl: string = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
+    const baseUrl: string =
+      (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
+      "http://localhost:8000";
     // Convert http(s):// to ws(s)://
     this.wsUrl = baseUrl.replace(/^http/, "ws") + "/api/sparks/ws";
   }
 
-  connect(
-    onMessage: (spark: Spark) => void,
-    onError: () => void,
-  ): () => void {
+  connect(onMessage: (spark: Spark) => void, onError: () => void): () => void {
     const ws = new WebSocket(this.wsUrl);
     let isDisposed = false;
 
@@ -49,7 +48,7 @@ class WsTimelineRepositoryImpl implements ITimelineRepository {
           id: rawData.id,
           content: rawData.content,
           createdAt: rawData.created_at,
-          visibleUntil: rawData.visible_until,
+          decayAt: rawData.decay_at,
         };
 
         onMessage(spark);
@@ -68,7 +67,11 @@ class WsTimelineRepositoryImpl implements ITimelineRepository {
       if (isDisposed) return;
       // Only trigger error callback on abnormal closures
       if (!event.wasClean) {
-        console.error("WebSocket closed unexpectedly:", event.code, event.reason);
+        console.error(
+          "WebSocket closed unexpectedly:",
+          event.code,
+          event.reason,
+        );
         onError();
       }
     });

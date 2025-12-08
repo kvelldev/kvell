@@ -19,8 +19,5 @@ export interface ITimelineRepository {
    * @param onError - Callback invoked when connection fails or closes unexpectedly
    * @returns Cleanup function to disconnect and close the WebSocket
    */
-  connect(
-    onMessage: (spark: Spark) => void,
-    onError: () => void,
-  ): () => void;
+  connect(onMessage: (spark: Spark) => void, onError: () => void): () => void;
 }

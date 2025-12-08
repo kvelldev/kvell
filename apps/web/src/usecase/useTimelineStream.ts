@@ -29,7 +29,7 @@ const computeViewModels = (sparks: Spark[]): SparkViewModel[] => {
   return sparks.map((spark) => ({
     ...spark,
     temperature: getSparkTemperature(spark),
-    remainingTimeInSeconds: calculateRemainingTimeInSeconds(spark.visibleUntil),
+    remainingTimeInSeconds: calculateRemainingTimeInSeconds(spark.decayAt),
   }));
 };
 
@@ -74,7 +74,7 @@ export const useTimelineStream = (repository: ITimelineRepository) => {
       setSparks((previous) => {
         // Filter out expired sparks
         const aliveSparks = previous.filter((spark) => {
-          const expirationTime = new Date(spark.visibleUntil).getTime();
+          const expirationTime = new Date(spark.decayAt).getTime();
           return now < expirationTime;
         });
 

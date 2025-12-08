@@ -28,14 +28,16 @@ describe("useLogger", () => {
   });
 
   it("should throw error when used outside LoggerProvider", () => {
-    // Suppress console.error for this test
-    const consoleError = console.error;
-    console.error = vi.fn();
+    // Spy on console methods to suppress error logs during this test
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect(() => {
       renderHook(() => useLogger());
     }).toThrow("useLogger must be used within LoggerProvider");
 
-    console.error = consoleError;
+    // Restore console methods
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 });

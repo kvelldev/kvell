@@ -49,7 +49,7 @@ export const TimelineStream = ({ sparks }: TimelineStreamProps) => {
   }
 
   return (
-    <div className="relative size-full" data-testid="timeline-stream">
+    <div className="relative size-full" data-testid="timeline-container">
       <Virtuoso
         data={sparks}
         followOutput="auto"

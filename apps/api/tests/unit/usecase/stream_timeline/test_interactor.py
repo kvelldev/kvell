@@ -1,5 +1,6 @@
 """Unit tests for StreamTimelineInteractor."""
 
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
@@ -63,7 +64,7 @@ class TestStreamTimelineInteractor:
             spark_repository=mock_spark_repository,
             pubsub_gateway=mock_pubsub_gateway,
             logger=mock_logger,
-            active_spark_minutes=10,
+            active_spark_seconds=600,
             pubsub_channel="sparks:events",
         )
 
@@ -85,14 +86,14 @@ class TestStreamTimelineInteractor:
             SparkOutput(
                 id="stream-1",
                 content="Stream spark 1",
-                created_at="2025-01-01T00:00:00Z",
-                visible_until="2025-01-01T00:10:00Z",
+                created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
+                decay_at=datetime(2025, 1, 1, 0, 10, 0, tzinfo=UTC),
             ),
             SparkOutput(
                 id="stream-2",
                 content="Stream spark 2",
-                created_at="2025-01-01T00:01:00Z",
-                visible_until="2025-01-01T00:11:00Z",
+                created_at=datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC),
+                decay_at=datetime(2025, 1, 1, 0, 11, 0, tzinfo=UTC),
             ),
         ]
         mock_pubsub_gateway.subscribe = Mock(return_value=MockAsyncIterator(items))
@@ -110,7 +111,7 @@ class TestStreamTimelineInteractor:
         assert len(results) == 2
         assert results[0].id == "stream-1"
         assert results[1].id == "stream-2"
-        mock_spark_repository.find_active_sparks.assert_called_once_with(minutes=10)
+        mock_spark_repository.find_active_sparks.assert_called_once_with(seconds=600)
         mock_pubsub_gateway.subscribe.assert_called_once_with("sparks:events")
 
     async def test_execute_whenActiveSparksExist_yieldsSnapshotThenStream(
@@ -126,15 +127,15 @@ class TestStreamTimelineInteractor:
                 spark_id="snap-1",
                 content="Snapshot spark 1",
                 user_hash="user-1",
-                visible_duration_minutes=10,
-                ttl_days=30,
+                decay_after_seconds=600,
+                vanish_after_days=30,
             ),
             Spark.create(
                 spark_id="snap-2",
                 content="Snapshot spark 2",
                 user_hash="user-2",
-                visible_duration_minutes=10,
-                ttl_days=30,
+                decay_after_seconds=600,
+                vanish_after_days=30,
             ),
         ]
         # Repository returns async iterator of sparks
@@ -147,8 +148,8 @@ class TestStreamTimelineInteractor:
             SparkOutput(
                 id="stream-1",
                 content="Stream spark 1",
-                created_at="2025-01-01T00:00:00Z",
-                visible_until="2025-01-01T00:10:00Z",
+                created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
+                decay_at=datetime(2025, 1, 1, 0, 10, 0, tzinfo=UTC),
             ),
         ]
         mock_pubsub_gateway.subscribe = Mock(return_value=MockAsyncIterator(items))
@@ -186,8 +187,8 @@ class TestStreamTimelineInteractor:
                 spark_id=f"snap-{i}",
                 content=f"Spark {i}",
                 user_hash=f"user-{i}",
-                visible_duration_minutes=10,
-                ttl_days=30,
+                decay_after_seconds=600,
+                vanish_after_days=30,
             )
             for i in range(5)
         ]

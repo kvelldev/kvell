@@ -8,7 +8,7 @@ import jsdoc from "eslint-plugin-jsdoc";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import eslintComments from "eslint-plugin-eslint-comments";
-import tailwind from "eslint-plugin-tailwindcss"
+import tailwind from "eslint-plugin-tailwindcss";
 export default defineConfig([
   {
     ignores: ["dist/**", "node_modules/**", "coverage/**"],

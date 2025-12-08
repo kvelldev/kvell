@@ -38,7 +38,7 @@ describe("usePostSpark", () => {
       id: "spark-123",
       content: "Test spark content",
       createdAt: now.toISOString(),
-      visibleUntil: visibleUntil.toISOString(),
+      decayAt: visibleUntil.toISOString(),
     };
     vi.mocked(mockRepository.postSpark).mockResolvedValue(mockSpark);
 
@@ -125,7 +125,7 @@ describe("usePostSpark", () => {
       id: "spark-456",
       content: "Test content",
       createdAt: now.toISOString(),
-      visibleUntil: visibleUntil.toISOString(),
+      decayAt: visibleUntil.toISOString(),
     };
     vi.mocked(mockRepository.postSpark).mockImplementation(
       () =>

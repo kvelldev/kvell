@@ -15,24 +15,22 @@ export type SparkTemperature = "hot" | "ash";
 
 /**
  * Calculate remaining lifetime in milliseconds
- * @param visibleUntil - ISO timestamp when spark expires
+ * @param decayAt - ISO timestamp when spark decays (becomes invisible)
  * @returns Remaining time in milliseconds
  */
-const calculateRemainingTime = (visibleUntil: string): number => {
+const calculateRemainingTime = (decayAt: string): number => {
   const now = Date.now();
-  const expirationTime = new Date(visibleUntil).getTime();
+  const expirationTime = new Date(decayAt).getTime();
   return Math.max(0, expirationTime - now);
 };
 
 /**
  * Calculate remaining lifetime in seconds
- * @param visibleUntil - ISO timestamp when spark expires
+ * @param decayAt - ISO timestamp when spark decays (becomes invisible)
  * @returns Remaining time in seconds (for countdown timer)
  */
-export const calculateRemainingTimeInSeconds = (
-  visibleUntil: string,
-): number => {
-  const remainingMs = calculateRemainingTime(visibleUntil);
+export const calculateRemainingTimeInSeconds = (decayAt: string): number => {
+  const remainingMs = calculateRemainingTime(decayAt);
   return Math.floor(remainingMs / 1000);
 };
 
@@ -46,6 +44,6 @@ export const calculateRemainingTimeInSeconds = (
  * @returns Temperature state ('hot' or 'ash')
  */
 export const getSparkTemperature = (spark: Spark): SparkTemperature => {
-  const remainingTime = calculateRemainingTime(spark.visibleUntil);
+  const remainingTime = calculateRemainingTime(spark.decayAt);
   return remainingTime >= COOLING_THRESHOLD_MS ? "hot" : "ash";
 };
