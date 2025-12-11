@@ -16,7 +16,7 @@ FastAPI
 
 PBIを取得
 ```shell
-gh issue view 12 --json title,body,url
+gh issue view 8 --json title,body,url > PBI.json
 ```
 
 diffを取得
