@@ -23,7 +23,7 @@ interface TimelineTemplateProps {
 export const TimelineTemplate = ({ children }: TimelineTemplateProps) => {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">
-      <div className="flex h-40 flex-none items-center justify-center bg-ash-500">
+      <div className="text-ash-500 flex h-40 flex-none items-center justify-center border-2 backdrop-blur-md">
         Here is a prepared area for bonfire.
       </div>
       <main className="z-0 min-h-0 w-full flex-1">{children}</main>

@@ -6,7 +6,7 @@
  */
 
 import clsx from "clsx";
-import { Textarea } from "@/components/atoms/Textarea";
+import { Textarea } from "@/components/ui/textarea";
 
 interface SparkInputProps {
   value: string;
@@ -38,10 +38,13 @@ export const SparkInput = ({
     <div className="w-full">
       <Textarea
         value={value}
-        onChange={onChange}
+        onChange={(e) => {
+          onChange(e.target.value);
+        }}
         placeholder="夜空に種火を投げる..."
         disabled={disabled}
-        testId={testId}
+        data-testid={testId}
+        className="caret-ember-500 text-smoke-100 placeholder:text-ash-500 min-h-[240px] border-none bg-transparent focus:ring-0 focus:outline-none"
       />
       <div className="mt-2 flex justify-end">
         <span

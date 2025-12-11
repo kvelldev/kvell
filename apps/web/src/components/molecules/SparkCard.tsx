@@ -1,6 +1,5 @@
 import { memo } from "react";
 import clsx from "clsx";
-import { motion } from "framer-motion";
 import type { SparkViewModel } from "@/domain/model/spark";
 
 interface SparkCardProps {
@@ -35,23 +34,16 @@ const SparkCardComponent = ({ spark }: SparkCardProps) => {
   const borderClass = isHot ? "border-ember-500" : "border-ash-500";
 
   return (
-    <motion.div
-      // enterアニメーション
-      // initial={{ opacity: 0, y: 20 }}
-      // animate={{ opacity: 1, y: 0 }}
-      // exitアニメーションを入れるならここ（リストから消える時）
-
-      // transition-all にして shadow の消失もふわっとさせる
-      // duration-1000 により、"やがて冷めていく" 情緒的な変化を表現
+    <div
       className={clsx(
-        "rounded-card border bg-night-800 p-4 text-ash-500 transition-all duration-1000 ease-in-out",
+        "rounded-card bg-night-800 text-ash-500 border p-4 transition-all duration-1000 ease-in-out",
         shadowClass,
         borderClass,
       )}
       data-testid="spark-item"
       data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
     >
-      <p className="line-clamp-3 font-base text-sm leading-relaxed">
+      <p className="font-base line-clamp-3 text-sm leading-relaxed">
         {spark.content}
       </p>
       <div className="mt-2 flex justify-end">
@@ -62,7 +54,7 @@ const SparkCardComponent = ({ spark }: SparkCardProps) => {
           {formatTime(spark.remainingTimeInSeconds)}
         </span>
       </div>
-    </motion.div>
+    </div>
   );
 };
 

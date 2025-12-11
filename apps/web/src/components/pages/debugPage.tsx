@@ -1,6 +1,5 @@
 // src/components/pages/DebugPage.tsx
-import { useState } from "react";
-import { SparkCard } from "../atoms/SparkCard";
+import { SparkCard } from "@/components/molecules/SparkCard";
 import { SparkViewModel } from "@/domain/model/spark";
 import { Button } from "../ui/button";
 

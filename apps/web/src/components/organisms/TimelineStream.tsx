@@ -7,7 +7,7 @@
 
 import { Virtuoso } from "react-virtuoso";
 import type { SparkViewModel } from "@/domain/model/spark";
-import { SparkCard } from "@/components/atoms/SparkCard";
+import { SparkCard } from "@/components/molecules/SparkCard";
 
 /**
  * Props for TimelineStream component
@@ -55,7 +55,7 @@ export const TimelineStream = ({ sparks }: TimelineStreamProps) => {
         alignToBottom
         initialTopMostItemIndex={sparks.length - 1}
         followOutput="smooth"
-        computeItemKey={(index, spark) => spark.id}
+        computeItemKey={(_, spark) => spark.id}
         itemContent={(_index, spark) => (
           <div className="pb-4 pr-2">
             <SparkCard spark={spark} />
