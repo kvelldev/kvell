@@ -22,8 +22,11 @@ interface TimelineTemplateProps {
  */
 export const TimelineTemplate = ({ children }: TimelineTemplateProps) => {
   return (
-    <div className="h-screen w-screen overflow-hidden bg-night-900">
-      <div className="z-0 size-full">{children}</div>
+    <div className="flex h-screen w-screen flex-col overflow-hidden">
+      <div className="flex h-40 flex-none items-center justify-center bg-ash-500">
+        Here is a prepared area for bonfire.
+      </div>
+      <main className="z-0 min-h-0 w-full flex-1">{children}</main>
     </div>
   );
 };

@@ -15,7 +15,8 @@
     "check:all": "npm run type-check && npm run lint && npm run format:check",
     "lint:fix": "eslint . --fix",
     "format:fix": "prettier --write .",
-    "fix:all": "npm run format:fix && npm run lint:fix"
+    "fix:all": "npm run format:fix && npm run lint:fix",
+    "design": "npx tailwind-config-viewer"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
@@ -49,6 +50,7 @@
     "eslint-plugin-tailwindcss": "^3.18.2",
     "eslint-plugin-unicorn": "^62.0.0",
     "jsdom": "^27.2.0",
+    "leva": "^0.10.1",
     "msw": "^2.12.4",
     "postcss": "^8.4.49",
     "prettier": "^3.6.2",

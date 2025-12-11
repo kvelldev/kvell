@@ -16,21 +16,23 @@ Kvellでは、ブランドの統一と開発効率を両立するため、`tailw
 
 ### A. Overrides (Root Definition)
 
+### A. Overrides (Root Definition)
+
 **以下のカテゴリは Tailwindのデフォルト値を「無効化（上書き）」しています。**
-Kvellの世界観に存在しない色や形状（例: `bg-blue-500`, `shadow-xl`, `rounded-full`）は **使用不可能（コンパイルエラー）** となります。必ず定義されたトークンを使用してください。
+Kvellの世界観に存在しない色や形状は使用不可能です。
 
   * **Colors:** `bg-night-900`, `text-ember-500` 等
+      * *Note:* 配色は定義されていますが、背景色として使用する際は **Opacity Utility (例: `bg-night-800/60`)** との併用を基本とします。
   * **Shadows (Glow):** `shadow-glow-md` 等
   * **Border Radius:** `rounded-card`, `rounded-button`
-  * **Opacity:** `opacity-ash` 等
 
 ### B. Extends (Theme Extension)
 
 **以下のカテゴリは Tailwindのデフォルト値を「維持」しつつ、カスタム定義を「追加」しています。**
-基本的にはカスタム定義（Semantic）を優先しますが、デバッグや汎用的な用途でデフォルト値を使用することも許可されます。
 
   * **Font Family:** `font-base` (推奨), `font-sans` (Fallback)
-  * **Animation:** `animate-flicker` (炎), `animate-spin` (Loading)
+  * **Blur:** `backdrop-blur-sm`, `backdrop-blur-md` (すりガラス表現用)
+  * **Animation:** `animate-flicker` (炎), `animate-float` (火の粉)
 
 ### C. Defaults (No Configuration)
 
@@ -44,27 +46,40 @@ Kvellの世界観に存在しない色や形状（例: `bg-blue-500`, `shadow-xl
 
 -----
 
-## 3\. Implementation Rules
+## 3\. Implementation Rules (Visual Identity)
 
-### 1\. Shadow is Light ("Glow")
+### 1\. Shadow is Atmosphere ("Glow")
 
-Kvellにおいて `shadow` は「影を落とす」ものではなく、**「自らが発光している（Glow）」** 表現として使用してください。
+Kvellにおいて `shadow` は「影を落とす」ものではなく、**「自らが発光している（Glow）」**、または**「空気感（Atmosphere）を纏う」**表現として使用してください。
 
-  * ❌ `shadow-lg` (デフォルトの黒い影) -\> **存在しません（使用不可）**
-  * ✅ `shadow-glow-md` (オレンジ色の発光) -\> **推奨**
+  * ❌ `shadow-lg` (黒い影) -\> **使用不可**
+  * ✅ `shadow-[0_0_20px_rgba(255,149,0,0.25)]` (JIT) または `shadow-glow-md` -\> **推奨**
+  * **Design Note:** 境界線を曖昧にし、夜空に溶け込ませるために使用します。
 
-### 2\. Radius Strategy
+### 2\. Glassmorphism (Translucency)
 
-  * **Card:** `rounded-card` (12px) を使用。
-  * **Button:** `rounded-button` (9999px / Pill型) を使用。
-  * ❌ `rounded-lg`, `rounded-full` -\> **存在しません（使用不可）**
+Kvellの背景は「メッシュグラデーション（夜空とビーナスベルト）」です。
+この美しい背景を遮断しないよう、コンポーネント（Card, Modal等）は **「不透明（Solid）」で塗りつぶすことを禁止します。**
 
-### 3\. Typography & Weight
+  * ❌ `bg-night-800` (不透明)
+  * ✅ `bg-night-800/40 backdrop-blur-md` (半透明 + すりガラス)
+  * **Concept:** UIは「夜空に浮かぶガラス板」あるいは「光の凝縮」として表現されます。
 
-夜の静寂（Silence）を表現するため、フォントウェイトは細めを基本とします。
+### 3\. No Hard Borders
 
-  * **Weight:** `font-light (300)` 〜 `font-regular (400)` を基本とする。
-  * **Usage:** `font-bold` は、着火した焚き火（Bonfire）のタイトルなど、強い熱量を持つ要素にのみ限定的に使用する。
+世界観を壊す「くっきりとした実線」の使用を避けてください。
+境界線が必要な場合は、透明度を下げた線や、光彩（Ring/Shadow）で表現します。
+
+  * ❌ `border border-ember-500` (工事現場のような強い線)
+  * ✅ `border border-white/10` (ガラスの縁)
+  * ✅ `ring-1 ring-ember-500/50` (内側からの発光)
+
+### 4\. Radius Strategy
+
+Skyのような「優しさ・チル」を表現するため、角丸は大きめを維持します。
+
+  * **Card:** `rounded-card` (12px ~ 16px)
+  * **Button:** `rounded-button` (9999px / Pill型)
 
 ---
 
@@ -105,23 +120,36 @@ Design Tokenパッケージのビルドコマンドを実行し、`tailwind.them
 
 ## 5\. Coding Example (Do's and Don'ts)
 
-### ✅ Correct Implementation (Hybrid)
+### ✅ Correct Implementation (Glass & Glow)
 
-「色はトークン（Default不可）、余白はUtility（Default）」のルールが守られている。
+「背景透過」「ブラー」「ソフトな境界線」が適用され、夜空のグラデーションと馴染む実装。
 
 ```tsx
-// 良い例: KvellのトークンとTailwindのUtilityが正しく混ざっている
-<div className="bg-night-800 rounded-card shadow-glow-sm p-6 flex flex-col gap-4">
-  <h2 className="font-display text-xl text-ember-500 font-normal">
-    焚き火のタイトル
+// 良い例: Glassmorphism + Glow
+<div className="
+  relative overflow-hidden
+  rounded-card
+  border border-white/10        /* ガラスの縁 */
+  bg-night-900/40               /* 透過背景 */
+  backdrop-blur-md              /* すりガラス効果 */
+  shadow-glow-sm                /* ほのかな発光 */
+  p-6
+">
+  {/* 燃えている時のハイライト装飾 */}
+  <div className="absolute inset-0 bg-ember-500/10 pointer-events-none" />
+  
+  <h2 className="relative font-display text-xl text-smoke-100 font-normal tracking-wide">
+    星を紡ぐ焚き火
   </h2>
-  <p className="font-base text-sm text-smoke-100 opacity-ash">
-    投稿本文テキスト...
+  <p className="relative font-base text-sm text-ash-100 leading-relaxed">
+    境界線のない夜空に、言葉を溶かすように...
   </p>
 </div>
 ```
 
 ### ❌ Incorrect Implementation
+
+下記実装は悪い例です。このような実装は避けてください。
 
 #### Case 1: 存在しないクラスの使用
 
@@ -139,4 +167,15 @@ SpacingやFontSizeを勝手にセマンティック化しないこと。
 ```tsx
 // Bad: p-card-padding, text-body-size は定義されていない
 <div className="bg-night-800 p-card-padding text-body-size">...</div>
+```
+
+### Case 3: Solid & Hard (不透明・実線)
+以前のWeb2.0的な実装。Kvellの世界観では「異物」となります。
+
+```TypeScript
+
+// Bad: 不透明な黒背景、くっきりしたオレンジの枠線、黒い影
+<div className="bg-night-800 border-2 border-ember-500 shadow-xl p-4">
+  ...
+</div>
 ```

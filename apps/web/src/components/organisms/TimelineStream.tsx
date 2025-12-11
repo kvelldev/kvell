@@ -52,10 +52,12 @@ export const TimelineStream = ({ sparks }: TimelineStreamProps) => {
     <div className="relative size-full" data-testid="timeline-container">
       <Virtuoso
         data={sparks}
-        followOutput="auto"
-        initialTopMostItemIndex={sparks.length > 0 ? sparks.length - 1 : 0}
+        alignToBottom
+        initialTopMostItemIndex={sparks.length - 1}
+        followOutput="smooth"
+        computeItemKey={(index, spark) => spark.id}
         itemContent={(_index, spark) => (
-          <div className="mb-4">
+          <div className="pb-4 pr-2">
             <SparkCard spark={spark} />
           </div>
         )}

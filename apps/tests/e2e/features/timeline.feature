@@ -4,8 +4,8 @@ Feature: Timeline
     So that 「ライブ感」と「ログが残らない安心感」の両方を感じたい
 
     Background: System Configuration
-        Given システムの "種火の寿命" は "10分" に設定されている
-        And システムの "冷却閾値（Hot/Ashの境界）" は "残り寿命3分" に設定されている
+        Given システムの "Decay time" は "1分" に設定されている
+        Given システムの "冷却閾値" は "Decay time" に対して "30%" の割合である
 
     Rule: Timelineは「常に最新」を表示することをデフォルトとする
         Background:
@@ -17,7 +17,8 @@ Feature: Timeline
             And ユーザーが操作しなくても、新しい "Spark" が来れば自動で表示される
 
         Example: ユーザーが過去ログを見ている場合 (Scroll Up)
-            When ユーザーが意図的に上へスクロールする
+            When ユーザーがページを開く
+            And ユーザーが意図的に上へスクロールする
             Then 自動スクロールは解除され、その場に留まる（新しいSparkが来ても勝手に動かない）
 
     Rule: Sparkは「熱量」と「残り時間」を可視化する
@@ -26,24 +27,20 @@ Feature: Timeline
 
         Example: 発生直後のSpark（高温状態）
             When 新しい "Spark" が投稿される（残り寿命 100%〜30%）
-            Then その "Spark" は「白文字（Smoke White）」で表示される
-            And その "Spark" は「オレンジ色の枠線（Ember Border）」と「発光（Glow）」を持つ
+            Then その "Spark" はGlowを持つ
             And その "Spark" には「残り時間（例: 09:59）」がカウントダウン表示される
 
-        Example: 冷却されたSpark（灰化状態）
+        Example: 冷却されたSpark
             Given 投稿から時間が経過している "Spark" がある
-            When その "Spark" の残り寿命が "冷却閾値（3分）" を下回る
-            Then その "Spark" は「灰色文字（Ash Gray）」へと変化する
-            And その "Spark" の「枠線」と「発光」は消失する（border-0 / shadow-none）
-            And 「残り時間」の表示も灰色になり、カウントダウンは継続する
+            When その "Spark" の残り寿命が "冷却閾値" を下回る
+            Then その "Spark" のGlowは消失する
 
-    Rule: 寿命尽きたSparkは「煙」となって昇華する
-        Example: 寿命超過による昇華 (Smoke Animation)
+
+    Rule: 寿命尽きたSparkはDecayする
+        Example: 寿命超過によるDecay
             Given "Timeline" 上に "Spark A" が表示されている
-            When "Spark A" の経過時間が "種火の寿命" を超える（残り時間 00:00）
-            Then "Spark A" は即座に消えるのではなく、「煙のアニメーション」を開始する
-            And "Spark A" は「上空へ拡散」し、「ぼやけ」ながら透明になっていく
-            And アニメーション終了後、"Spark A" はリストから削除され、Timelineが詰まる
+            When "Spark A" の経過時間が "Decay time" を超える
+            Then "Spark A" はリストから削除され、Timelineが詰まる
 
     Rule: Sparkが一つもない場合は「静寂」を表現する
         Background:

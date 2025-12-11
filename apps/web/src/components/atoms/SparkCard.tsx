@@ -1,31 +1,12 @@
-/**
- * SparkCard Atom Component (Dumb)
- *
- * Displays a single spark (種火) with color temperature based heat expression.
- * Pure presentational component with no business logic.
- * Optimized with React.memo to prevent unnecessary re-renders.
- */
-
 import { memo } from "react";
 import clsx from "clsx";
 import { motion } from "framer-motion";
 import type { SparkViewModel } from "@/domain/model/spark";
 
-/**
- * Props for SparkCard component
- */
 interface SparkCardProps {
-  /**
-   * Spark ViewModel with computed temperature state and remaining time
-   */
   spark: SparkViewModel;
 }
 
-/**
- * Format seconds to mm:ss format for countdown timer display
- * @param totalSeconds - Total remaining seconds
- * @returns Formatted time string (e.g., "09:59", "00:05")
- */
 const formatTime = (totalSeconds: number): string => {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
@@ -38,8 +19,8 @@ const formatTime = (totalSeconds: number): string => {
  * Renders a single spark with:
  * - Fade-in animation on mount
  * - Color temperature based heat expression (white→ash transition)
- * - Border glow for hot sparks (ember orange)
- * - TTL countdown timer in bottom-right corner (mm:ss format)
+ * - Dynamic glow: Visible when hot, disappears when cooled (Ash)
+ * - TTL countdown timer in bottom-right corner
  * - Text truncation for long content
  *
  * Performance:
@@ -48,28 +29,34 @@ const formatTime = (totalSeconds: number): string => {
  * @returns Rendered spark card element
  */
 const SparkCardComponent = ({ spark }: SparkCardProps) => {
-  // Color temperature classes based on pre-computed temperature
   const isHot = spark.temperature === "hot";
-  const textColor = isHot ? "text-smoke-100" : "text-ash-500";
-  const borderColor = isHot ? "border-ember-500" : "border-transparent";
-  const timerColor = isHot ? "text-smoke-400" : "text-ash-600";
+
+  const shadowClass = isHot ? "shadow-glow-sm" : "shadow-none";
+  const borderClass = isHot ? "border-ember-500" : "border-ash-500";
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
+      // enterアニメーション
+      // initial={{ opacity: 0, y: 20 }}
+      // animate={{ opacity: 1, y: 0 }}
+      // exitアニメーションを入れるならここ（リストから消える時）
+
+      // transition-all にして shadow の消失もふわっとさせる
+      // duration-1000 により、"やがて冷めていく" 情緒的な変化を表現
       className={clsx(
-        "rounded-card border-2 bg-night-800 p-4 shadow-glow-sm transition-colors duration-1000",
-        borderColor,
-        textColor,
+        "rounded-card border bg-night-800 p-4 text-ash-500 transition-all duration-1000 ease-in-out",
+        shadowClass,
+        borderClass,
       )}
       data-testid="spark-item"
+      data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
     >
-      <p className="line-clamp-3 font-base text-sm">{spark.content}</p>
+      <p className="line-clamp-3 font-base text-sm leading-relaxed">
+        {spark.content}
+      </p>
       <div className="mt-2 flex justify-end">
         <span
-          className={clsx("font-mono text-xs", timerColor)}
+          className={clsx("font-mono text-xs transition-colors duration-1000")}
           data-testid="spark-timer"
         >
           {formatTime(spark.remainingTimeInSeconds)}
@@ -79,8 +66,4 @@ const SparkCardComponent = ({ spark }: SparkCardProps) => {
   );
 };
 
-/**
- * Memoized SparkCard
- * Only re-renders when spark data (id, content, temperature) changes
- */
 export const SparkCard = memo(SparkCardComponent);

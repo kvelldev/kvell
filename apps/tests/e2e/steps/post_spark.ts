@@ -50,6 +50,18 @@ Given('システムの {string} は {string} に設定されている', async ({
     case "法的保存期間(TTL)":
       ttlDays = parseInt(configValue.replace("日", ""), 10);
       break;
+    case "Decay time":
+      // Timeline feature - spark lifetime in minutes
+      visibleDurationMinutes = parseInt(configValue.replace("分", ""), 10);
+      break;
+    case "種火の寿命":
+      // Timeline feature - same as visible duration
+      visibleDurationMinutes = parseInt(configValue.replace("分", ""), 10);
+      break;
+    case "冷却閾値（Hot/Ashの境界）":
+      // Timeline feature - cooling threshold (not used in post_spark)
+      // Just parse for validation, actual usage is in timeline tests
+      break;
   }
 });
 

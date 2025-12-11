@@ -6,7 +6,7 @@
  */
 
 import type { Spark } from "@/domain/model/spark";
-import { COOLING_THRESHOLD_MS } from "@/domain/constants";
+import { COOLING_THRESHOLD_RATIO } from "@/domain/constants";
 
 /**
  * Spark temperature types representing heat expression state
@@ -37,13 +37,20 @@ export const calculateRemainingTimeInSeconds = (decayAt: string): number => {
 /**
  * Get spark temperature based on remaining lifetime
  *
- * Business Rule:
- * - Hot: Spark has >= 3 minutes remaining (displays as white with ember border)
- * - Ash: Spark has < 3 minutes remaining (displays as gray, cooling state)
+ * Business Rule (derived from BDD specification):
+ * - Hot: Spark has >= 30% of total lifetime remaining (displays as white with ember glow)
+ * - Ash: Spark has < 30% of total lifetime remaining (displays as gray, cooling state)
+ *
+ * The cooling threshold is calculated dynamically based on each spark's total lifetime
+ * (decayAt - createdAt), allowing the system to work correctly regardless of the
+ * configured decay time setting.
  * @param spark - Spark to evaluate
  * @returns Temperature state ('hot' or 'ash')
  */
 export const getSparkTemperature = (spark: Spark): SparkTemperature => {
   const remainingTime = calculateRemainingTime(spark.decayAt);
-  return remainingTime >= COOLING_THRESHOLD_MS ? "hot" : "ash";
+  const totalLifetime =
+    new Date(spark.decayAt).getTime() - new Date(spark.createdAt).getTime();
+  const coolingThreshold = totalLifetime * COOLING_THRESHOLD_RATIO;
+  return remainingTime >= coolingThreshold ? "hot" : "ash";
 };

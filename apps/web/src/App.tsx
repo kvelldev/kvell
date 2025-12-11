@@ -10,11 +10,13 @@ import { SparkPostPage } from "@/components/pages/SparkPostPage";
 import { TimelinePage } from "@/components/pages/TimelinePage";
 import { LoggerProvider } from "@/components/LoggerContext";
 import { sentryLogger } from "@/adapter/infra/sentryLogger";
-import { DebugPage } from "./components/pages/debug";
+import { DebugPage } from "./components/pages/debugPage";
+import { AtmosphereBackground } from "./components/atoms/atmosphereBackground";
 
 function App() {
   return (
     <LoggerProvider logger={sentryLogger}>
+      <AtmosphereBackground />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Navigate to="/debug" replace />} />
