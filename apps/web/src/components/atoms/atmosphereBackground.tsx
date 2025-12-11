@@ -3,7 +3,7 @@ const NOISE_SVG_DATA = `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xml
 
 export const AtmosphereBackground = () => {
   return (
-    <div className="fixed inset-0 -z-10 overflow-hidden bg-night-900">
+    <div className="bg-night-900 fixed inset-0 -z-10 overflow-hidden">
       {/* ------------------------------------------------------- */}
       {/* Layer 1: Venus Belt (上層) */}
       {/* ------------------------------------------------------- */}
@@ -13,7 +13,7 @@ export const AtmosphereBackground = () => {
           "absolute left-0 w-full",
 
           // [2] 色・グラデーション
-          "bg-gradient-to-t from-venus-500 via-venus-500/50 to-transparent",
+          "from-venus-500 via-venus-500/50 bg-gradient-to-t to-transparent",
 
           // [3] 調整パラメータ（ここをいじる）
           "h-[65vh]",
@@ -32,7 +32,7 @@ export const AtmosphereBackground = () => {
           "absolute bottom-0 left-0 w-full",
 
           // [2] 色・グラデーション
-          "bg-gradient-to-t from-earthshadow-base via-earthshadow-base/60 to-transparent",
+          "from-earthshadow-base via-earthshadow-base/60 bg-gradient-to-t to-transparent",
 
           // [3] 調整パラメータ
           "h-[38.5vh]",
