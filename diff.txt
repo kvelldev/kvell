@@ -1,892 +1,1014 @@
-/**
- * App Component
- *
- * Root application component with routing and DI providers.
- */
-
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
-import { SparkPostPage } from "@/components/pages/SparkPostPage";
-import { LoggerProvider } from "@/components/LoggerContext";
-import { sentryLogger } from "@/adapter/infra/sentryLogger";
-
-function App() {
-  return (
-    <LoggerProvider logger={sentryLogger}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Navigate to="/spark" replace />} />
-          <Route path="/spark" element={<SparkPostPage />} />
-          <Route path="/health" element={<HealthCheckPage />} />
-        </Routes>
-      </BrowserRouter>
-    </LoggerProvider>
-  );
-}
-
-export default App;
-/**
- * Message Viewer Molecule
- *
- * Displays health check message or status (Dumb Component).
- */
-
-import type { HealthMessage } from "@/domain/model/health";
-
-interface MessageViewerProps {
-  message: HealthMessage | null;
-  isLoading: boolean;
-  error: Error | null | undefined;
-}
-
-export const MessageViewer = ({
-  message,
-  isLoading,
-  error,
-}: MessageViewerProps) => {
-  if (isLoading) {
-    return (
-      <div
-        className="text-center text-ash-500 font-light"
-        data-testid="health-loading-display"
-      >
-        Loading...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div
-        className="bg-night-800 border border-ash-500 rounded-card p-4"
-        data-testid="health-error-display"
-      >
-        <p className="text-ash-500 text-sm font-light">Error</p>
-        <p className="text-smoke-100 text-sm mt-1">{error.message}</p>
-      </div>
-    );
-  }
-
-  if (message) {
-    return (
-      <div
-        className="bg-night-800 border border-ember-500 rounded-card shadow-glow-sm p-4"
-        data-testid="health-message-display"
-      >
-        <p className="text-ember-500 text-sm font-light">Success</p>
-        <p className="text-smoke-100 text-sm mt-1">
-          <strong className="text-ember-500">Message:</strong> {message.message}
-        </p>
-        <p className="text-ash-500 text-xs mt-1">ID: {message.id}</p>
-        <p className="text-ash-500 text-xs">
-          Created: {new Date(message.createdAt).toLocaleString()}
-        </p>
-      </div>
-    );
-  }
-
-  return null;
-};
-export const internalStatuses = {
-  // Sucess
-  200: "OK",
-  201: "Created",
-  204: "No Content",
-  // Client Errors
-  400: "Bad Request",
-  401: "Unauthorized",
-  403: "Forbidden",
-  404: "Not Found",
-  409: "Conflict",
-  422: "Unprocessable Entity",
-  // Business Logic Errors
-  1001: "Invalid email format.",
-  // Server Errors
-  500: "Internal Server Error",
-} as const;
-
-/**
- * Type representing valid internal status codes.
- */
-export type InternalStatusCodes = keyof typeof internalStatuses;
-
-/**
- * Log Event IDs for structured logging.
- * Use these constants in logger calls for testable, consistent event tracking.
- */
-export const LOG_EVENTS = {
-  // Health Check
-  HEALTH_CHECK: {
-    FETCH_START: "HEALTH_FETCH_START",
-    FETCH_SUCCESS: "HEALTH_FETCH_SUCCESS",
-    FETCH_ERROR: "HEALTH_FETCH_ERROR",
-    SAVE_START: "HEALTH_SAVE_START",
-    SAVE_SUCCESS: "HEALTH_SAVE_SUCCESS",
-    SAVE_ERROR: "HEALTH_SAVE_ERROR",
-  },
-  // Spark Post
-  SPARK: {
-    POST_START: "SPARK_POST_START",
-    POST_SUCCESS: "SPARK_POST_SUCCESS",
-    POST_ERROR: "SPARK_POST_ERROR",
-  },
-} as const;
-/**
- * UseCase Layer Constants
- *
- * SWR cache keys and other usecase-specific constants.
- */
-
-export const SWR_KEYS = {
-  HEALTH_LATEST: "/health/latest",
-  SPARK_POST: "/spark/post",
-} as const;
-# Frontend Integration Tests
-
-## Overview
-
-This directory contains integration tests for the frontend application. Integration tests verify the complete flow from UI components through business logic to API calls, testing the integration of multiple layers without mocking internal dependencies.
-
-## Test Strategy
-
-### What Are Integration Tests?
-
-Integration tests sit between unit tests and E2E tests:
-
-- **Unit Tests** (`tests/unit/`): Test individual components/functions in isolation with mocked dependencies
-- **Integration Tests** (`tests/integration/`): Test multiple layers working together (Page → UseCase → Repository → API)
-- **E2E Tests** (`apps/tests/e2e/`): Test the entire system including real backend and browser
-
-### What We Test
-
-Integration tests focus on:
-
-1. **Component Integration**: How Page components integrate with UseCase hooks and UI components
-2. **Data Flow**: Data flowing from API → Repository → UseCase → UI
-3. **User Interactions**: Actual user actions (typing, clicking) and their effects
-4. **State Management**: How SWR caching and state updates work across layers
-5. **Error Handling**: How errors propagate through layers and are displayed in UI
-
-### What We Mock
-
-We only mock the **HTTP boundary** using MSW (Mock Service Worker):
-
-- ✅ **Mocked**: HTTP requests/responses (API endpoints)
-- ❌ **Not Mocked**: Repository implementations, UseCase hooks, UI components
-- ❌ **Not Mocked**: React state management, SWR caching behavior
-
-This approach provides:
-
-- **Realistic Integration**: Tests real component interactions
-- **Fast Execution**: No real backend needed (MSW intercepts HTTP)
-- **Deterministic**: Controlled API responses, no flakiness
-
-## Technology Stack
-
-- **Test Framework**: Vitest
-- **Test Utilities**: React Testing Library, Testing Library User Event
-- **API Mocking**: MSW (Mock Service Worker)
-
-## Running Tests
-
-### Run All Tests
-
-```bash
-npm test
-```
-
-### Run Integration Tests Only
-
-```bash
-npm test tests/integration/
-```
-
-### Run Specific Test File
-
-```bash
-npm test tests/integration/health-check.test.tsx
-```
-
-### Watch Mode
-
-```bash
-npx vitest tests/integration/ --watch
-```
-
-### Coverage
-
-```bash
-npm run coverage
-```
-
-## File Structure
-
-```
-tests/integration/
-├── README.md              # This file
-├── setup.ts               # MSW configuration and mock data store
-└── health-check.test.tsx  # HealthCheck integration tests
-```
-
-## Writing Integration Tests
-
-### Test Naming Convention
-
-Follow the naming pattern: `test_<action>_when<Condition>_<result>`
-
-```typescript
-it("test_saveMessage_whenValidInput_savesAndDisplaysNewMessage", async () => {
-  /**
-   * Action: saveMessage (user enters text and clicks Echo button)
-   * Condition: whenValidInput (valid message text)
-   * Result: savesAndDisplaysNewMessage (saves to backend and updates UI)
-   */
-  // Test implementation...
-});
-```
-
-### Test Structure
-
-```typescript
-import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { mockHealthStore } from "./setup";
-import "./setup"; // Import to ensure MSW is configured
-
-describe("Feature Integration", () => {
-  beforeEach(() => {
-    mockHealthStore.reset(); // Reset mock data before each test
-  });
-
-  it("test_action_whenCondition_result", async () => {
-    // Arrange: Setup initial state
-    const user = userEvent.setup();
-    render(<YourPage />);
-
-    // Act: Perform user actions
-    await user.click(screen.getByRole("button"));
-
-    // Assert: Verify results
-    await waitFor(() => {
-      expect(screen.getByText("Expected Result")).toBeInTheDocument();
-    });
-  });
-});
-```
-
-### Key Patterns
-
-#### 1. Wait for Async Updates
-
-Always use `waitFor` when testing async operations (data fetching, mutations):
-
-```typescript
-await waitFor(() => {
-  expect(screen.getByText("Loaded Data")).toBeInTheDocument();
-});
-```
-
-#### 2. User Interactions
-
-Use `@testing-library/user-event` for realistic user interactions:
-
-```typescript
-const user = userEvent.setup();
-await user.type(input, "Test message");
-await user.click(button);
-```
-
-#### 3. Mock Data Setup
-
-Use `mockHealthStore` to pre-populate data for tests:
-
-```typescript
-beforeEach(() => {
-  mockHealthStore.add({
-    id: "test-id",
-    message: "Existing message",
-    createdAt: new Date().toISOString(),
-  });
-});
-```
-
-#### 4. Error Simulation
-
-Override MSW handlers to simulate API errors:
-
-```typescript
-import { server } from "./setup";
-import { http, HttpResponse } from "msw";
-
-server.use(
-  http.post("http://localhost:8000/api/health/echo", () => {
-    return HttpResponse.json({ detail: "Error" }, { status: 500 });
-  }),
-);
-```
-
-## Common Issues
-
-### Issue: Tests timeout or hang
-
-**Solution**: Ensure you're using `waitFor` for async operations. Check that MSW handlers are defined correctly.
-
-### Issue: "No handler found for request"
-
-**Solution**: Verify the request URL matches the handler URL exactly. MSW will error on unhandled requests by default (configured in `setup.ts`).
-
-### Issue: State persists between tests
-
-**Solution**: Make sure `mockHealthStore.reset()` is called in `beforeEach`. Check that no global state is leaking.
-
-### Issue: Cannot find element in DOM
-
-**Solution**: Use `screen.debug()` to inspect rendered output. Ensure you're waiting for loading states to complete with `waitFor`.
-
-## Comparison with Backend Integration Tests
-
-### Backend (`apps/api/tests/integration/`)
-
-- Uses real MongoDB database
-- Tests API endpoints with HTTP client
-- Verifies database persistence
-- Setup: `conftest.py` with database fixtures
-
-### Frontend (`apps/web/tests/integration/`)
-
-- Uses MSW to mock API
-- Tests UI components with user interactions
-- Verifies UI rendering and state management
-- Setup: `setup.ts` with MSW and mock data store
-
-Both follow similar principles:
-
-- Test real integration (minimal mocking)
-- Focus on happy paths and error cases
-- Use descriptive test names
-- Verify end-to-end behavior within their layer
-
-## Related Documentation
-
-- [Frontend Architecture Guidelines](../../.prompts/20_frontend.md)
-- [Backend Integration Tests](../../../api/tests/README.md)
-- [E2E Testing Guidelines](../../.prompts/31_E2E.md)
-/**
- * HealthCheck Integration Tests
- *
- * These tests verify the entire flow from Page → UseCase → Repository → API.
- * Unlike unit tests which mock individual layers, integration tests use MSW
- * to mock only the HTTP boundary, testing real component integration.
- *
- * Test Strategy:
- * - Use MSW to mock API endpoints (simulates backend behavior)
- * - Test actual Repository → UseCase → Page integration
- * - Verify UI rendering and user interactions
- * - No mocking of internal layers (Repository, UseCase)
- */
-
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { SWRConfig } from "swr";
-import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
-import { LoggerProvider } from "@/components/LoggerContext";
-import { mockHealthStore, server } from "./setup";
-import { http, HttpResponse } from "msw";
-import type { HealthMessage } from "@/domain/model/health";
-import type { ILogger } from "@/usecase/ports/ILogger";
-
-// Import setup to ensure MSW is configured
-import "./setup";
-
-/**
- * Mock logger for integration tests
- * Provides a no-op logger implementation
- */
-const mockLogger: ILogger = {
-  info: vi.fn(),
-  error: vi.fn(),
-};
-
-/**
- * Helper to render HealthCheckPage with necessary providers
- * Page components need LoggerContext which is provided by App.tsx
- * @returns Rendered component result from React Testing Library
- */
-const renderHealthCheckPage = () => {
-  return render(
-    <LoggerProvider logger={mockLogger}>
-      <SWRConfig
-        value={{
-          provider: () => new Map(),
-          onError: () => {
-            // Suppress error logging in tests
-            // SWR will still handle errors internally and update error state
-          },
-        }}
-      >
-        <HealthCheckPage />
-      </SWRConfig>
-    </LoggerProvider>,
-  );
-};
-
-describe("HealthCheck Integration", () => {
-  beforeEach(() => {
-    // Reset mock data store before each test
-    mockHealthStore.reset();
-    // Clear mock logger calls
-    vi.clearAllMocks();
-  });
-
-  describe("Initial Load", () => {
-    it("test_initialLoad_whenNoMessageExists_displaysNoData", async () => {
-      /**
-       * Action: initialLoad (component mount)
-       * Condition: whenNoMessageExists (empty database)
-       * Result: displaysNoData (no message displayed, ready for input)
-       */
-      renderHealthCheckPage();
-
-      // Initially shows loading
-      expect(screen.getByTestId("health-loading-display")).toBeInTheDocument();
-
-      // After loading, loading indicator should disappear
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      // No message should be displayed (message display is null when no data)
-      expect(
-        screen.queryByTestId("health-message-display"),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByTestId("health-error-display"),
-      ).not.toBeInTheDocument();
-    });
-
-    it("test_initialLoad_whenMessageExists_displaysMessage", async () => {
-      /**
-       * Action: initialLoad
-       * Condition: whenMessageExists (data in database)
-       * Result: displaysMessage (shows existing message)
-       */
-      // Arrange: Pre-populate mock store with data
-      const existingMessage: HealthMessage = {
-        id: "existing-id",
-        message: "Existing message from DB",
-        createdAt: new Date().toISOString(),
-      };
-      mockHealthStore.add(existingMessage);
-
-      // Act
-      renderHealthCheckPage();
-
-      // Assert: Message should be displayed after loading
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-message-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
-    });
-  });
-
-  describe("Save Message", () => {
-    it("test_saveMessage_whenValidInput_savesAndDisplaysNewMessage", async () => {
-      /**
-       * Action: saveMessage (user enters text and clicks Save button)
-       * Condition: whenValidInput (valid message text)
-       * Result: savesAndDisplaysNewMessage (saves to backend and updates UI)
-       */
-      const user = userEvent.setup();
-      renderHealthCheckPage();
-
-      // Wait for initial load
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      // Find input and button by test ID
-      const input = screen.getByTestId("health-echo-input");
-      const saveButton = screen.getByTestId("health-save-button");
-
-      // Enter message
-      await user.type(input, "Integration test message");
-      expect(input).toHaveValue("Integration test message");
-
-      // Click Save button
-      await user.click(saveButton);
-
-      // Wait for save to complete and message to be displayed
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("health-message-display"),
-        ).toBeInTheDocument();
-      });
-
-      // Input should be cleared after successful save
-      expect(input).toHaveValue("");
-
-      // Verify message was saved to mock store
-      const latest = mockHealthStore.getLatest();
-      expect(latest).not.toBeNull();
-      expect(latest?.message).toBe("Integration test message");
-    });
-
-    it("test_saveMessage_whenEmptyInput_buttonIsDisabled", async () => {
-      /**
-       * Action: saveMessage
-       * Condition: whenEmptyInput (input field is empty)
-       * Result: buttonIsDisabled (Save button cannot be clicked)
-       */
-      renderHealthCheckPage();
-
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      const saveButton = screen.getByTestId("health-save-button");
-
-      // Button should be disabled when input is empty
-      expect(saveButton).toBeDisabled();
-    });
-
-    it("test_saveMessage_whenCalledMultipleTimes_displaysLatestMessage", async () => {
-      /**
-       * Action: saveMessage
-       * Condition: whenCalledMultipleTimes (3 messages saved sequentially)
-       * Result: displaysLatestMessage (UI always shows the latest message)
-       */
-      const user = userEvent.setup();
-      renderHealthCheckPage();
-
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      const input = screen.getByTestId("health-echo-input");
-      const saveButton = screen.getByTestId("health-save-button");
-
-      // Save first message
-      await user.type(input, "First message");
-      await user.click(saveButton);
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("health-message-display"),
-        ).toBeInTheDocument();
-      });
-
-      // Save second message
-      await user.type(input, "Second message");
-      await user.click(saveButton);
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("health-message-display"),
-        ).toBeInTheDocument();
-      });
-
-      // Save third message
-      await user.type(input, "Third message");
-      await user.click(saveButton);
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("health-message-display"),
-        ).toBeInTheDocument();
-      });
-
-      // Verify all messages are in mock store
-      expect(mockHealthStore.messages).toHaveLength(3);
-
-      // Verify latest message is displayed
-      const latest = mockHealthStore.getLatest();
-      expect(latest?.message).toBe("Third message");
-    });
-  });
-
-  describe("Reload Message", () => {
-    it("test_reloadMessage_whenDataExists_refetchesAndDisplaysLatest", async () => {
-      /**
-       * Action: reloadMessage (user clicks Fetch button)
-       * Condition: whenDataExists (data exists in backend)
-       * Result: refetchesAndDisplaysLatest (fetches fresh data from API)
-       */
-      const user = userEvent.setup();
-
-      // Pre-populate with initial message
-      const initialMessage: HealthMessage = {
-        id: "initial-id",
-        message: "Initial message",
-        createdAt: new Date().toISOString(),
-      };
-      mockHealthStore.add(initialMessage);
-
-      renderHealthCheckPage();
-
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-message-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
-
-      // Simulate backend data change (e.g., another user added a message)
-      const newMessage: HealthMessage = {
-        id: "new-id",
-        message: "Updated message",
-        createdAt: new Date().toISOString(),
-      };
-      mockHealthStore.add(newMessage);
-
-      // Click Fetch button
-      const fetchButton = screen.getByTestId("health-fetch-button");
-      await user.click(fetchButton);
-
-      // Should display the latest message from backend
-      await waitFor(
-        () => {
-          const latest = mockHealthStore.getLatest();
-          expect(latest?.message).toBe("Updated message");
-        },
-        { timeout: 3000 },
-      );
-    });
-  });
-
-  describe("Error Handling", () => {
-    it("test_saveMessage_whenApiError_displaysErrorMessage", async () => {
-      /**
-       * Action: saveMessage
-       * Condition: whenApiError (backend returns 500 error)
-       * Result: displaysErrorMessage (shows error in UI)
-       */
-      const user = userEvent.setup();
-
-      // Override handler to simulate API error
-      server.use(
-        http.post("http://localhost:8000/api/health/echo", () => {
-          return HttpResponse.json(
-            { detail: "Internal Server Error" },
-            { status: 500 },
-          );
-        }),
-      );
-
-      renderHealthCheckPage();
-
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      const input = screen.getByTestId("health-echo-input");
-      const saveButton = screen.getByTestId("health-save-button");
-
-      await user.type(input, "Test message");
-      await user.click(saveButton);
-
-      // Should display error message (check for error display element)
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-error-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
-    });
-
-    it("test_fetchMessage_whenApiError_displaysErrorMessage", async () => {
-      /**
-       * Action: fetchMessage (initial load)
-       * Condition: whenApiError (backend returns 500 error)
-       * Result: displaysErrorMessage (shows error in UI)
-       */
-      // Override handler to simulate API error
-      server.use(
-        http.get("http://localhost:8000/api/health/latest", () => {
-          return HttpResponse.json(
-            { detail: "Internal Server Error" },
-            { status: 500 },
-          );
-        }),
-      );
-
-      renderHealthCheckPage();
-
-      // Should display error message after failed fetch
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-error-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
-    });
-  });
-
-  describe("Loading State", () => {
-    it("test_saveMessage_whileSaving_disablesControls", async () => {
-      /**
-       * Action: saveMessage
-       * Condition: whileSaving (during API call)
-       * Result: disablesControls (input and buttons are disabled)
-       */
-      const user = userEvent.setup();
-
-      // Delay response to test loading state
-      server.use(
-        http.post("http://localhost:8000/api/health/echo", async () => {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          const newMessage: HealthMessage = {
-            id: crypto.randomUUID(),
-            message: "Test message",
-            createdAt: new Date().toISOString(),
-          };
-          return HttpResponse.json(newMessage);
-        }),
-      );
-
-      renderHealthCheckPage();
-
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("health-loading-display"),
-        ).not.toBeInTheDocument();
-      });
-
-      const input = screen.getByTestId("health-echo-input");
-      const saveButton = screen.getByTestId("health-save-button");
-      const fetchButton = screen.getByTestId("health-fetch-button");
-
-      await user.type(input, "Test message");
-      await user.click(saveButton);
-
-      // During save, controls should be disabled
-      // Note: This is timing-dependent and may need adjustment
-      expect(input).toBeDisabled();
-      expect(saveButton).toBeDisabled();
-      expect(fetchButton).toBeDisabled();
-
-      // Wait for save to complete
-      await waitFor(
-        () => {
-          expect(
-            screen.getByTestId("health-message-display"),
-          ).toBeInTheDocument();
-        },
-        { timeout: 1000 },
-      );
-    });
-  });
-});
-/**
- * Button Atom Tests
- *
- * Unit tests for Button component (Dumb Component).
- */
-
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { Button } from "@/components/atoms/Button";
-
-describe("Button", () => {
-  it("should render children correctly", () => {
-    const handleClick = vi.fn();
-    render(<Button onClick={handleClick}>Click Me</Button>);
-
-    expect(screen.getByRole("button")).toHaveTextContent("Click Me");
-  });
-
-  it("should call onClick when clicked", () => {
-    const handleClick = vi.fn();
-    render(<Button onClick={handleClick}>Click Me</Button>);
-
-    fireEvent.click(screen.getByRole("button"));
-
-    expect(handleClick).toHaveBeenCalledOnce();
-  });
-
-  it("should be disabled when disabled prop is true", () => {
-    const handleClick = vi.fn();
-    render(
-      <Button onClick={handleClick} disabled={true}>
-        Click Me
-      </Button>,
-    );
-
-    const button = screen.getByRole("button");
-    expect(button).toBeDisabled();
-
-    fireEvent.click(button);
-    expect(handleClick).not.toHaveBeenCalled();
-  });
-
-  it("should render with primary variant by default", () => {
-    const handleClick = vi.fn();
-    render(<Button onClick={handleClick}>Click Me</Button>);
-
-    const button = screen.getByRole("button");
-    expect(button.className).toContain("bg-ember-500");
-  });
-
-  it("should render with secondary variant when specified", () => {
-    const handleClick = vi.fn();
-    render(
-      <Button onClick={handleClick} variant="secondary">
-        Click Me
-      </Button>,
-    );
-
-    const button = screen.getByRole("button");
-    expect(button.className).toContain("bg-night-800");
-  });
-});
-/**
- * HealthCheckTemplate Tests
- *
- * Unit tests for HealthCheckTemplate component (Dumb Component).
- */
-
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { HealthCheckTemplate } from "@/components/templates/HealthCheckTemplate";
-
-describe("HealthCheckTemplate", () => {
-  it("should render children", () => {
-    render(
-      <HealthCheckTemplate>
-        <div>Test Content</div>
-      </HealthCheckTemplate>,
-    );
-
-    expect(screen.getByText("Test Content")).toBeInTheDocument();
-  });
-
-  it("should apply layout classes", () => {
-    const { container } = render(
-      <HealthCheckTemplate>
-        <div>Test</div>
-      </HealthCheckTemplate>,
-    );
-
-    const wrapper = container.firstChild as HTMLElement;
-    expect(wrapper.className).toContain("min-h-screen");
-    expect(wrapper.className).toContain("bg-night-900");
-  });
-});
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+index 9aeb3af..655f50c 100644
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -6,12 +6,11 @@
+ 
+ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+ import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
+-import { SparkPostPage } from "@/components/pages/SparkPostPage";
+ import { TimelinePage } from "@/components/pages/TimelinePage";
+ import { LoggerProvider } from "@/components/LoggerContext";
+ import { sentryLogger } from "@/adapter/infra/sentryLogger";
+ import { DebugPage } from "./components/pages/debugPage";
+-import { AtmosphereBackground } from "./components/atoms/atmosphereBackground";
++import { AtmosphereBackground } from "./components/atoms/AtmosphereBackground";
+ 
+ function App() {
+   return (
+@@ -21,7 +20,6 @@ function App() {
+         <Routes>
+           <Route path="/" element={<Navigate to="/debug" replace />} />
+           <Route path="/timeline" element={<TimelinePage />} />
+-          <Route path="/spark" element={<SparkPostPage />} />
+           <Route path="/health" element={<HealthCheckPage />} />
+           <Route path="/debug" element={<DebugPage />} />
+         </Routes>
+diff --git a/apps/web/src/components/atoms/Button.tsx b/apps/web/src/components/atoms/Button.tsx
+deleted file mode 100644
+index a55f5e7..0000000
+--- a/apps/web/src/components/atoms/Button.tsx
++++ /dev/null
+@@ -1,41 +0,0 @@
+-/**
+- * Button Atom
+- *
+- * Basic button component (Stateless).
+- */
+-
+-import clsx from "clsx";
+-
+-interface ButtonProps {
+-  children: React.ReactNode;
+-  onClick: () => void;
+-  disabled?: boolean;
+-  variant?: "primary" | "secondary";
+-  testId?: string;
+-}
+-
+-export const Button = ({
+-  children,
+-  onClick,
+-  disabled = false,
+-  variant = "primary",
+-  testId,
+-}: ButtonProps) => {
+-  const baseClasses =
+-    "px-4 py-2 rounded-button font-light transition-all disabled:opacity-ash disabled:cursor-not-allowed";
+-  const variantClasses =
+-    variant === "primary"
+-      ? "bg-ember-500 hover:shadow-glow-md text-night-900"
+-      : "bg-night-800 hover:shadow-glow-sm text-smoke-100";
+-
+-  return (
+-    <button
+-      onClick={onClick}
+-      disabled={disabled}
+-      className={clsx(baseClasses, variantClasses)}
+-      data-testid={testId}
+-    >
+-      {children}
+-    </button>
+-  );
+-};
+diff --git a/apps/web/src/components/atoms/Input.tsx b/apps/web/src/components/atoms/Input.tsx
+deleted file mode 100644
+index cd0211d..0000000
+--- a/apps/web/src/components/atoms/Input.tsx
++++ /dev/null
+@@ -1,35 +0,0 @@
+-/**
+- * Input Atom
+- *
+- * Basic text input component (Stateless).
+- */
+-
+-interface InputProps {
+-  value: string;
+-  onChange: (value: string) => void;
+-  placeholder?: string;
+-  disabled?: boolean;
+-  testId?: string;
+-}
+-
+-export const Input = ({
+-  value,
+-  onChange,
+-  placeholder,
+-  disabled = false,
+-  testId,
+-}: InputProps) => {
+-  return (
+-    <input
+-      type="text"
+-      value={value}
+-      onChange={(e) => {
+-        onChange(e.target.value);
+-      }}
+-      placeholder={placeholder}
+-      disabled={disabled}
+-      className="disabled:opacity-ash w-full rounded-card border border-ash-500 bg-night-800 px-4 py-2 text-smoke-100 placeholder:text-ash-500 focus:shadow-glow-sm focus:outline-none disabled:cursor-not-allowed"
+-      data-testid={testId}
+-    />
+-  );
+-};
+diff --git a/apps/web/src/components/atoms/SparkCard.tsx b/apps/web/src/components/atoms/SparkCard.tsx
+deleted file mode 100644
+index 9ad8a1f..0000000
+--- a/apps/web/src/components/atoms/SparkCard.tsx
++++ /dev/null
+@@ -1,69 +0,0 @@
+-import { memo } from "react";
+-import clsx from "clsx";
+-import { motion } from "framer-motion";
+-import type { SparkViewModel } from "@/domain/model/spark";
+-
+-interface SparkCardProps {
+-  spark: SparkViewModel;
+-}
+-
+-const formatTime = (totalSeconds: number): string => {
+-  const minutes = Math.floor(totalSeconds / 60);
+-  const seconds = totalSeconds % 60;
+-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+-};
+-
+-/**
+- * SparkCard Component (Memoized)
+- *
+- * Renders a single spark with:
+- * - Fade-in animation on mount
+- * - Color temperature based heat expression (white→ash transition)
+- * - Dynamic glow: Visible when hot, disappears when cooled (Ash)
+- * - TTL countdown timer in bottom-right corner
+- * - Text truncation for long content
+- *
+- * Performance:
+- * - Memoized to prevent re-renders when temperature state doesn't change
+- * - Only re-renders if spark.id, spark.content, spark.temperature, or spark.remainingTimeInSeconds changes
+- * @returns Rendered spark card element
+- */
+-const SparkCardComponent = ({ spark }: SparkCardProps) => {
+-  const isHot = spark.temperature === "hot";
+-
+-  const shadowClass = isHot ? "shadow-glow-sm" : "shadow-none";
+-  const borderClass = isHot ? "border-ember-500" : "border-ash-500";
+-
+-  return (
+-    <motion.div
+-      // enterアニメーション
+-      // initial={{ opacity: 0, y: 20 }}
+-      // animate={{ opacity: 1, y: 0 }}
+-      // exitアニメーションを入れるならここ（リストから消える時）
+-
+-      // transition-all にして shadow の消失もふわっとさせる
+-      // duration-1000 により、"やがて冷めていく" 情緒的な変化を表現
+-      className={clsx(
+-        "rounded-card border bg-night-800 p-4 text-ash-500 transition-all duration-1000 ease-in-out",
+-        shadowClass,
+-        borderClass,
+-      )}
+-      data-testid="spark-item"
+-      data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
+-    >
+-      <p className="line-clamp-3 font-base text-sm leading-relaxed">
+-        {spark.content}
+-      </p>
+-      <div className="mt-2 flex justify-end">
+-        <span
+-          className={clsx("font-mono text-xs transition-colors duration-1000")}
+-          data-testid="spark-timer"
+-        >
+-          {formatTime(spark.remainingTimeInSeconds)}
+-        </span>
+-      </div>
+-    </motion.div>
+-  );
+-};
+-
+-export const SparkCard = memo(SparkCardComponent);
+diff --git a/apps/web/src/components/atoms/Textarea.tsx b/apps/web/src/components/atoms/Textarea.tsx
+deleted file mode 100644
+index 9129961..0000000
+--- a/apps/web/src/components/atoms/Textarea.tsx
++++ /dev/null
+@@ -1,41 +0,0 @@
+-/**
+- * Textarea Atom
+- *
+- * Basic textarea component for multi-line text input (Stateless).
+- */
+-
+-interface TextareaProps {
+-  value: string;
+-  onChange: (value: string) => void;
+-  placeholder?: string;
+-  disabled?: boolean;
+-  maxLength?: number;
+-  testId?: string;
+-}
+-
+-export const Textarea = ({
+-  value,
+-  onChange,
+-  placeholder,
+-  disabled = false,
+-  maxLength,
+-  testId,
+-}: TextareaProps) => {
+-  const baseClasses =
+-    "w-full px-4 py-3 bg-night-800 text-smoke-100 rounded-card resize-none focus:outline-none focus:shadow-glow-sm transition-all disabled:opacity-ash disabled:cursor-not-allowed font-base font-light";
+-
+-  return (
+-    <textarea
+-      value={value}
+-      onChange={(event) => {
+-        onChange(event.target.value);
+-      }}
+-      placeholder={placeholder}
+-      disabled={disabled}
+-      maxLength={maxLength}
+-      className={baseClasses}
+-      rows={6}
+-      data-testid={testId}
+-    />
+-  );
+-};
+diff --git a/apps/web/src/components/atoms/atmosphereBackground.tsx b/apps/web/src/components/atoms/atmosphereBackground.tsx
+deleted file mode 100644
+index d1d50df..0000000
+--- a/apps/web/src/components/atoms/atmosphereBackground.tsx
++++ /dev/null
+@@ -1,188 +0,0 @@
+-import { clsx } from "clsx";
+-const NOISE_SVG_DATA = `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`;
+-
+-export const AtmosphereBackground = () => {
+-  return (
+-    <div className="bg-night-900 fixed inset-0 -z-10 overflow-hidden">
+-      {/* ------------------------------------------------------- */}
+-      {/* Layer 1: Venus Belt (上層) */}
+-      {/* ------------------------------------------------------- */}
+-      <div
+-        className={clsx(
+-          // [1] 配置・サイズ（あまりいじらない）
+-          "absolute left-0 w-full",
+-
+-          // [2] 色・グラデーション
+-          "from-venus-500 via-venus-500/50 bg-gradient-to-t to-transparent",
+-
+-          // [3] 調整パラメータ（ここをいじる）
+-          "h-[65vh]",
+-          "bottom-[5%]",
+-          "blur-[100px]",
+-          "opacity-50",
+-        )}
+-      />
+-
+-      {/* ------------------------------------------------------- */}
+-      {/* Layer 2: Earth's Shadow (下層) */}
+-      {/* ------------------------------------------------------- */}
+-      <div
+-        className={clsx(
+-          // [1] 配置・サイズ
+-          "absolute bottom-0 left-0 w-full",
+-
+-          // [2] 色・グラデーション
+-          "from-earthshadow-base via-earthshadow-base/60 bg-gradient-to-t to-transparent",
+-
+-          // [3] 調整パラメータ
+-          "h-[38.5vh]",
+-          "blur-[100px]",
+-          "opacity-[0.82]",
+-        )}
+-      />
+-
+-      {/* ------------------------------------------------------- */}
+-      {/* Layer 3: Noise Overlay (質感) */}
+-      {/* ------------------------------------------------------- */}
+-      <div
+-        className={clsx(
+-          // [1] 配置・基本設定
+-          "pointer-events-none absolute inset-0 size-full",
+-          "mix-blend-overlay",
+-
+-          // [2] 調整パラメータ
+-          "opacity-10", // 0.05 (5%)
+-        )}
+-        style={{
+-          backgroundImage: NOISE_SVG_DATA,
+-        }}
+-      />
+-    </div>
+-  );
+-};
+-
+-// import { useControls, folder } from "leva";
+-
+-// /**
+-//  * ノイズフィルター用SVGコンポーネント
+-//  * CSS変数 (--noise-frequency, --noise-opacity) を受け取って動的に変化します。
+-//  */
+-// const NoiseSVG = () => (
+-//   <svg
+-//     className="pointer-events-none fixed inset-0 z-50 h-full w-full"
+-//     xmlns="http://www.w3.org/2000/svg"
+-//   >
+-//     <filter id="noiseFilter">
+-//       {/* baseFrequencyがノイズの「粗さ」を決めます。CSS変数で制御します。 */}
+-//       <feTurbulence
+-//         type="fractalNoise"
+-//         baseFrequency="var(--noise-frequency, 0.65)"
+-//         numOctaves="3"
+-//         stitchTiles="stitch"
+-//       />
+-//       {/* ノイズの色を白黒のアルファ値に変換します */}
+-//       <feColorMatrix type="saturate" values="0" />
+-//     </filter>
+-//     {/* CSS変数で不透明度を制御し、mix-blend-modeで重ねます */}
+-//     <rect
+-//       width="100%"
+-//       height="100%"
+-//       filter="url(#noiseFilter)"
+-//       style={{
+-//         opacity: "var(--noise-opacity, 0.03)",
+-//         mixBlendMode: "overlay",
+-//       }}
+-//     />
+-//   </svg>
+-// );
+-
+-// export const AtmosphereBackground = () => {
+-//   const values = useControls({
+-//     // ----------------------------------------
+-//     // 1. Venus Belt (ビーナスベルト層 - ピンク)
+-//     // ----------------------------------------
+-//     Venus: folder({
+-//       vOpacity: { value: 0.5, min: 0, max: 1, step: 0.01 },
+-//       vHeight: { value: 40, min: 10, max: 100, label: "Height (vh)" }, // 層の厚み
+-//       vBottom: { value: 10, min: 0, max: 50, label: "Bottom (%)" }, // 地平線からの位置
+-//       vBlur: { value: 100, min: 0, max: 300, label: "Blur (px)" }, // 境界のぼかし
+-//     }),
+-
+-//     // ----------------------------------------
+-//     // 2. Earth's Shadow (地球影層 - 深い青)
+-//     // ----------------------------------------
+-//     Shadow: folder({
+-//       // 色は night-800 (#0F172A) を想定
+-//       sOpacity: { value: 0.8, min: 0, max: 1, step: 0.01 },
+-//       sHeight: { value: 25, min: 5, max: 50, label: "Height (vh)" },
+-//       sBlur: { value: 50, min: 0, max: 200, label: "Blur (px)" },
+-//     }),
+-
+-//     // ----------------------------------------
+-//     // 3. Grain (ノイズ粒子) - CSS制御版
+-//     // ----------------------------------------
+-//     Grain: folder({
+-//       gOpacity: {
+-//         value: 0.03,
+-//         min: 0,
+-//         max: 0.15,
+-//         step: 0.001,
+-//         label: "Opacity",
+-//       },
+-//       // 値が小さいほど粒子が大きく（粗く）なります。0.5〜0.9あたりが実用的。
+-//       gFrequency: {
+-//         value: 0.65,
+-//         min: 0.1,
+-//         max: 1.5,
+-//         step: 0.01,
+-//         label: "Roughness",
+-//       },
+-//     }),
+-//   });
+-
+-//   return (
+-//     // ベースレイヤー：宇宙（空全体）
+-//     <div
+-//       className="fixed inset-0 -z-10 overflow-hidden bg-night-900"
+-//       // ノイズ用のCSS変数を定義
+-//       style={{
+-//         "--noise-opacity": values.gOpacity,
+-//         "--noise-frequency": values.gFrequency,
+-//       }}
+-//     >
+-//       {/* ------------------------------------------------------- */}
+-//       {/* Layer 1: ビーナスベルト (Belt of Venus) */}
+-//       {/* 下から上へのグラデーションで、ピンクの帯を表現 */}
+-//       {/* ------------------------------------------------------- */}
+-//       <div
+-//         className="absolute left-0 w-full bg-gradient-to-t from-venus-500 via-venus-500/50 to-transparent transition-all duration-75"
+-//         style={{
+-//           opacity: values.vOpacity,
+-//           height: `${values.vHeight}vh`,
+-//           bottom: `${values.vBottom}%`,
+-//           filter: `blur(${values.vBlur}px)`,
+-//         }}
+-//       />
+-
+-//       {/* ------------------------------------------------------- */}
+-//       {/* Layer 2: 地球影 (Earth's Shadow) */}
+-//       {/* 最下部（地平線直上）にある最も暗い青の層 */}
+-//       {/* ------------------------------------------------------- */}
+-//       <div
+-//         className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-earthshadow-base via-earthshadow-base to-transparent transition-all duration-75"
+-//         style={{
+-//           opacity: values.sOpacity,
+-//           height: `${values.sHeight}vh`,
+-//           filter: `blur(${values.sBlur}px)`,
+-//           // ビーナスベルトより手前（下）に来るように少しzIndexを調整しても良いが、
+-//           // blurで混ざるのでそのままでもOK
+-//         }}
+-//       />
+-
+-//       {/* ------------------------------------------------------- */}
+-//       {/* Layer 3: ノイズオーバーレイ */}
+-//       {/* ------------------------------------------------------- */}
+-//       <NoiseSVG />
+-//     </div>
+-//   );
+-// };
+diff --git a/apps/web/src/components/molecules/ActionForm.tsx b/apps/web/src/components/molecules/ActionForm.tsx
+index 94e492d..8779aa5 100644
+--- a/apps/web/src/components/molecules/ActionForm.tsx
++++ b/apps/web/src/components/molecules/ActionForm.tsx
+@@ -4,8 +4,8 @@
+  * Input form with action buttons for health check (Dumb Component).
+  */
+ 
+-import { Input } from "@/components/atoms/Input";
+-import { Button } from "@/components/atoms/Button";
++import { Input } from "@/components/ui/input";
++import { Button } from "@/components/ui/button";
+ 
+ interface ActionFormProps {
+   inputValue: string;
+@@ -30,10 +30,12 @@ export const ActionForm = ({
+         </label>
+         <Input
+           value={inputValue}
+-          onChange={onInputChange}
++          onChange={(e) => {
++            onInputChange(e.target.value);
++          }}
+           placeholder="Enter a test message..."
+           disabled={isLoading}
+-          testId="health-echo-input"
++          data-testid="health-echo-input"
+         />
+       </div>
+ 
+@@ -41,7 +43,7 @@ export const ActionForm = ({
+         <Button
+           onClick={onSave}
+           disabled={isLoading || !inputValue.trim()}
+-          testId="health-save-button"
++          data-testid="health-save-button"
+         >
+           Save to DB
+         </Button>
+@@ -49,7 +51,7 @@ export const ActionForm = ({
+           onClick={onFetch}
+           disabled={isLoading}
+           variant="secondary"
+-          testId="health-fetch-button"
++          data-testid="health-fetch-button"
+         >
+           Fetch Latest
+         </Button>
+diff --git a/apps/web/src/components/molecules/BaseModal.tsx b/apps/web/src/components/molecules/BaseModal.tsx
+deleted file mode 100644
+index cdfbec1..0000000
+--- a/apps/web/src/components/molecules/BaseModal.tsx
++++ /dev/null
+@@ -1,136 +0,0 @@
+-/**
+- * BaseModal Molecule Component (Dumb)
+- *
+- * Generic modal component providing:
+- * - Backdrop with click-to-close
+- * - Modal container with animations
+- * - Header with title and close button
+- * - Scrollable content area
+- *
+- * Built with Headless UI Dialog for accessibility features:
+- * - Automatic focus management
+- * - Keyboard navigation (ESC to close)
+- * - ARIA attributes
+- * - Focus trap
+- */
+-
+-import { Dialog, DialogPanel, DialogTitle } from "@headlessui/react";
+-import { motion, AnimatePresence } from "framer-motion";
+-import { X } from "lucide-react";
+-import type { ReactNode } from "react";
+-
+-/**
+- * Props for BaseModal component
+- */
+-interface BaseModalProps {
+-  /**
+-   * Whether the modal is open
+-   */
+-  isOpen: boolean;
+-
+-  /**
+-   * Callback to close the modal
+-   */
+-  onClose: () => void;
+-
+-  /**
+-   * Modal title displayed in header
+-   */
+-  title: string;
+-
+-  /**
+-   * Modal content
+-   */
+-  children: ReactNode;
+-
+-  /**
+-   * Optional test ID for backdrop
+-   */
+-  backdropTestId?: string;
+-
+-  /**
+-   * Optional test ID for modal content
+-   */
+-  modalTestId?: string;
+-
+-  /**
+-   * Optional test ID for close button
+-   */
+-  closeButtonTestId?: string;
+-}
+-
+-/**
+- * BaseModal Component
+- *
+- * Features:
+- * - Full-screen backdrop overlay (90% opacity)
+- * - Centered modal with max-width and max-height constraints
+- * - Fade + scale animation on open/close
+- * - Click backdrop or ESC key to dismiss
+- * - Scrollable content area
+- * - Accessibility features via Headless UI Dialog
+- * @returns Rendered modal element
+- */
+-export const BaseModal = ({
+-  isOpen,
+-  onClose,
+-  title,
+-  children,
+-  backdropTestId,
+-  modalTestId,
+-  closeButtonTestId,
+-}: BaseModalProps) => {
+-  return (
+-    <AnimatePresence>
+-      {isOpen && (
+-        <Dialog
+-          static
+-          open={isOpen}
+-          onClose={onClose}
+-          className="relative z-50"
+-        >
+-          {/* Backdrop */}
+-          <motion.div
+-            initial={{ opacity: 0 }}
+-            animate={{ opacity: 0.9 }}
+-            exit={{ opacity: 0 }}
+-            transition={{ duration: 0.2 }}
+-            className="fixed inset-0 bg-night-900"
+-            data-testid={backdropTestId}
+-          />
+-
+-          {/* Modal Container */}
+-          <div className="fixed inset-0 flex items-center justify-center p-4">
+-            <DialogPanel>
+-              <motion.div
+-                initial={{ opacity: 0, scale: 0.95 }}
+-                animate={{ opacity: 1, scale: 1 }}
+-                exit={{ opacity: 0, scale: 0.95 }}
+-                transition={{ duration: 0.2 }}
+-                className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-card bg-night-800 shadow-glow-md"
+-                data-testid={modalTestId}
+-              >
+-                {/* Header */}
+-                <div className="flex items-center justify-between border-b border-ash-500 p-6">
+-                  <DialogTitle className="font-base text-xl font-normal text-smoke-100">
+-                    {title}
+-                  </DialogTitle>
+-                  <button
+-                    onClick={onClose}
+-                    className="text-ash-500 transition-colors hover:text-smoke-100"
+-                    data-testid={closeButtonTestId}
+-                  >
+-                    <X size={24} />
+-                  </button>
+-                </div>
+-
+-                {/* Content Area (Scrollable) */}
+-                <div className="flex-1 overflow-y-auto p-6">{children}</div>
+-              </motion.div>
+-            </DialogPanel>
+-          </div>
+-        </Dialog>
+-      )}
+-    </AnimatePresence>
+-  );
+-};
+diff --git a/apps/web/src/components/molecules/SparkInput.tsx b/apps/web/src/components/molecules/SparkInput.tsx
+index e2ff5c8..a49248c 100644
+--- a/apps/web/src/components/molecules/SparkInput.tsx
++++ b/apps/web/src/components/molecules/SparkInput.tsx
+@@ -6,7 +6,7 @@
+  */
+ 
+ import clsx from "clsx";
+-import { Textarea } from "@/components/atoms/Textarea";
++import { Textarea } from "@/components/ui/textarea";
+ 
+ interface SparkInputProps {
+   value: string;
+@@ -38,10 +38,13 @@ export const SparkInput = ({
+     <div className="w-full">
+       <Textarea
+         value={value}
+-        onChange={onChange}
++        onChange={(e) => {
++          onChange(e.target.value);
++        }}
+         placeholder="夜空に種火を投げる..."
+         disabled={disabled}
+-        testId={testId}
++        data-testid={testId}
++        className="caret-ember-500 text-smoke-100 placeholder:text-ash-500 min-h-[240px] border-none bg-transparent focus:ring-0 focus:outline-none"
+       />
+       <div className="mt-2 flex justify-end">
+         <span
+diff --git a/apps/web/src/components/organisms/SparkPostForm.tsx b/apps/web/src/components/organisms/SparkPostForm.tsx
+deleted file mode 100644
+index bd3aaa6..0000000
+--- a/apps/web/src/components/organisms/SparkPostForm.tsx
++++ /dev/null
+@@ -1,65 +0,0 @@
+-/**
+- * SparkPostForm Organism
+- *
+- * Complete spark posting form with input, validation, and submit button.
+- * Dumb component - receives all data and handlers via props.
+- */
+-
+-import { SparkInput } from "@/components/molecules/SparkInput";
+-import { Button } from "@/components/atoms/Button";
+-
+-interface SparkPostFormProps {
+-  content: string;
+-  onContentChange: (value: string) => void;
+-  onSubmit: () => void;
+-  isPosting: boolean;
+-  maxLength: number;
+-  error?: Error | null;
+-}
+-
+-export const SparkPostForm = ({
+-  content,
+-  onContentChange,
+-  onSubmit,
+-  isPosting,
+-  maxLength,
+-  error,
+-}: SparkPostFormProps) => {
+-  const trimmedContent = content.trim();
+-  const isEmpty = trimmedContent.length === 0;
+-  const isOverLimit = content.length > maxLength;
+-  const isSubmitDisabled = isEmpty || isOverLimit || isPosting;
+-
+-  return (
+-    <div className="mx-auto w-full max-w-2xl rounded-card bg-night-800 p-6 shadow-glow-sm">
+-      <h2 className="mb-4 text-xl font-light text-ember-500">種火を投げる</h2>
+-
+-      <SparkInput
+-        value={content}
+-        onChange={onContentChange}
+-        maxLength={maxLength}
+-        disabled={isPosting}
+-        testId="spark-input"
+-      />
+-
+-      {error && (
+-        <div
+-          className="mt-3 text-sm font-light text-ember-500"
+-          data-testid="spark-error"
+-        >
+-          エラー: {error.message}
+-        </div>
+-      )}
+-
+-      <div className="mt-4 flex justify-end">
+-        <Button
+-          onClick={onSubmit}
+-          disabled={isSubmitDisabled}
+-          testId="spark-submit-button"
+-        >
+-          {isPosting ? "投稿中..." : "種火を投げる"}
+-        </Button>
+-      </div>
+-    </div>
+-  );
+-};
+diff --git a/apps/web/src/components/organisms/TimelineStream.tsx b/apps/web/src/components/organisms/TimelineStream.tsx
+index bdcf80c..7cff449 100644
+--- a/apps/web/src/components/organisms/TimelineStream.tsx
++++ b/apps/web/src/components/organisms/TimelineStream.tsx
+@@ -7,7 +7,7 @@
+ 
+ import { Virtuoso } from "react-virtuoso";
+ import type { SparkViewModel } from "@/domain/model/spark";
+-import { SparkCard } from "@/components/atoms/SparkCard";
++import { SparkCard } from "@/components/molecules/SparkCard";
+ 
+ /**
+  * Props for TimelineStream component
+@@ -55,7 +55,7 @@ export const TimelineStream = ({ sparks }: TimelineStreamProps) => {
+         alignToBottom
+         initialTopMostItemIndex={sparks.length - 1}
+         followOutput="smooth"
+-        computeItemKey={(index, spark) => spark.id}
++        computeItemKey={(_, spark) => spark.id}
+         itemContent={(_index, spark) => (
+           <div className="pb-4 pr-2">
+             <SparkCard spark={spark} />
+diff --git a/apps/web/src/components/pages/SparkPostPage.tsx b/apps/web/src/components/pages/SparkPostPage.tsx
+deleted file mode 100644
+index bb76be1..0000000
+--- a/apps/web/src/components/pages/SparkPostPage.tsx
++++ /dev/null
+@@ -1,57 +0,0 @@
+-/**
+- * SparkPostPage (Smart Component)
+- *
+- * Container page for posting sparks.
+- * Handles business logic by connecting UseCase hooks with UI components.
+- */
+-
+-import { useState } from "react";
+-import { sparkRepository } from "@/adapter/repository/sparkRepository";
+-import { usePostSpark } from "@/usecase/usePostSpark";
+-import { SparkPostForm } from "@/components/organisms/SparkPostForm";
+-import { SparkPostTemplate } from "@/components/templates/SparkPostTemplate";
+-import { useLogger } from "@/components/useLogger";
+-import { settings } from "@/adapter/infra/settings";
+-
+-export const SparkPostPage = () => {
+-  // Local UI state
+-  const [content, setContent] = useState("");
+-
+-  // Dependency Injection: Logger
+-  const logger = useLogger();
+-
+-  // UseCase Hook: Repository Dependency Injection
+-  const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
+-
+-  // Event Handler: Submit spark
+-  const handleSubmit = async () => {
+-    const trimmedContent = content.trim();
+-    if (!trimmedContent) return;
+-
+-    try {
+-      await postSpark({ content: trimmedContent });
+-      // On success: Clear input and navigate to timeline (future feature)
+-      setContent("");
+-      // TODO: Navigate to timeline once implemented
+-      // navigate("/timeline");
+-    } catch {
+-      // Error is already logged by UseCase and stored in error state
+-      // UI will display error via SparkPostForm
+-    }
+-  };
+-
+-  return (
+-    <SparkPostTemplate>
+-      <SparkPostForm
+-        content={content}
+-        onContentChange={setContent}
+-        onSubmit={() => {
+-          void handleSubmit();
+-        }}
+-        isPosting={isPosting}
+-        maxLength={settings.sparkMaxLength}
+-        error={error}
+-      />
+-    </SparkPostTemplate>
+-  );
+-};
+diff --git a/apps/web/src/components/pages/TimelinePage.tsx b/apps/web/src/components/pages/TimelinePage.tsx
+index fa170f5..483b06c 100644
+--- a/apps/web/src/components/pages/TimelinePage.tsx
++++ b/apps/web/src/components/pages/TimelinePage.tsx
+@@ -3,28 +3,62 @@
+  *
+  * Entry point for the Timeline feature.
+  * Handles dependency injection and wiring of UseCase to UI components.
++ * Includes spark posting functionality with FAB and modal.
+  */
+ 
++import { useState } from "react";
++import { Flame } from "lucide-react";
+ import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
++import { sparkRepository } from "@/adapter/repository/sparkRepository";
+ import { useTimelineStream } from "@/usecase/useTimelineStream";
++import { usePostSpark } from "@/usecase/usePostSpark";
+ import { TimelineStream } from "@/components/organisms/TimelineStream";
+ import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
+ import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
++import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
++import { SparkPostModal } from "@/components/organisms/SparkPostModal";
++import { useLogger } from "@/components/useLogger";
++import { settings } from "@/adapter/infra/settings";
+ 
+ /**
+  * Timeline Page Component
+  *
+  * Responsibilities:
+- * - Inject wsTimelineRepository into useTimelineStream (DIP)
+- * - Pass spark data to TimelineStream organism
+- * - Display error message if WebSocket connection fails
+- * - Wrap content in TimelineTemplate for layout
+- * @returns Rendered timeline page
++ * - Display real-time timeline of sparks
++ * - Provide FAB button to open spark posting modal
++ * - Handle spark posting with error display
++ * @returns Rendered timeline page with posting capability
+  */
+ export const TimelinePage = () => {
++  // Local UI state for posting
++  const [isModalOpen, setIsModalOpen] = useState(false);
++  const [content, setContent] = useState("");
++
++  // Dependency Injection: Logger
++  const logger = useLogger();
++
+   // UseCase: Connect to WebSocket and receive sparks
+   const { sparks, hasError } = useTimelineStream(wsTimelineRepository);
+ 
++  // UseCase: Post spark
++  const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
++
++  // Event Handler: Submit spark
++  const handleSubmit = async () => {
++    const trimmedContent = content.trim();
++    if (!trimmedContent) return;
++
++    try {
++      await postSpark({ content: trimmedContent });
++      // On success: Clear input and close modal
++      setContent("");
++      setIsModalOpen(false);
++    } catch {
++      // Error is already logged by UseCase and stored in error state
++      // UI will display error via SparkPostModal
++    }
++  };
++
+   return (
+     <TimelineTemplate>
+       {hasError ? (
+@@ -36,6 +70,30 @@ export const TimelinePage = () => {
+       ) : (
+         <TimelineStream sparks={sparks} />
+       )}
++
++      <FloatingActionButton
++        onClick={() => {
++          setIsModalOpen(true);
++        }}
++        icon={<Flame size={24} />}
++        label="種火を投げる"
++        testId="spark-post-fab"
++      />
++
++      <SparkPostModal
++        isOpen={isModalOpen}
++        onClose={() => {
++          setIsModalOpen(false);
++        }}
++        content={content}
++        onContentChange={setContent}
++        onSubmit={() => {
++          void handleSubmit();
++        }}
++        isPosting={isPosting}
++        maxLength={settings.sparkMaxLength}
++        error={error}
++      />
+     </TimelineTemplate>
+   );
+ };
+diff --git a/apps/web/src/components/pages/debugPage.tsx b/apps/web/src/components/pages/debugPage.tsx
+index b7b1eb8..4cb74bc 100644
+--- a/apps/web/src/components/pages/debugPage.tsx
++++ b/apps/web/src/components/pages/debugPage.tsx
+@@ -1,6 +1,5 @@
+ // src/components/pages/DebugPage.tsx
+-import { useState } from "react";
+-import { SparkCard } from "../atoms/SparkCard";
++import { SparkCard } from "@/components/molecules/SparkCard";
+ import { SparkViewModel } from "@/domain/model/spark";
+ import { Button } from "../ui/button";
+ 
+diff --git a/apps/web/src/components/templates/SparkPostTemplate.tsx b/apps/web/src/components/templates/SparkPostTemplate.tsx
+deleted file mode 100644
+index 4061639..0000000
+--- a/apps/web/src/components/templates/SparkPostTemplate.tsx
++++ /dev/null
+@@ -1,18 +0,0 @@
+-/**
+- * SparkPostTemplate Template
+- *
+- * Layout template for spark posting page.
+- * Provides consistent spacing and background.
+- */
+-
+-interface SparkPostTemplateProps {
+-  children: React.ReactNode;
+-}
+-
+-export const SparkPostTemplate = ({ children }: SparkPostTemplateProps) => {
+-  return (
+-    <div className="flex min-h-screen items-center justify-center p-4">
+-      {children}
+-    </div>
+-  );
+-};
+diff --git a/apps/web/src/components/templates/TimelineTemplate.tsx b/apps/web/src/components/templates/TimelineTemplate.tsx
+index 1a29eb0..3ad17c9 100644
+--- a/apps/web/src/components/templates/TimelineTemplate.tsx
++++ b/apps/web/src/components/templates/TimelineTemplate.tsx
+@@ -23,7 +23,7 @@ interface TimelineTemplateProps {
+ export const TimelineTemplate = ({ children }: TimelineTemplateProps) => {
+   return (
+     <div className="flex h-screen w-screen flex-col overflow-hidden">
+-      <div className="flex h-40 flex-none items-center justify-center bg-ash-500">
++      <div className="text-ash-500 flex h-40 flex-none items-center justify-center border-2 backdrop-blur-md">
+         Here is a prepared area for bonfire.
+       </div>
+       <main className="z-0 min-h-0 w-full flex-1">{children}</main>
+diff --git a/apps/web/src/components/ui/button.tsx b/apps/web/src/components/ui/button.tsx
+index 36496a2..171b27a 100644
+--- a/apps/web/src/components/ui/button.tsx
++++ b/apps/web/src/components/ui/button.tsx
+@@ -5,24 +5,24 @@ import { cva, type VariantProps } from "class-variance-authority"
+ import { cn } from "@/lib/utils"
+ 
+ const buttonVariants = cva(
+-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
++  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-button text-sm font-light transition-all focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+   {
+     variants: {
+       variant: {
+-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
++        default: "bg-ember-500 text-night-900 hover:shadow-glow-md",
+         destructive:
+-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
++          "bg-red-600 text-smoke-100 hover:shadow-glow-sm hover:bg-red-700",
+         outline:
+-          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
++          "border border-white/10 bg-transparent text-smoke-100 hover:bg-night-800/40 hover:backdrop-blur-md",
+         secondary:
+-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+-        ghost: "hover:bg-accent hover:text-accent-foreground",
+-        link: "text-primary underline-offset-4 hover:underline",
++          "bg-night-800 text-smoke-100 hover:shadow-glow-sm",
++        ghost: "text-smoke-100 hover:bg-night-800/40",
++        link: "text-ember-500 underline-offset-4 hover:underline",
+       },
+       size: {
+         default: "h-10 px-4 py-2",
+-        sm: "h-9 rounded-md px-3",
+-        lg: "h-11 rounded-md px-8",
++        sm: "h-9 px-3",
++        lg: "h-11 px-8",
+         icon: "h-10 w-10",
+       },
+     },
+@@ -33,12 +33,18 @@ const buttonVariants = cva(
+   }
+ )
+ 
++/**
++ * Props for Button component
++ */
+ export interface ButtonProps
+   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+     VariantProps<typeof buttonVariants> {
+   asChild?: boolean
+ }
+ 
++/**
++ * Button component based on shadcn/ui with Kvell styling
++ */
+ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+   ({ className, variant, size, asChild = false, ...props }, ref) => {
+     const Comp = asChild ? Slot : "button"

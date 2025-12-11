@@ -42,3 +42,13 @@ export const LOG_EVENTS = {
     POST_ERROR: "SPARK_POST_ERROR",
   },
 } as const;
+
+/**
+ * Spark cooling threshold ratio
+ * Sparks with less than this percentage of their total lifetime remaining
+ * will display as "cooling" (ash)
+ *
+ * This value is derived from the BDD specification:
+ * "システムの '冷却閾値' は 'Decay time' に対して '30%' の割合である"
+ */
+export const COOLING_THRESHOLD_RATIO = 0.3;

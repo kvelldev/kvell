@@ -4,8 +4,8 @@
  * Input form with action buttons for health check (Dumb Component).
  */
 
-import { Input } from "@/components/atoms/Input";
-import { Button } from "@/components/atoms/Button";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 interface ActionFormProps {
   inputValue: string;
@@ -25,15 +25,17 @@ export const ActionForm = ({
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-light text-smoke-100 mb-2">
+        <label className="mb-2 block text-sm font-light text-smoke-100">
           Test Message
         </label>
         <Input
           value={inputValue}
-          onChange={onInputChange}
+          onChange={(e) => {
+            onInputChange(e.target.value);
+          }}
           placeholder="Enter a test message..."
           disabled={isLoading}
-          testId="health-echo-input"
+          data-testid="health-echo-input"
         />
       </div>
 
@@ -41,7 +43,7 @@ export const ActionForm = ({
         <Button
           onClick={onSave}
           disabled={isLoading || !inputValue.trim()}
-          testId="health-save-button"
+          data-testid="health-save-button"
         >
           Save to DB
         </Button>
@@ -49,7 +51,7 @@ export const ActionForm = ({
           onClick={onFetch}
           disabled={isLoading}
           variant="secondary"
-          testId="health-fetch-button"
+          data-testid="health-fetch-button"
         >
           Fetch Latest
         </Button>

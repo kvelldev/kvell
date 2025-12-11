@@ -19,15 +19,15 @@ class Spark(BaseModel):
     fuel_count: int = Field(default=0, description="Number of fuel added to this spark")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
-        description="Creation timestamp",
+        description="Creation timestamp (UTC)",
     )
-    visible_until: datetime = Field(
+    decay_at: datetime = Field(
         ...,
-        description="Timestamp until which the spark is visible",
+        description="Timestamp when the spark decays (becomes invisible)",
     )
-    expire_at: datetime = Field(
+    vanish_at: datetime = Field(
         ...,
-        description="Timestamp when the spark will be physically deleted (TTL)",
+        description="Timestamp when the spark vanishes (physical deletion via TTL)",
     )
 
     @staticmethod
@@ -35,8 +35,8 @@ class Spark(BaseModel):
         spark_id: str,
         content: str,
         user_hash: str,
-        visible_duration_minutes: int,
-        ttl_days: int,
+        decay_after_seconds: int,
+        vanish_after_days: int,
     ) -> "Spark":
         """Create a new Spark entity with calculated timestamps.
 
@@ -44,8 +44,8 @@ class Spark(BaseModel):
             spark_id: Unique identifier for the spark
             content: Spark content text
             user_hash: Anonymized user identifier
-            visible_duration_minutes: Duration in minutes for visibility
-            ttl_days: Time to live in days before physical deletion
+            decay_after_seconds: Duration in seconds until spark decays
+            vanish_after_days: Days until spark vanishes (physical deletion)
 
         Returns:
             New Spark instance
@@ -58,6 +58,6 @@ class Spark(BaseModel):
             user_hash=user_hash,
             fuel_count=0,
             created_at=now,
-            visible_until=now + timedelta(minutes=visible_duration_minutes),
-            expire_at=now + timedelta(days=ttl_days),
+            decay_at=now + timedelta(seconds=decay_after_seconds),
+            vanish_at=now + timedelta(days=vanish_after_days),
         )

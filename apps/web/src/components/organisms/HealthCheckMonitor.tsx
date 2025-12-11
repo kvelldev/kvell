@@ -32,7 +32,7 @@ export const HealthCheckMonitor = ({
 }: HealthCheckMonitorProps) => {
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-light text-smoke-100 text-center">
+      <h1 className="text-center text-2xl font-light text-smoke-100">
         System Health Check
       </h1>
 

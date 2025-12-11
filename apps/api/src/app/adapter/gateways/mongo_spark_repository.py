@@ -3,6 +3,8 @@
 This module implements the spark repository using MongoDB.
 """
 
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -41,14 +43,19 @@ class MongoSparkRepository(ISparkRepository):
             indexes = [
                 # TTL index for automatic deletion
                 IndexModel(
-                    [("expire_at", 1)],
-                    name="expire_at_ttl",
+                    [("vanish_at", 1)],
+                    name="vanish_at_ttl",
                     expireAfterSeconds=0,
                 ),
-                # Query index for timeline retrieval (by visible_until)
+                # Query index for timeline retrieval (by decay_at)
                 IndexModel(
-                    [("visible_until", -1)],
-                    name="visible_until_desc",
+                    [("decay_at", -1)],
+                    name="decay_at_desc",
+                ),
+                # Query index for active sparks retrieval (by created_at)
+                IndexModel(
+                    [("created_at", 1)],
+                    name="created_at_asc",
                 ),
             ]
             await self.collection.create_indexes(indexes)
@@ -98,8 +105,8 @@ class MongoSparkRepository(ISparkRepository):
                 "user_hash": spark.user_hash,
                 "fuel_count": spark.fuel_count,
                 "created_at": spark.created_at,
-                "visible_until": spark.visible_until,
-                "expire_at": spark.expire_at,
+                "decay_at": spark.decay_at,
+                "vanish_at": spark.vanish_at,
             }
 
             await self.collection.insert_one(document)
@@ -195,6 +202,76 @@ class MongoSparkRepository(ISparkRepository):
                 user_hash=document["user_hash"],
                 fuel_count=document.get("fuel_count", 0),
                 created_at=document["created_at"],
-                visible_until=document["visible_until"],
-                expire_at=document["expire_at"],
+                decay_at=document["decay_at"],
+                vanish_at=document["vanish_at"],
             )
+
+    async def find_active_sparks(self, seconds: int) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified seconds.
+
+        Args:
+            seconds: Number of seconds to look back from now
+
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            # Calculate the cutoff time
+            cutoff_time = datetime.now(UTC) - timedelta(seconds=seconds)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying active sparks",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "cutoff_time": cutoff_time.isoformat(),
+                },
+            )
+
+            # Query for sparks created after cutoff_time, sorted by created_at ascending
+            cursor = self.collection.find(
+                {"created_at": {"$gte": cutoff_time}},
+            ).sort("created_at", 1)
+
+            # Yield sparks one by one (streaming, no to_list)
+            count = 0
+            async for doc in cursor:
+                count += 1
+                yield Spark(
+                    id=doc["id"],
+                    content=doc["content"],
+                    user_hash=doc["user_hash"],
+                    fuel_count=doc.get("fuel_count", 0),
+                    created_at=doc["created_at"],
+                    decay_at=doc["decay_at"],
+                    vanish_at=doc["vanish_at"],
+                )
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Active sparks retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "count": count,
+                },
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query active sparks: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "seconds": seconds,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e

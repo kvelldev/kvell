@@ -5,13 +5,18 @@ This module defines API endpoints for spark operations.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, status
 
-from app.adapter.entrypoints.dependencies import get_logger, get_post_spark_usecase
+from app.adapter.entrypoints.dependencies import (
+    get_logger,
+    get_post_spark_usecase,
+    get_stream_timeline_usecase,
+)
 from app.domain.constants import LOG_EVENTS
 from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
 from app.usecase.ports.logger import ILogger
 from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
 
 router = APIRouter(prefix="/api/sparks", tags=["sparks"])
 
@@ -82,3 +87,48 @@ async def post_spark(
     )
 
     return result
+
+
+@router.websocket("/ws")
+async def websocket_timeline(
+    websocket: WebSocket,
+    usecase: Annotated[IStreamTimelineUseCase, Depends(get_stream_timeline_usecase)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> None:
+    """WebSocket endpoint for streaming timeline updates.
+
+    Args:
+        websocket: WebSocket connection
+        usecase: Stream timeline use case (injected)
+        logger: Logger instance (injected)
+
+    """
+    await websocket.accept()
+
+    logger.info(
+        LOG_EVENTS.WEBSOCKET_CONNECTED,
+        "WebSocket connection established",
+        context={"client": str(websocket.client)},
+    )
+
+    try:
+        # Stream timeline updates (Snapshot + Stream)
+        async for spark_output in usecase.execute():
+            # Send spark as JSON to client
+            await websocket.send_json(spark_output.model_dump())
+
+    except WebSocketDisconnect:
+        logger.info(
+            LOG_EVENTS.WEBSOCKET_DISCONNECTED,
+            "WebSocket connection closed by client",
+            context={"client": str(websocket.client)},
+        )
+
+    except Exception as e:
+        logger.exception(
+            LOG_EVENTS.WEBSOCKET_ERROR,
+            "Error during WebSocket communication",
+            error=e,
+            context={"client": str(websocket.client)},
+        )
+        raise

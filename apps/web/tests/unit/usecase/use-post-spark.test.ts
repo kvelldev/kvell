@@ -31,11 +31,14 @@ describe("usePostSpark", () => {
   });
 
   it("should successfully post a spark and log events", async () => {
-    // Arrange: Setup mock return value
+    // Arrange: Setup mock return value with dynamic timestamps
+    const now = new Date();
+    const visibleUntil = new Date(now.getTime() + 10 * 60 * 1000); // +10 minutes
     const mockSpark: Spark = {
       id: "spark-123",
       content: "Test spark content",
-      createdAt: "2025-12-05T00:00:00Z",
+      createdAt: now.toISOString(),
+      decayAt: visibleUntil.toISOString(),
     };
     vi.mocked(mockRepository.postSpark).mockResolvedValue(mockSpark);
 
@@ -94,13 +97,14 @@ describe("usePostSpark", () => {
         // Error is expected, do nothing
       });
 
-    // Wait for mutation to complete
-    await waitFor(() => {
-      expect(result.current.isPosting).toBe(false);
-    });
-
     // Wait for promise to settle
     await postPromise;
+
+    // Wait for mutation to complete and error state to be set
+    await waitFor(() => {
+      expect(result.current.isPosting).toBe(false);
+      expect(result.current.error).toBeTruthy();
+    });
 
     // Assert: Verify error logger was called
     expect(mockLogger.error).toHaveBeenCalledWith(mockError, {
@@ -114,11 +118,14 @@ describe("usePostSpark", () => {
   });
 
   it("should track isPosting state during mutation", async () => {
-    // Arrange: Setup mock with delay
+    // Arrange: Setup mock with delay and dynamic timestamps
+    const now = new Date();
+    const visibleUntil = new Date(now.getTime() + 10 * 60 * 1000); // +10 minutes
     const mockSpark: Spark = {
       id: "spark-456",
       content: "Test content",
-      createdAt: "2025-12-05T00:00:00Z",
+      createdAt: now.toISOString(),
+      decayAt: visibleUntil.toISOString(),
     };
     vi.mocked(mockRepository.postSpark).mockImplementation(
       () =>

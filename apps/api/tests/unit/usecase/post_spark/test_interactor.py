@@ -40,12 +40,18 @@ class TestPostSparkInteractor:
         return Mock()
 
     @pytest.fixture
+    def mock_pubsub_gateway(self) -> AsyncMock:
+        """Create mock pub/sub gateway."""
+        return AsyncMock()
+
+    @pytest.fixture
     def interactor(
         self,
         mock_spark_repository: AsyncMock,
         mock_identity_provider: Mock,
         mock_rate_limiter: AsyncMock,
         mock_logger: Mock,
+        mock_pubsub_gateway: AsyncMock,
     ) -> PostSparkInteractor:
         """Create PostSparkInteractor instance."""
         return PostSparkInteractor(
@@ -53,12 +59,14 @@ class TestPostSparkInteractor:
             identity_provider=mock_identity_provider,
             rate_limiter=mock_rate_limiter,
             logger=mock_logger,
+            pubsub_gateway=mock_pubsub_gateway,
             max_length=500,
             rate_limit_count=10,
             rate_limit_window_seconds=60,
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
             ng_words=["forbidden_word", "bad_word"],
+            pubsub_channel="sparks:events",
         )
 
     async def test_execute_whenValidInput_returnsSparkOutput(
@@ -75,8 +83,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -166,8 +174,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -191,8 +199,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -219,8 +227,8 @@ class TestPostSparkInteractor:
             spark_id="test-id",
             content=input_data.content,
             user_hash="test-user-hash",
-            visible_duration_minutes=10,
-            ttl_days=30,
+            decay_after_seconds=600,
+            vanish_after_days=30,
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -232,3 +240,72 @@ class TestPostSparkInteractor:
         saved_spark = mock_spark_repository.save.call_args[0][0]
         assert saved_spark.content == input_data.content
         assert saved_spark.user_hash == "test-user-hash"
+
+    async def test_execute_whenValid_publishesToPubSubChannel(
+        self,
+        interactor: PostSparkInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_pubsub_gateway: AsyncMock,
+    ) -> None:
+        """Test execute publishes to pub/sub channel after saving."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid content")
+        ip_address = "192.168.1.1"
+        mock_spark = Spark.create(
+            spark_id="test-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            decay_after_seconds=600,
+            vanish_after_days=30,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Act
+        await interactor.execute(input_data, ip_address)
+
+        # Assert
+        mock_pubsub_gateway.publish.assert_called_once()
+        call_args = mock_pubsub_gateway.publish.call_args
+        assert call_args[0][0] == "sparks:events"  # channel
+        published_message = call_args[0][1]  # message
+        assert isinstance(published_message, SparkOutput)
+        assert published_message.id == "test-id"
+        assert published_message.content == input_data.content
+
+    async def test_execute_whenValid_publishesAfterSaving(
+        self,
+        interactor: PostSparkInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_pubsub_gateway: AsyncMock,
+    ) -> None:
+        """Test execute publishes only after successful save."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid content")
+        ip_address = "192.168.1.1"
+        mock_spark = Spark.create(
+            spark_id="test-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            decay_after_seconds=600,
+            vanish_after_days=30,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Track call order
+        call_order: list[str] = []
+
+        def save_side_effect(_: Spark) -> Spark:
+            call_order.append("save")
+            return mock_spark
+
+        def publish_side_effect(_channel: str, _message: SparkOutput) -> None:
+            call_order.append("publish")
+
+        mock_spark_repository.save.side_effect = save_side_effect
+        mock_pubsub_gateway.publish.side_effect = publish_side_effect
+
+        # Act
+        await interactor.execute(input_data, ip_address)
+
+        # Assert
+        assert call_order == ["save", "publish"]

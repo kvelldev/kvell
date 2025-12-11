@@ -13,6 +13,7 @@
     // Common
     "editorconfig.editorconfig",
     "bierner.markdown-mermaid",
-    "shd101wyy.markdown-preview-enhanced"
+    "shd101wyy.markdown-preview-enhanced",
+    "bradlc.vscode-tailwindcss"
   ]
 }

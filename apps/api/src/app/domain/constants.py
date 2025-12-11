@@ -47,6 +47,25 @@ class LogEvents:
     SPARK_RATE_LIMIT_EXCEEDED: Final[str] = "SPARK_005"
     SPARK_NG_WORD_DETECTED: Final[str] = "SPARK_006"
 
+    # Timeline streaming events
+    TIMELINE_SNAPSHOT_LOADED: Final[str] = "TIMELINE_001"
+    TIMELINE_STREAM_STARTED: Final[str] = "TIMELINE_002"
+    TIMELINE_STREAM_MESSAGE: Final[str] = "TIMELINE_003"
+
+    # WebSocket events
+    WEBSOCKET_CONNECTED: Final[str] = "WS_001"
+    WEBSOCKET_DISCONNECTED: Final[str] = "WS_002"
+    WEBSOCKET_ERROR: Final[str] = "WS_003"
+
+    # PubSub events
+    PUBSUB_PUBLISH_SUCCESS: Final[str] = "PUBSUB_001"
+    PUBSUB_PUBLISH_ERROR: Final[str] = "PUBSUB_002"
+    PUBSUB_SUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_003"
+    PUBSUB_MESSAGE_RECEIVED: Final[str] = "PUBSUB_004"
+    PUBSUB_DESERIALIZATION_ERROR: Final[str] = "PUBSUB_005"
+    PUBSUB_SUBSCRIBE_ERROR: Final[str] = "PUBSUB_006"
+    PUBSUB_UNSUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_007"
+
     # Database events
     DB_CONNECTION_SUCCESS: Final[str] = "DB_001"
     DB_CONNECTION_FAILED: Final[str] = "DB_002"

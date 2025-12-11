@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 
 from app.adapter.gateways.mongo_health_repository import MongoHealthRepository
 from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+from app.adapter.gateways.redis_pubsub_gateway import RedisPubSubGateway
 from app.adapter.gateways.redis_rate_limiter import RedisRateLimiter
 from app.adapter.gateways.simple_ip_provider import SimpleIPProvider
 from app.adapter.infra.database import Database
@@ -27,8 +28,11 @@ from app.domain.service.rate_limiter import IRateLimiter
 from app.usecase.health_check.interactor import HealthCheckInteractor
 from app.usecase.health_check.interface import IHealthCheckUseCase
 from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
 from app.usecase.post_spark.interactor import PostSparkInteractor
 from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_timeline.interactor import StreamTimelineInteractor
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
 
 
 def get_db() -> AsyncIOMotorDatabase[Any]:
@@ -152,11 +156,29 @@ def get_rate_limiter(
     return RedisRateLimiter(redis)
 
 
+def get_pubsub_gateway(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+    logger: ILogger = Depends(get_logger),
+) -> IPubSubGateway:
+    """Get the pub/sub gateway instance.
+
+    Args:
+        redis: Redis client instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Pub/sub gateway instance
+
+    """
+    return RedisPubSubGateway(redis, logger)
+
+
 def get_post_spark_usecase(
     spark_repository: ISparkRepository = Depends(get_spark_repository),
     identity_provider: IIdentityProvider = Depends(get_identity_provider),
     rate_limiter: IRateLimiter = Depends(get_rate_limiter),
     logger: ILogger = Depends(get_logger),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
 ) -> IPostSparkUseCase:
     """Get the post spark use case instance.
 
@@ -165,6 +187,7 @@ def get_post_spark_usecase(
         identity_provider: Identity provider instance (injected)
         rate_limiter: Rate limiter instance (injected)
         logger: Logger instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
 
     Returns:
         Post spark use case instance
@@ -175,10 +198,37 @@ def get_post_spark_usecase(
         identity_provider=identity_provider,
         rate_limiter=rate_limiter,
         logger=logger,
+        pubsub_gateway=pubsub_gateway,
         max_length=settings.spark_max_length,
         rate_limit_count=settings.spark_rate_limit_count,
         rate_limit_window_seconds=settings.spark_rate_limit_window_seconds,
-        visible_duration_minutes=settings.spark_visible_duration_minutes,
-        ttl_days=settings.spark_ttl_days,
+        decay_after_seconds=settings.spark_decay_after_seconds,
+        vanish_after_days=settings.spark_vanish_after_days,
         ng_words=settings.spark_ng_words_list,
+        pubsub_channel="sparks:events",
+    )
+
+
+def get_stream_timeline_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> IStreamTimelineUseCase:
+    """Get the stream timeline use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Stream timeline use case instance
+
+    """
+    return StreamTimelineInteractor(
+        spark_repository=spark_repository,
+        pubsub_gateway=pubsub_gateway,
+        logger=logger,
+        active_spark_seconds=settings.spark_decay_after_seconds,
+        pubsub_channel="sparks:events",
     )
