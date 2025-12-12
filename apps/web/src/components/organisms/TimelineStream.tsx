@@ -17,6 +17,10 @@ interface TimelineStreamProps {
    * Array of spark ViewModels to display (ascending order - oldest first, newest last)
    */
   sparks: SparkViewModel[];
+  /**
+   * Callback when fuel is added to a spark
+   */
+  onAddFuel?: (sparkId: string) => void;
 }
 
 /**
@@ -30,7 +34,7 @@ interface TimelineStreamProps {
  * - Empty state display when no sparks are available
  * @returns Rendered timeline stream element
  */
-export const TimelineStream = ({ sparks }: TimelineStreamProps) => {
+export const TimelineStream = ({ sparks, onAddFuel }: TimelineStreamProps) => {
   // Empty State: Display "The Silent Sky" when no sparks are available
   if (sparks.length === 0) {
     return (
@@ -58,7 +62,7 @@ export const TimelineStream = ({ sparks }: TimelineStreamProps) => {
         computeItemKey={(_, spark) => spark.id}
         itemContent={(_index, spark) => (
           <div className="pb-4 pr-2">
-            <SparkCard spark={spark} />
+            <SparkCard spark={spark} onAddFuel={onAddFuel} />
           </div>
         )}
         style={{ height: "100%" }}

@@ -20,14 +20,14 @@ Feature: Add Fuel
             And "Spark_X" の投稿者に対して "通知" は送信されない
 
     Rule: 内部的な燃料カウントは「1ユーザーにつき1Sparkあたり1回」のみ加算される
-        Example: 初回の薪くべ（カウント対象）
+        Example: 初回の薪くべ
             Given タイムラインに "Spark_Y" が表示されている
             And "Spark_Y" の現在の燃料(Fuel)は "10" である
             And "UserHash_A" は "Spark_Y" にまだ薪をくべていない
             When "菊池さん" が "Spark_Y" に薪をくべる
             Then データベース上の "Spark_Y" の燃料(Fuel)は "データ反映許容時間" 以内に "11" に更新される
 
-        Example: 2回目以降の薪くべ（連打・重複アクションのカウント除外）
+        Example: 2回目以降の薪くべ
             Given タイムラインに "Spark_Z" が表示されている
             And "Spark_Z" の現在の燃料(Fuel)は "20" である
             And "UserHash_A" は既に "Spark_Z" に薪をくべ済みである
@@ -37,7 +37,7 @@ Feature: Add Fuel
         # 解説: UXとしてエフェクトは出るが、カウントはIdempotent（冪等）に処理される
 
     Rule: 自分の投稿への薪くべは、体験としては可能だが集計からは除外される
-        Example: 自作自演の防止（ステルス制御）
+        Example: 自作自演の防止
             Given タイムラインに "UserHash_A（自分）" の投稿である "Spark_My" が表示されている
             And "Spark_My" の現在の燃料(Fuel)は "0" である
             When "菊池さん" が "Spark_My" に薪をくべる

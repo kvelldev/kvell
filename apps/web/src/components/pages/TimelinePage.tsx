@@ -10,8 +10,10 @@ import { useState } from "react";
 import { Flame } from "lucide-react";
 import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
 import { sparkRepository } from "@/adapter/repository/sparkRepository";
+import { triggerHapticFeedback } from "@/adapter/infra/haptic";
 import { useTimelineStream } from "@/usecase/useTimelineStream";
 import { usePostSpark } from "@/usecase/usePostSpark";
+import { useAddFuel } from "@/usecase/useAddFuel";
 import { TimelineStream } from "@/components/organisms/TimelineStream";
 import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
 import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
@@ -19,6 +21,7 @@ import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
 import { SparkPostModal } from "@/components/organisms/SparkPostModal";
 import { useLogger } from "@/components/useLogger";
 import { settings } from "@/adapter/infra/settings";
+import { LOG_EVENTS } from "@/domain/constants";
 
 /**
  * Timeline Page Component
@@ -43,6 +46,9 @@ export const TimelinePage = () => {
   // UseCase: Post spark
   const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
 
+  // UseCase: Add fuel to spark
+  const { addFuel } = useAddFuel(sparkRepository, logger);
+
   // Event Handler: Submit spark
   const handleSubmit = async () => {
     const trimmedContent = content.trim();
@@ -59,6 +65,20 @@ export const TimelinePage = () => {
     }
   };
 
+  // Event Handler: Add fuel to spark
+  const handleAddFuel = (sparkId: string) => {
+    // Trigger haptic feedback (UI layer responsibility)
+    const hapticTriggered = triggerHapticFeedback();
+    if (!hapticTriggered) {
+      logger.info("Haptic feedback not supported", {
+        event: LOG_EVENTS.ADD_FUEL.HAPTIC_NOT_SUPPORTED,
+      });
+    }
+
+    // Execute UseCase
+    void addFuel({ sparkId });
+  };
+
   return (
     <TimelineTemplate>
       {hasError ? (
@@ -68,7 +88,7 @@ export const TimelinePage = () => {
           testId="timeline-error-message"
         />
       ) : (
-        <TimelineStream sparks={sparks} />
+        <TimelineStream sparks={sparks} onAddFuel={handleAddFuel} />
       )}
 
       <FloatingActionButton
