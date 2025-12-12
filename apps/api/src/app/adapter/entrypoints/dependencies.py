@@ -25,6 +25,8 @@ from app.domain.repository.health_repository import IHealthRepository
 from app.domain.repository.spark_repository import ISparkRepository
 from app.domain.service.identity_provider import IIdentityProvider
 from app.domain.service.rate_limiter import IRateLimiter
+from app.usecase.add_fuel.interactor import AddFuelInteractor
+from app.usecase.add_fuel.interface import IAddFuelUseCase
 from app.usecase.health_check.interactor import HealthCheckInteractor
 from app.usecase.health_check.interface import IHealthCheckUseCase
 from app.usecase.ports.logger import ILogger
@@ -231,4 +233,24 @@ def get_stream_timeline_usecase(
         logger=logger,
         active_spark_seconds=settings.spark_decay_after_seconds,
         pubsub_channel="sparks:events",
+    )
+
+
+def get_add_fuel_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    logger: ILogger = Depends(get_logger),
+) -> IAddFuelUseCase:
+    """Get the add fuel use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Add fuel use case instance
+
+    """
+    return AddFuelInteractor(
+        spark_repository=spark_repository,
+        logger=logger,
     )

@@ -42,7 +42,8 @@ def mongo_client_sync() -> Iterator[MongoClient[Any]]:
         Synchronous MongoDB client instance
 
     """
-    client: MongoClient[Any] = MongoClient("mongodb://localhost:27017")
+    # Connect to replica set for transaction support
+    client: MongoClient[Any] = MongoClient("mongodb://localhost:27017/?replicaSet=rs0")
     yield client
     client.close()
 
@@ -57,7 +58,10 @@ async def mongo_client() -> AsyncIterator[AsyncIOMotorClient[Any]]:
         MongoDB client instance
 
     """
-    client: AsyncIOMotorClient[Any] = AsyncIOMotorClient("mongodb://localhost:27017")
+    # Connect to replica set for transaction support
+    client: AsyncIOMotorClient[Any] = AsyncIOMotorClient(
+        "mongodb://localhost:27017/?replicaSet=rs0"
+    )
     yield client
     client.close()
 
@@ -145,6 +149,14 @@ async def test_client(
     # Initialize Database and Redis singletons (required for app lifespan)
     Database.connect()
     await RedisClient.connect()
+
+    # Ensure indexes are created for test database
+    from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+    from app.adapter.infra.logger import JsonLogger
+
+    logger = JsonLogger(service_name="kvell-test")
+    spark_repo = MongoSparkRepository(test_database, logger)
+    await spark_repo.ensure_indexes()
 
     # Override the dependencies to use test instances
     def override_get_db() -> AsyncIOMotorDatabase[Any]:

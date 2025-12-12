@@ -20,8 +20,8 @@ class Settings(BaseSettings):
 
     # MongoDB Configuration
     mongo_uri: str = Field(
-        default="mongodb://localhost:27017",
-        description="MongoDB connection URI",
+        default="mongodb://localhost:27017/?replicaSet=rs0",
+        description="MongoDB connection URI (with replica set for transactions)",
     )
     mongo_db: str = Field(
         default="kvell",

@@ -1,1014 +1,981 @@
-diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
-index 9aeb3af..655f50c 100644
---- a/apps/web/src/App.tsx
-+++ b/apps/web/src/App.tsx
-@@ -6,12 +6,11 @@
- 
- import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
- import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
--import { SparkPostPage } from "@/components/pages/SparkPostPage";
- import { TimelinePage } from "@/components/pages/TimelinePage";
- import { LoggerProvider } from "@/components/LoggerContext";
- import { sentryLogger } from "@/adapter/infra/sentryLogger";
- import { DebugPage } from "./components/pages/debugPage";
--import { AtmosphereBackground } from "./components/atoms/atmosphereBackground";
-+import { AtmosphereBackground } from "./components/atoms/AtmosphereBackground";
- 
- function App() {
-   return (
-@@ -21,7 +20,6 @@ function App() {
-         <Routes>
-           <Route path="/" element={<Navigate to="/debug" replace />} />
-           <Route path="/timeline" element={<TimelinePage />} />
--          <Route path="/spark" element={<SparkPostPage />} />
-           <Route path="/health" element={<HealthCheckPage />} />
-           <Route path="/debug" element={<DebugPage />} />
-         </Routes>
-diff --git a/apps/web/src/components/atoms/Button.tsx b/apps/web/src/components/atoms/Button.tsx
-deleted file mode 100644
-index a55f5e7..0000000
---- a/apps/web/src/components/atoms/Button.tsx
-+++ /dev/null
-@@ -1,41 +0,0 @@
--/**
-- * Button Atom
-- *
-- * Basic button component (Stateless).
-- */
--
--import clsx from "clsx";
--
--interface ButtonProps {
--  children: React.ReactNode;
--  onClick: () => void;
--  disabled?: boolean;
--  variant?: "primary" | "secondary";
--  testId?: string;
--}
--
--export const Button = ({
--  children,
--  onClick,
--  disabled = false,
--  variant = "primary",
--  testId,
--}: ButtonProps) => {
--  const baseClasses =
--    "px-4 py-2 rounded-button font-light transition-all disabled:opacity-ash disabled:cursor-not-allowed";
--  const variantClasses =
--    variant === "primary"
--      ? "bg-ember-500 hover:shadow-glow-md text-night-900"
--      : "bg-night-800 hover:shadow-glow-sm text-smoke-100";
--
--  return (
--    <button
--      onClick={onClick}
--      disabled={disabled}
--      className={clsx(baseClasses, variantClasses)}
--      data-testid={testId}
--    >
--      {children}
--    </button>
--  );
--};
-diff --git a/apps/web/src/components/atoms/Input.tsx b/apps/web/src/components/atoms/Input.tsx
-deleted file mode 100644
-index cd0211d..0000000
---- a/apps/web/src/components/atoms/Input.tsx
-+++ /dev/null
-@@ -1,35 +0,0 @@
--/**
-- * Input Atom
-- *
-- * Basic text input component (Stateless).
-- */
--
--interface InputProps {
--  value: string;
--  onChange: (value: string) => void;
--  placeholder?: string;
--  disabled?: boolean;
--  testId?: string;
--}
--
--export const Input = ({
--  value,
--  onChange,
--  placeholder,
--  disabled = false,
--  testId,
--}: InputProps) => {
--  return (
--    <input
--      type="text"
--      value={value}
--      onChange={(e) => {
--        onChange(e.target.value);
--      }}
--      placeholder={placeholder}
--      disabled={disabled}
--      className="disabled:opacity-ash w-full rounded-card border border-ash-500 bg-night-800 px-4 py-2 text-smoke-100 placeholder:text-ash-500 focus:shadow-glow-sm focus:outline-none disabled:cursor-not-allowed"
--      data-testid={testId}
--    />
--  );
--};
-diff --git a/apps/web/src/components/atoms/SparkCard.tsx b/apps/web/src/components/atoms/SparkCard.tsx
-deleted file mode 100644
-index 9ad8a1f..0000000
---- a/apps/web/src/components/atoms/SparkCard.tsx
-+++ /dev/null
-@@ -1,69 +0,0 @@
--import { memo } from "react";
--import clsx from "clsx";
--import { motion } from "framer-motion";
--import type { SparkViewModel } from "@/domain/model/spark";
--
--interface SparkCardProps {
--  spark: SparkViewModel;
--}
--
--const formatTime = (totalSeconds: number): string => {
--  const minutes = Math.floor(totalSeconds / 60);
--  const seconds = totalSeconds % 60;
--  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
--};
--
--/**
-- * SparkCard Component (Memoized)
-- *
-- * Renders a single spark with:
-- * - Fade-in animation on mount
-- * - Color temperature based heat expression (white→ash transition)
-- * - Dynamic glow: Visible when hot, disappears when cooled (Ash)
-- * - TTL countdown timer in bottom-right corner
-- * - Text truncation for long content
-- *
-- * Performance:
-- * - Memoized to prevent re-renders when temperature state doesn't change
-- * - Only re-renders if spark.id, spark.content, spark.temperature, or spark.remainingTimeInSeconds changes
-- * @returns Rendered spark card element
-- */
--const SparkCardComponent = ({ spark }: SparkCardProps) => {
--  const isHot = spark.temperature === "hot";
--
--  const shadowClass = isHot ? "shadow-glow-sm" : "shadow-none";
--  const borderClass = isHot ? "border-ember-500" : "border-ash-500";
--
--  return (
--    <motion.div
--      // enterアニメーション
--      // initial={{ opacity: 0, y: 20 }}
--      // animate={{ opacity: 1, y: 0 }}
--      // exitアニメーションを入れるならここ（リストから消える時）
--
--      // transition-all にして shadow の消失もふわっとさせる
--      // duration-1000 により、"やがて冷めていく" 情緒的な変化を表現
--      className={clsx(
--        "rounded-card border bg-night-800 p-4 text-ash-500 transition-all duration-1000 ease-in-out",
--        shadowClass,
--        borderClass,
--      )}
--      data-testid="spark-item"
--      data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
--    >
--      <p className="line-clamp-3 font-base text-sm leading-relaxed">
--        {spark.content}
--      </p>
--      <div className="mt-2 flex justify-end">
--        <span
--          className={clsx("font-mono text-xs transition-colors duration-1000")}
--          data-testid="spark-timer"
--        >
--          {formatTime(spark.remainingTimeInSeconds)}
--        </span>
--      </div>
--    </motion.div>
--  );
--};
--
--export const SparkCard = memo(SparkCardComponent);
-diff --git a/apps/web/src/components/atoms/Textarea.tsx b/apps/web/src/components/atoms/Textarea.tsx
-deleted file mode 100644
-index 9129961..0000000
---- a/apps/web/src/components/atoms/Textarea.tsx
-+++ /dev/null
-@@ -1,41 +0,0 @@
--/**
-- * Textarea Atom
-- *
-- * Basic textarea component for multi-line text input (Stateless).
-- */
--
--interface TextareaProps {
--  value: string;
--  onChange: (value: string) => void;
--  placeholder?: string;
--  disabled?: boolean;
--  maxLength?: number;
--  testId?: string;
--}
--
--export const Textarea = ({
--  value,
--  onChange,
--  placeholder,
--  disabled = false,
--  maxLength,
--  testId,
--}: TextareaProps) => {
--  const baseClasses =
--    "w-full px-4 py-3 bg-night-800 text-smoke-100 rounded-card resize-none focus:outline-none focus:shadow-glow-sm transition-all disabled:opacity-ash disabled:cursor-not-allowed font-base font-light";
--
--  return (
--    <textarea
--      value={value}
--      onChange={(event) => {
--        onChange(event.target.value);
--      }}
--      placeholder={placeholder}
--      disabled={disabled}
--      maxLength={maxLength}
--      className={baseClasses}
--      rows={6}
--      data-testid={testId}
--    />
--  );
--};
-diff --git a/apps/web/src/components/atoms/atmosphereBackground.tsx b/apps/web/src/components/atoms/atmosphereBackground.tsx
-deleted file mode 100644
-index d1d50df..0000000
---- a/apps/web/src/components/atoms/atmosphereBackground.tsx
-+++ /dev/null
-@@ -1,188 +0,0 @@
--import { clsx } from "clsx";
--const NOISE_SVG_DATA = `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`;
--
--export const AtmosphereBackground = () => {
--  return (
--    <div className="bg-night-900 fixed inset-0 -z-10 overflow-hidden">
--      {/* ------------------------------------------------------- */}
--      {/* Layer 1: Venus Belt (上層) */}
--      {/* ------------------------------------------------------- */}
--      <div
--        className={clsx(
--          // [1] 配置・サイズ（あまりいじらない）
--          "absolute left-0 w-full",
--
--          // [2] 色・グラデーション
--          "from-venus-500 via-venus-500/50 bg-gradient-to-t to-transparent",
--
--          // [3] 調整パラメータ（ここをいじる）
--          "h-[65vh]",
--          "bottom-[5%]",
--          "blur-[100px]",
--          "opacity-50",
--        )}
--      />
--
--      {/* ------------------------------------------------------- */}
--      {/* Layer 2: Earth's Shadow (下層) */}
--      {/* ------------------------------------------------------- */}
--      <div
--        className={clsx(
--          // [1] 配置・サイズ
--          "absolute bottom-0 left-0 w-full",
--
--          // [2] 色・グラデーション
--          "from-earthshadow-base via-earthshadow-base/60 bg-gradient-to-t to-transparent",
--
--          // [3] 調整パラメータ
--          "h-[38.5vh]",
--          "blur-[100px]",
--          "opacity-[0.82]",
--        )}
--      />
--
--      {/* ------------------------------------------------------- */}
--      {/* Layer 3: Noise Overlay (質感) */}
--      {/* ------------------------------------------------------- */}
--      <div
--        className={clsx(
--          // [1] 配置・基本設定
--          "pointer-events-none absolute inset-0 size-full",
--          "mix-blend-overlay",
--
--          // [2] 調整パラメータ
--          "opacity-10", // 0.05 (5%)
--        )}
--        style={{
--          backgroundImage: NOISE_SVG_DATA,
--        }}
--      />
--    </div>
--  );
--};
--
--// import { useControls, folder } from "leva";
--
--// /**
--//  * ノイズフィルター用SVGコンポーネント
--//  * CSS変数 (--noise-frequency, --noise-opacity) を受け取って動的に変化します。
--//  */
--// const NoiseSVG = () => (
--//   <svg
--//     className="pointer-events-none fixed inset-0 z-50 h-full w-full"
--//     xmlns="http://www.w3.org/2000/svg"
--//   >
--//     <filter id="noiseFilter">
--//       {/* baseFrequencyがノイズの「粗さ」を決めます。CSS変数で制御します。 */}
--//       <feTurbulence
--//         type="fractalNoise"
--//         baseFrequency="var(--noise-frequency, 0.65)"
--//         numOctaves="3"
--//         stitchTiles="stitch"
--//       />
--//       {/* ノイズの色を白黒のアルファ値に変換します */}
--//       <feColorMatrix type="saturate" values="0" />
--//     </filter>
--//     {/* CSS変数で不透明度を制御し、mix-blend-modeで重ねます */}
--//     <rect
--//       width="100%"
--//       height="100%"
--//       filter="url(#noiseFilter)"
--//       style={{
--//         opacity: "var(--noise-opacity, 0.03)",
--//         mixBlendMode: "overlay",
--//       }}
--//     />
--//   </svg>
--// );
--
--// export const AtmosphereBackground = () => {
--//   const values = useControls({
--//     // ----------------------------------------
--//     // 1. Venus Belt (ビーナスベルト層 - ピンク)
--//     // ----------------------------------------
--//     Venus: folder({
--//       vOpacity: { value: 0.5, min: 0, max: 1, step: 0.01 },
--//       vHeight: { value: 40, min: 10, max: 100, label: "Height (vh)" }, // 層の厚み
--//       vBottom: { value: 10, min: 0, max: 50, label: "Bottom (%)" }, // 地平線からの位置
--//       vBlur: { value: 100, min: 0, max: 300, label: "Blur (px)" }, // 境界のぼかし
--//     }),
--
--//     // ----------------------------------------
--//     // 2. Earth's Shadow (地球影層 - 深い青)
--//     // ----------------------------------------
--//     Shadow: folder({
--//       // 色は night-800 (#0F172A) を想定
--//       sOpacity: { value: 0.8, min: 0, max: 1, step: 0.01 },
--//       sHeight: { value: 25, min: 5, max: 50, label: "Height (vh)" },
--//       sBlur: { value: 50, min: 0, max: 200, label: "Blur (px)" },
--//     }),
--
--//     // ----------------------------------------
--//     // 3. Grain (ノイズ粒子) - CSS制御版
--//     // ----------------------------------------
--//     Grain: folder({
--//       gOpacity: {
--//         value: 0.03,
--//         min: 0,
--//         max: 0.15,
--//         step: 0.001,
--//         label: "Opacity",
--//       },
--//       // 値が小さいほど粒子が大きく（粗く）なります。0.5〜0.9あたりが実用的。
--//       gFrequency: {
--//         value: 0.65,
--//         min: 0.1,
--//         max: 1.5,
--//         step: 0.01,
--//         label: "Roughness",
--//       },
--//     }),
--//   });
--
--//   return (
--//     // ベースレイヤー：宇宙（空全体）
--//     <div
--//       className="fixed inset-0 -z-10 overflow-hidden bg-night-900"
--//       // ノイズ用のCSS変数を定義
--//       style={{
--//         "--noise-opacity": values.gOpacity,
--//         "--noise-frequency": values.gFrequency,
--//       }}
--//     >
--//       {/* ------------------------------------------------------- */}
--//       {/* Layer 1: ビーナスベルト (Belt of Venus) */}
--//       {/* 下から上へのグラデーションで、ピンクの帯を表現 */}
--//       {/* ------------------------------------------------------- */}
--//       <div
--//         className="absolute left-0 w-full bg-gradient-to-t from-venus-500 via-venus-500/50 to-transparent transition-all duration-75"
--//         style={{
--//           opacity: values.vOpacity,
--//           height: `${values.vHeight}vh`,
--//           bottom: `${values.vBottom}%`,
--//           filter: `blur(${values.vBlur}px)`,
--//         }}
--//       />
--
--//       {/* ------------------------------------------------------- */}
--//       {/* Layer 2: 地球影 (Earth's Shadow) */}
--//       {/* 最下部（地平線直上）にある最も暗い青の層 */}
--//       {/* ------------------------------------------------------- */}
--//       <div
--//         className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-earthshadow-base via-earthshadow-base to-transparent transition-all duration-75"
--//         style={{
--//           opacity: values.sOpacity,
--//           height: `${values.sHeight}vh`,
--//           filter: `blur(${values.sBlur}px)`,
--//           // ビーナスベルトより手前（下）に来るように少しzIndexを調整しても良いが、
--//           // blurで混ざるのでそのままでもOK
--//         }}
--//       />
--
--//       {/* ------------------------------------------------------- */}
--//       {/* Layer 3: ノイズオーバーレイ */}
--//       {/* ------------------------------------------------------- */}
--//       <NoiseSVG />
--//     </div>
--//   );
--// };
-diff --git a/apps/web/src/components/molecules/ActionForm.tsx b/apps/web/src/components/molecules/ActionForm.tsx
-index 94e492d..8779aa5 100644
---- a/apps/web/src/components/molecules/ActionForm.tsx
-+++ b/apps/web/src/components/molecules/ActionForm.tsx
-@@ -4,8 +4,8 @@
-  * Input form with action buttons for health check (Dumb Component).
-  */
- 
--import { Input } from "@/components/atoms/Input";
--import { Button } from "@/components/atoms/Button";
-+import { Input } from "@/components/ui/input";
-+import { Button } from "@/components/ui/button";
- 
- interface ActionFormProps {
-   inputValue: string;
-@@ -30,10 +30,12 @@ export const ActionForm = ({
-         </label>
-         <Input
-           value={inputValue}
--          onChange={onInputChange}
-+          onChange={(e) => {
-+            onInputChange(e.target.value);
-+          }}
-           placeholder="Enter a test message..."
-           disabled={isLoading}
--          testId="health-echo-input"
-+          data-testid="health-echo-input"
-         />
-       </div>
- 
-@@ -41,7 +43,7 @@ export const ActionForm = ({
-         <Button
-           onClick={onSave}
-           disabled={isLoading || !inputValue.trim()}
--          testId="health-save-button"
-+          data-testid="health-save-button"
-         >
-           Save to DB
-         </Button>
-@@ -49,7 +51,7 @@ export const ActionForm = ({
-           onClick={onFetch}
-           disabled={isLoading}
-           variant="secondary"
--          testId="health-fetch-button"
-+          data-testid="health-fetch-button"
-         >
-           Fetch Latest
-         </Button>
-diff --git a/apps/web/src/components/molecules/BaseModal.tsx b/apps/web/src/components/molecules/BaseModal.tsx
-deleted file mode 100644
-index cdfbec1..0000000
---- a/apps/web/src/components/molecules/BaseModal.tsx
-+++ /dev/null
-@@ -1,136 +0,0 @@
--/**
-- * BaseModal Molecule Component (Dumb)
-- *
-- * Generic modal component providing:
-- * - Backdrop with click-to-close
-- * - Modal container with animations
-- * - Header with title and close button
-- * - Scrollable content area
-- *
-- * Built with Headless UI Dialog for accessibility features:
-- * - Automatic focus management
-- * - Keyboard navigation (ESC to close)
-- * - ARIA attributes
-- * - Focus trap
-- */
--
--import { Dialog, DialogPanel, DialogTitle } from "@headlessui/react";
--import { motion, AnimatePresence } from "framer-motion";
--import { X } from "lucide-react";
--import type { ReactNode } from "react";
--
--/**
-- * Props for BaseModal component
-- */
--interface BaseModalProps {
--  /**
--   * Whether the modal is open
--   */
--  isOpen: boolean;
--
--  /**
--   * Callback to close the modal
--   */
--  onClose: () => void;
--
--  /**
--   * Modal title displayed in header
--   */
--  title: string;
--
--  /**
--   * Modal content
--   */
--  children: ReactNode;
--
--  /**
--   * Optional test ID for backdrop
--   */
--  backdropTestId?: string;
--
--  /**
--   * Optional test ID for modal content
--   */
--  modalTestId?: string;
--
--  /**
--   * Optional test ID for close button
--   */
--  closeButtonTestId?: string;
--}
--
--/**
-- * BaseModal Component
-- *
-- * Features:
-- * - Full-screen backdrop overlay (90% opacity)
-- * - Centered modal with max-width and max-height constraints
-- * - Fade + scale animation on open/close
-- * - Click backdrop or ESC key to dismiss
-- * - Scrollable content area
-- * - Accessibility features via Headless UI Dialog
-- * @returns Rendered modal element
-- */
--export const BaseModal = ({
--  isOpen,
--  onClose,
--  title,
--  children,
--  backdropTestId,
--  modalTestId,
--  closeButtonTestId,
--}: BaseModalProps) => {
--  return (
--    <AnimatePresence>
--      {isOpen && (
--        <Dialog
--          static
--          open={isOpen}
--          onClose={onClose}
--          className="relative z-50"
--        >
--          {/* Backdrop */}
--          <motion.div
--            initial={{ opacity: 0 }}
--            animate={{ opacity: 0.9 }}
--            exit={{ opacity: 0 }}
--            transition={{ duration: 0.2 }}
--            className="fixed inset-0 bg-night-900"
--            data-testid={backdropTestId}
--          />
--
--          {/* Modal Container */}
--          <div className="fixed inset-0 flex items-center justify-center p-4">
--            <DialogPanel>
--              <motion.div
--                initial={{ opacity: 0, scale: 0.95 }}
--                animate={{ opacity: 1, scale: 1 }}
--                exit={{ opacity: 0, scale: 0.95 }}
--                transition={{ duration: 0.2 }}
--                className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-card bg-night-800 shadow-glow-md"
--                data-testid={modalTestId}
--              >
--                {/* Header */}
--                <div className="flex items-center justify-between border-b border-ash-500 p-6">
--                  <DialogTitle className="font-base text-xl font-normal text-smoke-100">
--                    {title}
--                  </DialogTitle>
--                  <button
--                    onClick={onClose}
--                    className="text-ash-500 transition-colors hover:text-smoke-100"
--                    data-testid={closeButtonTestId}
--                  >
--                    <X size={24} />
--                  </button>
--                </div>
--
--                {/* Content Area (Scrollable) */}
--                <div className="flex-1 overflow-y-auto p-6">{children}</div>
--              </motion.div>
--            </DialogPanel>
--          </div>
--        </Dialog>
--      )}
--    </AnimatePresence>
--  );
--};
-diff --git a/apps/web/src/components/molecules/SparkInput.tsx b/apps/web/src/components/molecules/SparkInput.tsx
-index e2ff5c8..a49248c 100644
---- a/apps/web/src/components/molecules/SparkInput.tsx
-+++ b/apps/web/src/components/molecules/SparkInput.tsx
-@@ -6,7 +6,7 @@
-  */
- 
- import clsx from "clsx";
--import { Textarea } from "@/components/atoms/Textarea";
-+import { Textarea } from "@/components/ui/textarea";
- 
- interface SparkInputProps {
-   value: string;
-@@ -38,10 +38,13 @@ export const SparkInput = ({
-     <div className="w-full">
-       <Textarea
-         value={value}
--        onChange={onChange}
-+        onChange={(e) => {
-+          onChange(e.target.value);
-+        }}
-         placeholder="夜空に種火を投げる..."
-         disabled={disabled}
--        testId={testId}
-+        data-testid={testId}
-+        className="caret-ember-500 text-smoke-100 placeholder:text-ash-500 min-h-[240px] border-none bg-transparent focus:ring-0 focus:outline-none"
-       />
-       <div className="mt-2 flex justify-end">
-         <span
-diff --git a/apps/web/src/components/organisms/SparkPostForm.tsx b/apps/web/src/components/organisms/SparkPostForm.tsx
-deleted file mode 100644
-index bd3aaa6..0000000
---- a/apps/web/src/components/organisms/SparkPostForm.tsx
-+++ /dev/null
-@@ -1,65 +0,0 @@
--/**
-- * SparkPostForm Organism
-- *
-- * Complete spark posting form with input, validation, and submit button.
-- * Dumb component - receives all data and handlers via props.
-- */
--
--import { SparkInput } from "@/components/molecules/SparkInput";
--import { Button } from "@/components/atoms/Button";
--
--interface SparkPostFormProps {
--  content: string;
--  onContentChange: (value: string) => void;
--  onSubmit: () => void;
--  isPosting: boolean;
--  maxLength: number;
--  error?: Error | null;
--}
--
--export const SparkPostForm = ({
--  content,
--  onContentChange,
--  onSubmit,
--  isPosting,
--  maxLength,
--  error,
--}: SparkPostFormProps) => {
--  const trimmedContent = content.trim();
--  const isEmpty = trimmedContent.length === 0;
--  const isOverLimit = content.length > maxLength;
--  const isSubmitDisabled = isEmpty || isOverLimit || isPosting;
--
--  return (
--    <div className="mx-auto w-full max-w-2xl rounded-card bg-night-800 p-6 shadow-glow-sm">
--      <h2 className="mb-4 text-xl font-light text-ember-500">種火を投げる</h2>
--
--      <SparkInput
--        value={content}
--        onChange={onContentChange}
--        maxLength={maxLength}
--        disabled={isPosting}
--        testId="spark-input"
--      />
--
--      {error && (
--        <div
--          className="mt-3 text-sm font-light text-ember-500"
--          data-testid="spark-error"
--        >
--          エラー: {error.message}
--        </div>
--      )}
--
--      <div className="mt-4 flex justify-end">
--        <Button
--          onClick={onSubmit}
--          disabled={isSubmitDisabled}
--          testId="spark-submit-button"
--        >
--          {isPosting ? "投稿中..." : "種火を投げる"}
--        </Button>
--      </div>
--    </div>
--  );
--};
-diff --git a/apps/web/src/components/organisms/TimelineStream.tsx b/apps/web/src/components/organisms/TimelineStream.tsx
-index bdcf80c..7cff449 100644
---- a/apps/web/src/components/organisms/TimelineStream.tsx
-+++ b/apps/web/src/components/organisms/TimelineStream.tsx
-@@ -7,7 +7,7 @@
- 
- import { Virtuoso } from "react-virtuoso";
- import type { SparkViewModel } from "@/domain/model/spark";
--import { SparkCard } from "@/components/atoms/SparkCard";
-+import { SparkCard } from "@/components/molecules/SparkCard";
- 
- /**
-  * Props for TimelineStream component
-@@ -55,7 +55,7 @@ export const TimelineStream = ({ sparks }: TimelineStreamProps) => {
-         alignToBottom
-         initialTopMostItemIndex={sparks.length - 1}
-         followOutput="smooth"
--        computeItemKey={(index, spark) => spark.id}
-+        computeItemKey={(_, spark) => spark.id}
-         itemContent={(_index, spark) => (
-           <div className="pb-4 pr-2">
-             <SparkCard spark={spark} />
-diff --git a/apps/web/src/components/pages/SparkPostPage.tsx b/apps/web/src/components/pages/SparkPostPage.tsx
-deleted file mode 100644
-index bb76be1..0000000
---- a/apps/web/src/components/pages/SparkPostPage.tsx
-+++ /dev/null
-@@ -1,57 +0,0 @@
--/**
-- * SparkPostPage (Smart Component)
-- *
-- * Container page for posting sparks.
-- * Handles business logic by connecting UseCase hooks with UI components.
-- */
--
--import { useState } from "react";
--import { sparkRepository } from "@/adapter/repository/sparkRepository";
--import { usePostSpark } from "@/usecase/usePostSpark";
--import { SparkPostForm } from "@/components/organisms/SparkPostForm";
--import { SparkPostTemplate } from "@/components/templates/SparkPostTemplate";
--import { useLogger } from "@/components/useLogger";
--import { settings } from "@/adapter/infra/settings";
--
--export const SparkPostPage = () => {
--  // Local UI state
--  const [content, setContent] = useState("");
--
--  // Dependency Injection: Logger
--  const logger = useLogger();
--
--  // UseCase Hook: Repository Dependency Injection
--  const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
--
--  // Event Handler: Submit spark
--  const handleSubmit = async () => {
--    const trimmedContent = content.trim();
--    if (!trimmedContent) return;
--
--    try {
--      await postSpark({ content: trimmedContent });
--      // On success: Clear input and navigate to timeline (future feature)
--      setContent("");
--      // TODO: Navigate to timeline once implemented
--      // navigate("/timeline");
--    } catch {
--      // Error is already logged by UseCase and stored in error state
--      // UI will display error via SparkPostForm
--    }
--  };
--
--  return (
--    <SparkPostTemplate>
--      <SparkPostForm
--        content={content}
--        onContentChange={setContent}
--        onSubmit={() => {
--          void handleSubmit();
--        }}
--        isPosting={isPosting}
--        maxLength={settings.sparkMaxLength}
--        error={error}
--      />
--    </SparkPostTemplate>
--  );
--};
-diff --git a/apps/web/src/components/pages/TimelinePage.tsx b/apps/web/src/components/pages/TimelinePage.tsx
-index fa170f5..483b06c 100644
---- a/apps/web/src/components/pages/TimelinePage.tsx
-+++ b/apps/web/src/components/pages/TimelinePage.tsx
-@@ -3,28 +3,62 @@
-  *
-  * Entry point for the Timeline feature.
-  * Handles dependency injection and wiring of UseCase to UI components.
-+ * Includes spark posting functionality with FAB and modal.
-  */
- 
-+import { useState } from "react";
-+import { Flame } from "lucide-react";
- import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
-+import { sparkRepository } from "@/adapter/repository/sparkRepository";
- import { useTimelineStream } from "@/usecase/useTimelineStream";
-+import { usePostSpark } from "@/usecase/usePostSpark";
- import { TimelineStream } from "@/components/organisms/TimelineStream";
- import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
- import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
-+import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
-+import { SparkPostModal } from "@/components/organisms/SparkPostModal";
-+import { useLogger } from "@/components/useLogger";
-+import { settings } from "@/adapter/infra/settings";
- 
- /**
-  * Timeline Page Component
-  *
-  * Responsibilities:
-- * - Inject wsTimelineRepository into useTimelineStream (DIP)
-- * - Pass spark data to TimelineStream organism
-- * - Display error message if WebSocket connection fails
-- * - Wrap content in TimelineTemplate for layout
-- * @returns Rendered timeline page
-+ * - Display real-time timeline of sparks
-+ * - Provide FAB button to open spark posting modal
-+ * - Handle spark posting with error display
-+ * @returns Rendered timeline page with posting capability
-  */
- export const TimelinePage = () => {
-+  // Local UI state for posting
-+  const [isModalOpen, setIsModalOpen] = useState(false);
-+  const [content, setContent] = useState("");
-+
-+  // Dependency Injection: Logger
-+  const logger = useLogger();
-+
-   // UseCase: Connect to WebSocket and receive sparks
-   const { sparks, hasError } = useTimelineStream(wsTimelineRepository);
- 
-+  // UseCase: Post spark
-+  const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
-+
-+  // Event Handler: Submit spark
-+  const handleSubmit = async () => {
-+    const trimmedContent = content.trim();
-+    if (!trimmedContent) return;
-+
-+    try {
-+      await postSpark({ content: trimmedContent });
-+      // On success: Clear input and close modal
-+      setContent("");
-+      setIsModalOpen(false);
-+    } catch {
-+      // Error is already logged by UseCase and stored in error state
-+      // UI will display error via SparkPostModal
-+    }
-+  };
-+
-   return (
-     <TimelineTemplate>
-       {hasError ? (
-@@ -36,6 +70,30 @@ export const TimelinePage = () => {
-       ) : (
-         <TimelineStream sparks={sparks} />
-       )}
-+
-+      <FloatingActionButton
-+        onClick={() => {
-+          setIsModalOpen(true);
-+        }}
-+        icon={<Flame size={24} />}
-+        label="種火を投げる"
-+        testId="spark-post-fab"
-+      />
-+
-+      <SparkPostModal
-+        isOpen={isModalOpen}
-+        onClose={() => {
-+          setIsModalOpen(false);
-+        }}
-+        content={content}
-+        onContentChange={setContent}
-+        onSubmit={() => {
-+          void handleSubmit();
-+        }}
-+        isPosting={isPosting}
-+        maxLength={settings.sparkMaxLength}
-+        error={error}
-+      />
-     </TimelineTemplate>
-   );
- };
-diff --git a/apps/web/src/components/pages/debugPage.tsx b/apps/web/src/components/pages/debugPage.tsx
-index b7b1eb8..4cb74bc 100644
---- a/apps/web/src/components/pages/debugPage.tsx
-+++ b/apps/web/src/components/pages/debugPage.tsx
-@@ -1,6 +1,5 @@
- // src/components/pages/DebugPage.tsx
--import { useState } from "react";
--import { SparkCard } from "../atoms/SparkCard";
-+import { SparkCard } from "@/components/molecules/SparkCard";
- import { SparkViewModel } from "@/domain/model/spark";
- import { Button } from "../ui/button";
- 
-diff --git a/apps/web/src/components/templates/SparkPostTemplate.tsx b/apps/web/src/components/templates/SparkPostTemplate.tsx
-deleted file mode 100644
-index 4061639..0000000
---- a/apps/web/src/components/templates/SparkPostTemplate.tsx
-+++ /dev/null
-@@ -1,18 +0,0 @@
--/**
-- * SparkPostTemplate Template
-- *
-- * Layout template for spark posting page.
-- * Provides consistent spacing and background.
-- */
--
--interface SparkPostTemplateProps {
--  children: React.ReactNode;
--}
--
--export const SparkPostTemplate = ({ children }: SparkPostTemplateProps) => {
--  return (
--    <div className="flex min-h-screen items-center justify-center p-4">
--      {children}
--    </div>
--  );
--};
-diff --git a/apps/web/src/components/templates/TimelineTemplate.tsx b/apps/web/src/components/templates/TimelineTemplate.tsx
-index 1a29eb0..3ad17c9 100644
---- a/apps/web/src/components/templates/TimelineTemplate.tsx
-+++ b/apps/web/src/components/templates/TimelineTemplate.tsx
-@@ -23,7 +23,7 @@ interface TimelineTemplateProps {
- export const TimelineTemplate = ({ children }: TimelineTemplateProps) => {
-   return (
-     <div className="flex h-screen w-screen flex-col overflow-hidden">
--      <div className="flex h-40 flex-none items-center justify-center bg-ash-500">
-+      <div className="text-ash-500 flex h-40 flex-none items-center justify-center border-2 backdrop-blur-md">
-         Here is a prepared area for bonfire.
-       </div>
-       <main className="z-0 min-h-0 w-full flex-1">{children}</main>
-diff --git a/apps/web/src/components/ui/button.tsx b/apps/web/src/components/ui/button.tsx
-index 36496a2..171b27a 100644
---- a/apps/web/src/components/ui/button.tsx
-+++ b/apps/web/src/components/ui/button.tsx
-@@ -5,24 +5,24 @@ import { cva, type VariantProps } from "class-variance-authority"
- import { cn } from "@/lib/utils"
- 
- const buttonVariants = cva(
--  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-button text-sm font-light transition-all focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-   {
-     variants: {
-       variant: {
--        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-+        default: "bg-ember-500 text-night-900 hover:shadow-glow-md",
-         destructive:
--          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-+          "bg-red-600 text-smoke-100 hover:shadow-glow-sm hover:bg-red-700",
-         outline:
--          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
-+          "border border-white/10 bg-transparent text-smoke-100 hover:bg-night-800/40 hover:backdrop-blur-md",
-         secondary:
--          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
--        ghost: "hover:bg-accent hover:text-accent-foreground",
--        link: "text-primary underline-offset-4 hover:underline",
-+          "bg-night-800 text-smoke-100 hover:shadow-glow-sm",
-+        ghost: "text-smoke-100 hover:bg-night-800/40",
-+        link: "text-ember-500 underline-offset-4 hover:underline",
-       },
-       size: {
-         default: "h-10 px-4 py-2",
--        sm: "h-9 rounded-md px-3",
--        lg: "h-11 rounded-md px-8",
-+        sm: "h-9 px-3",
-+        lg: "h-11 px-8",
-         icon: "h-10 w-10",
-       },
-     },
-@@ -33,12 +33,18 @@ const buttonVariants = cva(
-   }
- )
- 
-+/**
-+ * Props for Button component
-+ */
- export interface ButtonProps
-   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-     VariantProps<typeof buttonVariants> {
-   asChild?: boolean
- }
- 
-+/**
-+ * Button component based on shadcn/ui with Kvell styling
-+ */
- const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-   ({ className, variant, size, asChild = false, ...props }, ref) => {
-     const Comp = asChild ? Slot : "button"
+"""Dependency Injection Configuration.
+
+This module defines FastAPI dependencies for dependency injection.
+Following the Dependency Inversion Principle, dependencies are injected
+through FastAPI's Depends mechanism, making testing easier through
+dependency_overrides.
+"""
+
+from typing import Any
+
+from fastapi import Depends
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from redis.asyncio import Redis
+
+from app.adapter.gateways.mongo_health_repository import MongoHealthRepository
+from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+from app.adapter.gateways.redis_pubsub_gateway import RedisPubSubGateway
+from app.adapter.gateways.redis_rate_limiter import RedisRateLimiter
+from app.adapter.gateways.simple_ip_provider import SimpleIPProvider
+from app.adapter.infra.database import Database
+from app.adapter.infra.logger import JsonLogger
+from app.adapter.infra.redis_client import RedisClient
+from app.adapter.infra.settings import settings
+from app.domain.repository.health_repository import IHealthRepository
+from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.service.identity_provider import IIdentityProvider
+from app.domain.service.rate_limiter import IRateLimiter
+from app.usecase.add_fuel.interactor import AddFuelInteractor
+from app.usecase.add_fuel.interface import IAddFuelUseCase
+from app.usecase.health_check.interactor import HealthCheckInteractor
+from app.usecase.health_check.interface import IHealthCheckUseCase
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+from app.usecase.post_spark.interactor import PostSparkInteractor
+from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_timeline.interactor import StreamTimelineInteractor
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
+
+
+def get_db() -> AsyncIOMotorDatabase[Any]:
+    """Get the database instance.
+
+    This is the base dependency that provides the MongoDB connection.
+    Can be overridden in tests to use a different database.
+
+    Returns:
+        MongoDB database instance
+
+    """
+    return Database.get_database()
+
+
+def get_logger() -> ILogger:
+    """Get the logger instance.
+
+    This dependency provides the application logger.
+    Can be overridden in tests to use a mock logger.
+
+    Returns:
+        Logger instance
+
+    """
+    return JsonLogger(service_name="kvell-api")
+
+
+def get_health_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> IHealthRepository:
+    """Get the health repository instance.
+
+    This dependency chains from get_db() and provides the health repository.
+    Can be overridden in tests to use a mock repository.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Health repository instance
+
+    """
+    return MongoHealthRepository(db, logger)
+
+
+def get_health_usecase(
+    repo: IHealthRepository = Depends(get_health_repository),
+    logger: ILogger = Depends(get_logger),
+) -> IHealthCheckUseCase:
+    """Get the health check use case instance.
+
+    This dependency chains from get_health_repository() and provides
+    the use case interactor. Can be overridden in tests to use a mock use case.
+
+    Args:
+        repo: Health repository instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Health check use case instance
+
+    """
+    return HealthCheckInteractor(repo, logger)
+
+
+# Spark Dependencies
+
+
+def get_redis() -> Redis:  # type: ignore[type-arg]
+    """Get the Redis client instance.
+
+    Returns:
+        Redis client instance
+
+    """
+    return RedisClient.get_client()
+
+
+def get_spark_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> ISparkRepository:
+    """Get the spark repository instance.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Spark repository instance
+
+    """
+    return MongoSparkRepository(db, logger)
+
+
+def get_identity_provider() -> IIdentityProvider:
+    """Get the identity provider instance.
+
+    Returns:
+        Identity provider instance
+
+    """
+    return SimpleIPProvider(secret_key=settings.identity_secret_key)
+
+
+def get_rate_limiter(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+) -> IRateLimiter:
+    """Get the rate limiter instance.
+
+    Args:
+        redis: Redis client instance (injected)
+
+    Returns:
+        Rate limiter instance
+
+    """
+    return RedisRateLimiter(redis)
+
+
+def get_pubsub_gateway(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+    logger: ILogger = Depends(get_logger),
+) -> IPubSubGateway:
+    """Get the pub/sub gateway instance.
+
+    Args:
+        redis: Redis client instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Pub/sub gateway instance
+
+    """
+    return RedisPubSubGateway(redis, logger)
+
+
+def get_post_spark_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    identity_provider: IIdentityProvider = Depends(get_identity_provider),
+    rate_limiter: IRateLimiter = Depends(get_rate_limiter),
+    logger: ILogger = Depends(get_logger),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+) -> IPostSparkUseCase:
+    """Get the post spark use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        identity_provider: Identity provider instance (injected)
+        rate_limiter: Rate limiter instance (injected)
+        logger: Logger instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+
+    Returns:
+        Post spark use case instance
+
+    """
+    return PostSparkInteractor(
+        spark_repository=spark_repository,
+        identity_provider=identity_provider,
+        rate_limiter=rate_limiter,
+        logger=logger,
+        pubsub_gateway=pubsub_gateway,
+        max_length=settings.spark_max_length,
+        rate_limit_count=settings.spark_rate_limit_count,
+        rate_limit_window_seconds=settings.spark_rate_limit_window_seconds,
+        decay_after_seconds=settings.spark_decay_after_seconds,
+        vanish_after_days=settings.spark_vanish_after_days,
+        ng_words=settings.spark_ng_words_list,
+        pubsub_channel="sparks:events",
+    )
+
+
+def get_stream_timeline_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> IStreamTimelineUseCase:
+    """Get the stream timeline use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Stream timeline use case instance
+
+    """
+    return StreamTimelineInteractor(
+        spark_repository=spark_repository,
+        pubsub_gateway=pubsub_gateway,
+        logger=logger,
+        active_spark_seconds=settings.spark_decay_after_seconds,
+        pubsub_channel="sparks:events",
+    )
+
+
+def get_add_fuel_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    logger: ILogger = Depends(get_logger),
+) -> IAddFuelUseCase:
+    """Get the add fuel use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Add fuel use case instance
+
+    """
+    return AddFuelInteractor(
+        spark_repository=spark_repository,
+        logger=logger,
+    )
+"""Spark API Router.
+
+This module defines API endpoints for spark operations.
+"""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, status
+
+from app.adapter.entrypoints.dependencies import (
+    get_add_fuel_usecase,
+    get_identity_provider,
+    get_logger,
+    get_post_spark_usecase,
+    get_stream_timeline_usecase,
+)
+from app.domain.constants import LOG_EVENTS
+from app.domain.service.identity_provider import IIdentityProvider
+from app.usecase.add_fuel.interface import AddFuelInput, AddFuelOutput, IAddFuelUseCase
+from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
+from app.usecase.ports.logger import ILogger
+from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
+
+router = APIRouter(prefix="/api/sparks", tags=["sparks"])
+
+
+def get_client_ip(request: Request) -> str:
+    """Extract client IP address from request.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Client IP address
+
+    """
+    # Check for X-Forwarded-For header (proxy/load balancer)
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        # Take the first IP if multiple are present
+        return forwarded.split(",")[0].strip()
+
+    # Fallback to direct client IP
+    if request.client:
+        return request.client.host
+
+    # Last resort fallback
+    return "0.0.0.0"  # noqa: S104
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def post_spark(
+    request: Request,
+    input_data: PostSparkInput,
+    usecase: Annotated[IPostSparkUseCase, Depends(get_post_spark_usecase)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> SparkOutput:
+    """Post a new spark.
+
+    Args:
+        request: FastAPI request object (for IP extraction)
+        input_data: Input data containing spark content
+        usecase: Post spark use case (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        The created spark details
+
+    Raises:
+        AppError: If validation fails or rate limit is exceeded
+
+    """
+    ip_address = get_client_ip(request)
+
+    logger.info(
+        LOG_EVENTS.SPARK_POST_STARTED,
+        "Spark post request received",
+        context={
+            "content_length": len(input_data.content),
+            "ip_address": ip_address,
+        },
+    )
+
+    result = await usecase.execute(input_data, ip_address)
+
+    logger.info(
+        LOG_EVENTS.SPARK_POST_SUCCESS,
+        "Spark posted successfully",
+        context={"spark_id": result.id},
+    )
+
+    return result
+
+
+@router.post("/{spark_id}/fuel", status_code=status.HTTP_200_OK)
+async def add_fuel_to_spark(
+    request: Request,
+    spark_id: str,
+    usecase: Annotated[IAddFuelUseCase, Depends(get_add_fuel_usecase)],
+    identity_provider: Annotated[IIdentityProvider, Depends(get_identity_provider)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> AddFuelOutput:
+    """Add fuel to a spark.
+
+    Args:
+        request: FastAPI request object (for IP extraction)
+        spark_id: The spark ID to add fuel to
+        usecase: Add fuel use case (injected)
+        identity_provider: Identity provider (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Success response (without revealing fuel count)
+
+    Raises:
+        AppError: If spark not found (1005) or already decayed (1001)
+
+    """
+    ip_address = get_client_ip(request)
+    user_hash = identity_provider.get_user_hash(ip_address)
+
+    logger.info(
+        LOG_EVENTS.FUEL_ADD_STARTED,
+        "Fuel add request received",
+        context={
+            "spark_id": spark_id,
+            "ip_address": ip_address,
+        },
+    )
+
+    input_data = AddFuelInput(spark_id=spark_id, user_hash=user_hash)
+    output = await usecase.execute(input_data)
+
+    logger.info(
+        LOG_EVENTS.FUEL_ADD_SUCCESS,
+        "Fuel add request completed",
+        context={"spark_id": spark_id},
+    )
+
+    return output
+
+
+@router.websocket("/ws")
+async def websocket_timeline(
+    websocket: WebSocket,
+    usecase: Annotated[IStreamTimelineUseCase, Depends(get_stream_timeline_usecase)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> None:
+    """WebSocket endpoint for streaming timeline updates.
+
+    Args:
+        websocket: WebSocket connection
+        usecase: Stream timeline use case (injected)
+        logger: Logger instance (injected)
+
+    """
+    await websocket.accept()
+
+    logger.info(
+        LOG_EVENTS.WEBSOCKET_CONNECTED,
+        "WebSocket connection established",
+        context={"client": str(websocket.client)},
+    )
+
+    try:
+        # Stream timeline updates (Snapshot + Stream)
+        async for spark_output in usecase.execute():
+            # Send spark as JSON to client
+            await websocket.send_json(spark_output.model_dump())
+
+    except WebSocketDisconnect:
+        logger.info(
+            LOG_EVENTS.WEBSOCKET_DISCONNECTED,
+            "WebSocket connection closed by client",
+            context={"client": str(websocket.client)},
+        )
+
+    except Exception as e:
+        logger.exception(
+            LOG_EVENTS.WEBSOCKET_ERROR,
+            "Error during WebSocket communication",
+            error=e,
+            context={"client": str(websocket.client)},
+        )
+        raise
+"""MongoDB implementation of Spark Repository.
+
+This module implements the spark repository using MongoDB.
+"""
+
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import IndexModel
+from pymongo.errors import DuplicateKeyError, PyMongoError
+
+from app.domain.constants import LOG_EVENTS
+from app.domain.exception import AppError
+from app.domain.model.spark import Spark
+from app.domain.repository.spark_repository import ISparkRepository
+from app.usecase.ports.logger import ILogger
+
+
+class MongoSparkRepository(ISparkRepository):
+    """MongoDB implementation of spark repository."""
+
+    COLLECTION_NAME = "sparks"
+    FUEL_HISTORY_COLLECTION = "spark_fuel_history"
+
+    def __init__(self, db: AsyncIOMotorDatabase[Any], logger: ILogger) -> None:
+        """Initialize the repository.
+
+        Args:
+            db: MongoDB database instance
+            logger: Logger for structured logging
+
+        """
+        self.collection = db[self.COLLECTION_NAME]
+        self.fuel_history_collection = db[self.FUEL_HISTORY_COLLECTION]
+        self.logger = logger
+
+    async def ensure_indexes(self) -> None:
+        """Create necessary indexes for the sparks and fuel history collections.
+
+        This should be called during application startup.
+        """
+        try:
+            # Sparks collection indexes
+            spark_indexes = [
+                # TTL index for automatic deletion
+                IndexModel(
+                    [("vanish_at", 1)],
+                    name="vanish_at_ttl",
+                    expireAfterSeconds=0,
+                ),
+                # Query index for timeline retrieval (by decay_at)
+                IndexModel(
+                    [("decay_at", -1)],
+                    name="decay_at_desc",
+                ),
+                # Query index for active sparks retrieval (by created_at)
+                IndexModel(
+                    [("created_at", 1)],
+                    name="created_at_asc",
+                ),
+            ]
+            await self.collection.create_indexes(spark_indexes)
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark indexes created successfully",
+                context={"collection": self.COLLECTION_NAME},
+            )
+
+            # Fuel history collection indexes
+            fuel_history_indexes = [
+                # Unique compound index for idempotency
+                IndexModel(
+                    [("spark_id", 1), ("user_hash", 1)],
+                    name="spark_user_unique",
+                    unique=True,
+                ),
+                # TTL index for cleanup (optional - keep fuel history for 30 days)
+                IndexModel(
+                    [("created_at", 1)],
+                    name="created_at_ttl",
+                    expireAfterSeconds=30 * 24 * 60 * 60,  # 30 days
+                ),
+            ]
+            await self.fuel_history_collection.create_indexes(fuel_history_indexes)
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Fuel history indexes created successfully",
+                context={"collection": self.FUEL_HISTORY_COLLECTION},
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to create indexes",
+                error=e,
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": "sparks/fuel_history"},
+                cause=e,
+            ) from e
+
+    async def save(self, spark: Spark) -> Spark:
+        """Save a spark.
+
+        Args:
+            spark: The spark to save
+
+        Returns:
+            The saved spark
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Saving spark to MongoDB",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark.id,
+                },
+            )
+
+            document = {
+                "id": spark.id,
+                "content": spark.content,
+                "user_hash": spark.user_hash,
+                "fuel_count": spark.fuel_count,
+                "created_at": spark.created_at,
+                "decay_at": spark.decay_at,
+                "vanish_at": spark.vanish_at,
+            }
+
+            await self.collection.insert_one(document)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark saved successfully",
+                context={"spark_id": spark.id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to save spark: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark.id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return spark
+
+    async def find_by_id(self, spark_id: str) -> Spark | None:
+        """Find a spark by ID.
+
+        Args:
+            spark_id: The spark ID to search for
+
+        Returns:
+            The spark if found, None otherwise
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying spark by ID",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark_id,
+                },
+            )
+
+            document: dict[str, Any] | None = await self.collection.find_one(
+                {"id": spark_id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query spark: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark_id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            if document is None:
+                self.logger.info(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found",
+                    context={
+                        "collection": self.COLLECTION_NAME,
+                        "spark_id": spark_id,
+                    },
+                )
+                return None
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": document["id"],
+                },
+            )
+
+            return Spark(
+                id=document["id"],
+                content=document["content"],
+                user_hash=document["user_hash"],
+                fuel_count=document.get("fuel_count", 0),
+                created_at=document["created_at"],
+                decay_at=document["decay_at"],
+                vanish_at=document["vanish_at"],
+            )
+
+    async def find_active_sparks(self, seconds: int) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified seconds.
+
+        Args:
+            seconds: Number of seconds to look back from now
+
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            # Calculate the cutoff time
+            cutoff_time = datetime.now(UTC) - timedelta(seconds=seconds)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying active sparks",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "cutoff_time": cutoff_time.isoformat(),
+                },
+            )
+
+            # Query for sparks created after cutoff_time, sorted by created_at ascending
+            cursor = self.collection.find(
+                {"created_at": {"$gte": cutoff_time}},
+            ).sort("created_at", 1)
+
+            # Yield sparks one by one (streaming, no to_list)
+            count = 0
+            async for doc in cursor:
+                count += 1
+                yield Spark(
+                    id=doc["id"],
+                    content=doc["content"],
+                    user_hash=doc["user_hash"],
+                    fuel_count=doc.get("fuel_count", 0),
+                    created_at=doc["created_at"],
+                    decay_at=doc["decay_at"],
+                    vanish_at=doc["vanish_at"],
+                )
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Active sparks retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "count": count,
+                },
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query active sparks: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "seconds": seconds,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+
+    async def try_add_fuel(self, spark_id: str, user_hash: str) -> bool:
+        """Atomically add fuel to a spark if the user hasn't fueled it yet.
+
+        This method ensures idempotency by:
+        1. Attempting to insert a fuel history record with a unique compound index
+        2. If successful, incrementing the spark's fuel_count atomically
+        3. If duplicate key error, returning False (user already fueled)
+
+        Args:
+            spark_id: The spark ID to add fuel to
+            user_hash: The user hash attempting to add fuel
+
+        Returns:
+            True if fuel was added (first time), False if user already fueled
+
+        Raises:
+            AppError: If database operation fails (excluding duplicate key)
+
+        """
+        try:
+            # Step 1: Try to insert fuel history (idempotency check)
+            fuel_history_doc = {
+                "spark_id": spark_id,
+                "user_hash": user_hash,
+                "created_at": datetime.now(UTC),
+            }
+
+            await self.fuel_history_collection.insert_one(fuel_history_doc)
+
+            # Step 2: If insert succeeded, increment fuel_count atomically
+            await self.collection.update_one(
+                {"id": spark_id},
+                {"$inc": {"fuel_count": 1}},
+            )
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Fuel added successfully",
+                context={
+                    "spark_id": spark_id,
+                    "user_hash": user_hash,
+                },
+            )
+
+        except DuplicateKeyError:
+            # User already fueled this spark - idempotent behavior
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "User already fueled this spark",
+                context={
+                    "spark_id": spark_id,
+                    "user_hash": user_hash,
+                },
+            )
+            return False
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to add fuel",
+                error=e,
+                context={
+                    "spark_id": spark_id,
+                    "user_hash": user_hash,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.FUEL_HISTORY_COLLECTION},
+                cause=e,
+            ) from e
+
+        else:
+            return True
+"""Internal status code definitions and log event IDs.
+
+Defines internal status codes and their corresponding messages.
+Defines event IDs for structured logging.
+"""
+
+from typing import Final
+
+INTERNAL_STATUSES: Final[dict[int, str]] = {
+    # Success
+    200: "OK",
+    201: "Created",
+    204: "No Content",
+    # Domain Errors (Client side origin / Business Logic)
+    1001: "この種火は既に燃え尽きています。",  # Gone (Life expired)
+    1002: "投稿に不適切な表現が含まれています。",  # NG Words (Validation)
+    1003: "投稿文字数が制限を超えています。",  # Length Limit (Validation)
+    1004: "薪をくべるペースが早すぎます。",  # Throttling (Rate Limit)
+    1005: "指定された種火が存在しないか、消滅しています。",  # Not Found
+    # Error caused by Server side (System Error)
+    2001: "DBへの接続中に異常が発生しました",
+    2002: "{tableName}テーブルへのクエリ中に異常が発生しました",
+    500: "Internal Server Error",
+}
+
+InternalStatusCode = int
+
+
+class LogEvents:
+    """Log event ID constants for structured logging.
+
+    All log calls should use these event IDs instead of raw strings.
+    """
+
+    # Health check events
+    HEALTH_CHECK_STARTED: Final[str] = "HEALTH_001"
+    HEALTH_CHECK_SUCCESS: Final[str] = "HEALTH_002"
+    HEALTH_CHECK_FAILED: Final[str] = "HEALTH_003"
+    HEALTH_MESSAGE_SAVED: Final[str] = "HEALTH_004"
+    HEALTH_MESSAGE_RETRIEVED: Final[str] = "HEALTH_005"
+
+    # Spark events
+    SPARK_POST_STARTED: Final[str] = "SPARK_001"
+    SPARK_POST_SUCCESS: Final[str] = "SPARK_002"
+    SPARK_POST_FAILED: Final[str] = "SPARK_003"
+    SPARK_VALIDATION_FAILED: Final[str] = "SPARK_004"
+    SPARK_RATE_LIMIT_EXCEEDED: Final[str] = "SPARK_005"
+    SPARK_NG_WORD_DETECTED: Final[str] = "SPARK_006"
+
+    # Fuel events
+    FUEL_ADD_STARTED: Final[str] = "FUEL_001"
+    FUEL_ADD_SUCCESS: Final[str] = "FUEL_002"
+    FUEL_ALREADY_ADDED: Final[str] = "FUEL_003"
+    FUEL_SELF_SPARK: Final[str] = "FUEL_004"
+    FUEL_SPARK_NOT_FOUND: Final[str] = "FUEL_005"
+    FUEL_SPARK_DECAYED: Final[str] = "FUEL_006"
+
+    # Timeline streaming events
+    TIMELINE_SNAPSHOT_LOADED: Final[str] = "TIMELINE_001"
+    TIMELINE_STREAM_STARTED: Final[str] = "TIMELINE_002"
+    TIMELINE_STREAM_MESSAGE: Final[str] = "TIMELINE_003"
+
+    # WebSocket events
+    WEBSOCKET_CONNECTED: Final[str] = "WS_001"
+    WEBSOCKET_DISCONNECTED: Final[str] = "WS_002"
+    WEBSOCKET_ERROR: Final[str] = "WS_003"
+
+    # PubSub events
+    PUBSUB_PUBLISH_SUCCESS: Final[str] = "PUBSUB_001"
+    PUBSUB_PUBLISH_ERROR: Final[str] = "PUBSUB_002"
+    PUBSUB_SUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_003"
+    PUBSUB_MESSAGE_RECEIVED: Final[str] = "PUBSUB_004"
+    PUBSUB_DESERIALIZATION_ERROR: Final[str] = "PUBSUB_005"
+    PUBSUB_SUBSCRIBE_ERROR: Final[str] = "PUBSUB_006"
+    PUBSUB_UNSUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_007"
+
+    # Database events
+    DB_CONNECTION_SUCCESS: Final[str] = "DB_001"
+    DB_CONNECTION_FAILED: Final[str] = "DB_002"
+    DB_QUERY_ERROR: Final[str] = "DB_003"
+
+    # Application lifecycle events
+    APP_STARTUP: Final[str] = "APP_001"
+    APP_SHUTDOWN: Final[str] = "APP_002"
+
+    # Error events
+    UNHANDLED_ERROR: Final[str] = "ERROR_001"
+    VALIDATION_ERROR: Final[str] = "ERROR_002"
+
+
+# Singleton instance
+LOG_EVENTS = LogEvents()
+"""Spark Repository Interface.
+
+This module defines the output port for spark persistence.
+"""
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+
+from app.domain.model.spark import Spark
+
+
+class ISparkRepository(ABC):
+    """Repository interface for spark operations."""
+
+    @abstractmethod
+    async def save(self, spark: Spark) -> Spark:
+        """Save a spark.
+
+        Args:
+            spark: The spark to save
+
+        Returns:
+            The saved spark
+
+        """
+
+    @abstractmethod
+    async def find_by_id(self, spark_id: str) -> Spark | None:
+        """Find a spark by ID.
+
+        Args:
+            spark_id: The spark ID to search for
+
+        Returns:
+            The spark if found, None otherwise
+
+        """
+
+    @abstractmethod
+    async def find_active_sparks(self, seconds: int) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified seconds.
+
+        Args:
+            seconds: Number of seconds to look back from now
+
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
+
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError
+
+    @abstractmethod
+    async def try_add_fuel(self, spark_id: str, user_hash: str) -> bool:
+        """Atomically add fuel to a spark if the user hasn't fueled it yet.
+
+        This method ensures idempotency by checking if the user has already
+        added fuel to this spark. If not, it increments the fuel_count and
+        records the user's action.
+
+        Args:
+            spark_id: The spark ID to add fuel to
+            user_hash: The user hash attempting to add fuel
+
+        Returns:
+            True if fuel was added (first time), False if user already fueled
+
+        """

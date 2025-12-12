@@ -50,3 +50,20 @@ class ISparkRepository(ABC):
         if False:  # pragma: no cover
             yield  # type: ignore[misc,unreachable]
         raise NotImplementedError
+
+    @abstractmethod
+    async def try_add_fuel(self, spark_id: str, user_hash: str) -> bool:
+        """Atomically add fuel to a spark if the user hasn't fueled it yet.
+
+        This method ensures idempotency by checking if the user has already
+        added fuel to this spark. If not, it increments the fuel_count and
+        records the user's action.
+
+        Args:
+            spark_id: The spark ID to add fuel to
+            user_hash: The user hash attempting to add fuel
+
+        Returns:
+            True if fuel was added (first time), False if user already fueled
+
+        """

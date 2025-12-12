@@ -47,6 +47,16 @@ class LogEvents:
     SPARK_RATE_LIMIT_EXCEEDED: Final[str] = "SPARK_005"
     SPARK_NG_WORD_DETECTED: Final[str] = "SPARK_006"
 
+    # Fuel events
+    FUEL_ADD_STARTED: Final[str] = "FUEL_001"
+    FUEL_ADD_SUCCESS: Final[str] = "FUEL_002"
+    FUEL_ALREADY_ADDED: Final[str] = "FUEL_003"
+    FUEL_SELF_SPARK: Final[str] = "FUEL_004"
+    FUEL_SPARK_NOT_FOUND: Final[str] = "FUEL_005"
+    FUEL_SPARK_DECAYED: Final[str] = "FUEL_006"
+    FUEL_RETRY_ATTEMPT: Final[str] = "FUEL_007"
+    FUEL_RETRY_EXHAUSTED: Final[str] = "FUEL_008"
+
     # Timeline streaming events
     TIMELINE_SNAPSHOT_LOADED: Final[str] = "TIMELINE_001"
     TIMELINE_STREAM_STARTED: Final[str] = "TIMELINE_002"

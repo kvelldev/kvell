@@ -355,3 +355,367 @@ class TestSparkWebSocketIntegration:
         # 1. Unit tests (with mocked pub/sub)
         # 2. Manual testing with real WebSocket clients
         # 3. E2E tests
+
+
+class TestAddFuelIntegration:
+    """Integration tests for add fuel API endpoint."""
+
+    @pytest.fixture
+    def collection(
+        self, test_database: AsyncIOMotorDatabase[Any]
+    ) -> Any:  # AsyncIOMotorCollection
+        """Get the sparks collection from test database."""
+        return test_database[MongoSparkRepository.COLLECTION_NAME]
+
+    @pytest.fixture
+    def fuel_history_collection(
+        self, test_database: AsyncIOMotorDatabase[Any]
+    ) -> Any:  # AsyncIOMotorCollection
+        """Get the fuel history collection from test database."""
+        return test_database[MongoSparkRepository.FUEL_HISTORY_COLLECTION]
+
+    @pytest.mark.asyncio
+    async def test_addFuel_whenFirstTime_incrementsFuelCountAndReturns200(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+        fuel_history_collection: Any,
+    ) -> None:
+        """
+        Action: addFuel (POST /api/sparks/{spark_id}/fuel)
+        Condition: whenFirstTime (first time this user fuels this spark)
+        Result: incrementsFuelCountAndReturns200 (fuel_count++, 200 response)
+        """
+        # Arrange: Create a spark in DB
+        spark = Spark.create(
+            spark_id="test-spark-1",
+            content="Test content",
+            user_hash="author-hash",
+            decay_after_seconds=600,
+            vanish_after_days=30,
+        )
+        await collection.insert_one(
+            {
+                "id": spark.id,
+                "content": spark.content,
+                "user_hash": spark.user_hash,
+                "fuel_count": 0,
+                "created_at": spark.created_at,
+                "decay_at": spark.decay_at,
+                "vanish_at": spark.vanish_at,
+            }
+        )
+
+        # Act: Add fuel from a different user
+        response = await test_client.post(
+            "/api/sparks/test-spark-1/fuel",
+            headers={"X-Forwarded-For": "192.168.1.100"},  # Different IP
+        )
+
+        # Assert HTTP response
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+
+        # Assert: fuel_count incremented in DB
+        doc = await collection.find_one({"id": "test-spark-1"})
+        assert doc is not None
+        assert doc["fuel_count"] == 1
+
+        # Assert: fuel history record created
+        history_count = await fuel_history_collection.count_documents(
+            {"spark_id": "test-spark-1"}
+        )
+        assert history_count == 1
+
+    @pytest.mark.asyncio
+    async def test_addFuel_whenSecondTime_isIdempotentAndReturns200(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+        fuel_history_collection: Any,
+    ) -> None:
+        """
+        Action: addFuel
+        Condition: whenSecondTime (same user tries to fuel twice)
+        Result: isIdempotentAndReturns200 (fuel_count stays 1, both return 200)
+        """
+        # Arrange: Create a spark
+        spark = Spark.create(
+            spark_id="test-spark-2",
+            content="Test content",
+            user_hash="author-hash",
+            decay_after_seconds=600,
+            vanish_after_days=30,
+        )
+        await collection.insert_one(
+            {
+                "id": spark.id,
+                "content": spark.content,
+                "user_hash": spark.user_hash,
+                "fuel_count": 0,
+                "created_at": spark.created_at,
+                "decay_at": spark.decay_at,
+                "vanish_at": spark.vanish_at,
+            }
+        )
+
+        # Act: Add fuel twice from same IP
+        response1 = await test_client.post(
+            "/api/sparks/test-spark-2/fuel",
+            headers={"X-Forwarded-For": "192.168.1.200"},
+        )
+        response2 = await test_client.post(
+            "/api/sparks/test-spark-2/fuel",
+            headers={"X-Forwarded-For": "192.168.1.200"},  # Same IP
+        )
+
+        # Assert: Both requests return 200 OK
+        assert response1.status_code == status.HTTP_200_OK
+        assert response2.status_code == status.HTTP_200_OK
+        assert response1.json()["success"] is True
+        assert response2.json()["success"] is True
+
+        # Assert: fuel_count is still 1 (idempotent)
+        doc = await collection.find_one({"id": "test-spark-2"})
+        assert doc is not None
+        assert doc["fuel_count"] == 1
+
+        # Assert: Only one history record exists
+        history_count = await fuel_history_collection.count_documents(
+            {"spark_id": "test-spark-2"}
+        )
+        assert history_count == 1
+
+    @pytest.mark.asyncio
+    async def test_addFuel_whenMultipleUsers_countsAllFuel(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+        fuel_history_collection: Any,
+    ) -> None:
+        """
+        Action: addFuel
+        Condition: whenMultipleUsers (3 different users fuel the same spark)
+        Result: countsAllFuel (fuel_count becomes 3)
+        """
+        # Arrange: Create a spark
+        spark = Spark.create(
+            spark_id="test-spark-3",
+            content="Test content",
+            user_hash="author-hash",
+            decay_after_seconds=600,
+            vanish_after_days=30,
+        )
+        await collection.insert_one(
+            {
+                "id": spark.id,
+                "content": spark.content,
+                "user_hash": spark.user_hash,
+                "fuel_count": 0,
+                "created_at": spark.created_at,
+                "decay_at": spark.decay_at,
+                "vanish_at": spark.vanish_at,
+            }
+        )
+
+        # Act: Add fuel from 3 different users
+        await test_client.post(
+            "/api/sparks/test-spark-3/fuel",
+            headers={"X-Forwarded-For": "192.168.1.1"},
+        )
+        await test_client.post(
+            "/api/sparks/test-spark-3/fuel",
+            headers={"X-Forwarded-For": "192.168.1.2"},
+        )
+        await test_client.post(
+            "/api/sparks/test-spark-3/fuel",
+            headers={"X-Forwarded-For": "192.168.1.3"},
+        )
+
+        # Assert: fuel_count is 3
+        doc = await collection.find_one({"id": "test-spark-3"})
+        assert doc is not None
+        assert doc["fuel_count"] == 3
+
+        # Assert: 3 history records exist
+        history_count = await fuel_history_collection.count_documents(
+            {"spark_id": "test-spark-3"}
+        )
+        assert history_count == 3
+
+    @pytest.mark.asyncio
+    async def test_addFuel_whenSparkNotFound_returns404(
+        self,
+        test_client: AsyncClient,
+    ) -> None:
+        """
+        Action: addFuel
+        Condition: whenSparkNotFound (spark_id doesn't exist)
+        Result: returns404 (NOT_FOUND error)
+        """
+        # Act: Try to fuel non-existent spark
+        response = await test_client.post(
+            "/api/sparks/nonexistent-spark/fuel",
+            headers={"X-Forwarded-For": "192.168.1.100"},
+        )
+
+        # Assert
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        data = response.json()
+        assert data["error"]["code"] == 1005
+
+    @pytest.mark.asyncio
+    async def test_addFuel_whenSparkDecayed_returns410(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+    ) -> None:
+        """
+        Action: addFuel
+        Condition: whenSparkDecayed (spark already decayed)
+        Result: returns410 (GONE error)
+        """
+        # Arrange: Create a decayed spark (decay_at in the past)
+        spark = Spark.create(
+            spark_id="test-spark-decayed",
+            content="Old content",
+            user_hash="author-hash",
+            decay_after_seconds=-600,  # Already decayed (negative offset)
+            vanish_after_days=30,
+        )
+        await collection.insert_one(
+            {
+                "id": spark.id,
+                "content": spark.content,
+                "user_hash": spark.user_hash,
+                "fuel_count": 0,
+                "created_at": spark.created_at,
+                "decay_at": spark.decay_at,
+                "vanish_at": spark.vanish_at,
+            }
+        )
+
+        # Act: Try to fuel decayed spark
+        response = await test_client.post(
+            "/api/sparks/test-spark-decayed/fuel",
+            headers={"X-Forwarded-For": "192.168.1.100"},
+        )
+
+        # Assert
+        assert response.status_code == status.HTTP_410_GONE
+        data = response.json()
+        assert data["error"]["code"] == 1001
+
+    @pytest.mark.asyncio
+    async def test_addFuel_whenSelfFuel_returnsSuccessButNoIncrement(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+        fuel_history_collection: Any,
+    ) -> None:
+        """
+        Action: addFuel
+        Condition: whenSelfFuel (user tries to fuel their own spark)
+        Result: returnsSuccessButNoIncrement (200 OK, but fuel_count stays 0)
+        """
+        # Arrange: Create a spark with known author IP
+        # SimpleIPProvider generates same hash for same IP
+        spark = Spark.create(
+            spark_id="test-spark-self",
+            content="Self spark",
+            user_hash="test-hash",  # We'll create this with same IP
+            decay_after_seconds=600,
+            vanish_after_days=30,
+        )
+
+        # First, create the spark via API (to get correct user_hash)
+        response = await test_client.post(
+            "/api/sparks",
+            json={"content": "Self spark"},
+            headers={"X-Forwarded-For": "192.168.1.50"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        created_spark_id = response.json()["id"]
+
+        # Act: Try to fuel own spark (same IP)
+        fuel_response = await test_client.post(
+            f"/api/sparks/{created_spark_id}/fuel",
+            headers={"X-Forwarded-For": "192.168.1.50"},  # Same IP as creator
+        )
+
+        # Assert: Returns success
+        assert fuel_response.status_code == status.HTTP_200_OK
+        assert fuel_response.json()["success"] is True
+
+        # Assert: fuel_count is still 0 (not incremented)
+        doc = await collection.find_one({"id": created_spark_id})
+        assert doc is not None
+        assert doc["fuel_count"] == 0
+
+        # Assert: No fuel history record created
+        history_count = await fuel_history_collection.count_documents(
+            {"spark_id": created_spark_id}
+        )
+        assert history_count == 0
+
+    @pytest.mark.asyncio
+    async def test_addFuel_whenConcurrentRequests_transactionEnsuresConsistency(
+        self,
+        test_client: AsyncClient,
+        collection: Any,
+        fuel_history_collection: Any,
+    ) -> None:
+        """
+        Action: addFuel
+        Condition: whenConcurrentRequests (10 users fuel simultaneously)
+        Result: transactionEnsuresConsistency (fuel_count == 10, no race conditions)
+        """
+        # Arrange: Create a spark
+        spark = Spark.create(
+            spark_id="test-spark-concurrent",
+            content="Concurrent test",
+            user_hash="author-hash",
+            decay_after_seconds=600,
+            vanish_after_days=30,
+        )
+        await collection.insert_one(
+            {
+                "id": spark.id,
+                "content": spark.content,
+                "user_hash": spark.user_hash,
+                "fuel_count": 0,
+                "created_at": spark.created_at,
+                "decay_at": spark.decay_at,
+                "vanish_at": spark.vanish_at,
+            }
+        )
+
+        # Act: Send 10 concurrent requests from different IPs
+        import asyncio
+
+        tasks = [
+            test_client.post(
+                "/api/sparks/test-spark-concurrent/fuel",
+                headers={"X-Forwarded-For": f"192.168.1.{i}"},
+            )
+            for i in range(1, 11)  # 10 different IPs
+        ]
+
+        responses = await asyncio.gather(*tasks)
+
+        # Assert: All requests succeeded
+        for response in responses:
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["success"] is True
+
+        # Assert: fuel_count is exactly 10 (no race condition)
+        doc = await collection.find_one({"id": "test-spark-concurrent"})
+        assert doc is not None
+        assert doc["fuel_count"] == 10
+
+        # Assert: Exactly 10 history records exist (transaction consistency)
+        history_count = await fuel_history_collection.count_documents(
+            {"spark_id": "test-spark-concurrent"}
+        )
+        assert history_count == 10

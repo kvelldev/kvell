@@ -9,7 +9,7 @@ from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import IndexModel
-from pymongo.errors import PyMongoError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
@@ -22,6 +22,7 @@ class MongoSparkRepository(ISparkRepository):
     """MongoDB implementation of spark repository."""
 
     COLLECTION_NAME = "sparks"
+    FUEL_HISTORY_COLLECTION = "spark_fuel_history"
 
     def __init__(self, db: AsyncIOMotorDatabase[Any], logger: ILogger) -> None:
         """Initialize the repository.
@@ -31,16 +32,19 @@ class MongoSparkRepository(ISparkRepository):
             logger: Logger for structured logging
 
         """
+        self.db = db
         self.collection = db[self.COLLECTION_NAME]
+        self.fuel_history_collection = db[self.FUEL_HISTORY_COLLECTION]
         self.logger = logger
 
     async def ensure_indexes(self) -> None:
-        """Create necessary indexes for the sparks collection.
+        """Create necessary indexes for the sparks and fuel history collections.
 
         This should be called during application startup.
         """
         try:
-            indexes = [
+            # Sparks collection indexes
+            spark_indexes = [
                 # TTL index for automatic deletion
                 IndexModel(
                     [("vanish_at", 1)],
@@ -58,21 +62,44 @@ class MongoSparkRepository(ISparkRepository):
                     name="created_at_asc",
                 ),
             ]
-            await self.collection.create_indexes(indexes)
+            await self.collection.create_indexes(spark_indexes)
             self.logger.info(
                 LOG_EVENTS.DB_CONNECTION_SUCCESS,
                 "Spark indexes created successfully",
                 context={"collection": self.COLLECTION_NAME},
             )
+
+            # Fuel history collection indexes
+            fuel_history_indexes = [
+                # Unique compound index for idempotency
+                IndexModel(
+                    [("spark_id", 1), ("user_hash", 1)],
+                    name="spark_user_unique",
+                    unique=True,
+                ),
+                # TTL index for cleanup (optional - keep fuel history for 30 days)
+                IndexModel(
+                    [("created_at", 1)],
+                    name="created_at_ttl",
+                    expireAfterSeconds=30 * 24 * 60 * 60,  # 30 days
+                ),
+            ]
+            await self.fuel_history_collection.create_indexes(fuel_history_indexes)
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Fuel history indexes created successfully",
+                context={"collection": self.FUEL_HISTORY_COLLECTION},
+            )
+
         except PyMongoError as e:
             self.logger.exception(
                 LOG_EVENTS.DB_QUERY_ERROR,
-                f"Failed to create indexes: {self.COLLECTION_NAME}",
+                "Failed to create indexes",
                 error=e,
             )
             raise AppError(
                 internal_code=2002,
-                context={"tableName": self.COLLECTION_NAME},
+                context={"tableName": "sparks/fuel_history"},
                 cause=e,
             ) from e
 
@@ -196,14 +223,20 @@ class MongoSparkRepository(ISparkRepository):
                 },
             )
 
+            # MongoDB stores datetime as UTC but returns them as timezone-naive
+            # Add UTC timezone to match Spark model expectations
+            created_at = document["created_at"].replace(tzinfo=UTC)
+            decay_at = document["decay_at"].replace(tzinfo=UTC)
+            vanish_at = document["vanish_at"].replace(tzinfo=UTC)
+
             return Spark(
                 id=document["id"],
                 content=document["content"],
                 user_hash=document["user_hash"],
                 fuel_count=document.get("fuel_count", 0),
-                created_at=document["created_at"],
-                decay_at=document["decay_at"],
-                vanish_at=document["vanish_at"],
+                created_at=created_at,
+                decay_at=decay_at,
+                vanish_at=vanish_at,
             )
 
     async def find_active_sparks(self, seconds: int) -> AsyncIterator[Spark]:
@@ -241,14 +274,20 @@ class MongoSparkRepository(ISparkRepository):
             count = 0
             async for doc in cursor:
                 count += 1
+                # MongoDB returns datetime as UTC but timezone-naive
+                # Add UTC timezone to match Spark model expectations
+                created_at = doc["created_at"].replace(tzinfo=UTC)
+                decay_at = doc["decay_at"].replace(tzinfo=UTC)
+                vanish_at = doc["vanish_at"].replace(tzinfo=UTC)
+
                 yield Spark(
                     id=doc["id"],
                     content=doc["content"],
                     user_hash=doc["user_hash"],
                     fuel_count=doc.get("fuel_count", 0),
-                    created_at=doc["created_at"],
-                    decay_at=doc["decay_at"],
-                    vanish_at=doc["vanish_at"],
+                    created_at=created_at,
+                    decay_at=decay_at,
+                    vanish_at=vanish_at,
                 )
 
             self.logger.info(
@@ -275,3 +314,89 @@ class MongoSparkRepository(ISparkRepository):
                 context={"tableName": self.COLLECTION_NAME},
                 cause=e,
             ) from e
+
+    async def try_add_fuel(self, spark_id: str, user_hash: str) -> bool:
+        """Atomically add fuel to a spark if the user hasn't fueled it yet.
+
+        This method ensures atomicity and idempotency using MongoDB transactions:
+        1. Start a transaction session
+        2. Insert fuel history record (idempotency check via unique index)
+        3. Increment spark's fuel_count
+        4. Commit transaction (or abort on any error)
+
+        Args:
+            spark_id: The spark ID to add fuel to
+            user_hash: The user hash attempting to add fuel
+
+        Returns:
+            True if fuel was added (first time), False if user already fueled
+
+        Raises:
+            AppError: If database operation fails (excluding duplicate key)
+
+        """
+        # Start a session for transaction
+        async with await self.db.client.start_session() as session:
+            try:
+                async with session.start_transaction():
+                    # Step 1: Try to insert fuel history (idempotency check)
+                    fuel_history_doc = {
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                        "created_at": datetime.now(UTC),
+                    }
+
+                    await self.fuel_history_collection.insert_one(
+                        fuel_history_doc,
+                        session=session,
+                    )
+
+                    # Step 2: If insert succeeded, increment fuel_count atomically
+                    await self.collection.update_one(
+                        {"id": spark_id},
+                        {"$inc": {"fuel_count": 1}},
+                        session=session,
+                    )
+
+                    # Transaction commits automatically on context exit
+                    self.logger.info(
+                        LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                        "Fuel added successfully (transactional)",
+                        context={
+                            "spark_id": spark_id,
+                            "user_hash": user_hash,
+                        },
+                    )
+
+            except DuplicateKeyError:
+                # User already fueled this spark - idempotent behavior
+                # Transaction auto-aborts, no changes persisted
+                self.logger.info(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "User already fueled this spark (idempotent)",
+                    context={
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                    },
+                )
+                return False
+
+            except PyMongoError as e:
+                # Transaction auto-aborts on any PyMongo error
+                self.logger.exception(
+                    LOG_EVENTS.DB_QUERY_ERROR,
+                    "Failed to add fuel (transaction aborted)",
+                    error=e,
+                    context={
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                    },
+                )
+                raise AppError(
+                    internal_code=2002,
+                    context={"tableName": self.FUEL_HISTORY_COLLECTION},
+                    cause=e,
+                ) from e
+
+            else:
+                return True
