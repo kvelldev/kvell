@@ -58,3 +58,13 @@ export interface PostSparkRequest {
    */
   content: string;
 }
+
+/**
+ * Request payload for adding fuel to a spark
+ */
+export interface AddFuelRequest {
+  /**
+   * Target spark ID to add fuel
+   */
+  sparkId: string;
+}

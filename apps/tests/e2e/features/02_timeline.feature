@@ -1,5 +1,5 @@
 Feature: Timeline
-    As a 安心したい菊池さん（B層）
+    As a 安心したい菊池さん
     I want to 自分の言葉がリアルタイムに流れ、やがて冷めて煙となり、空に溶けていく様子を見たい
     So that 「ライブ感」と「ログが残らない安心感」の両方を感じたい
 
@@ -9,19 +9,18 @@ Feature: Timeline
 
     Rule: Timelineは「常に最新」を表示することをデフォルトとする
         Background:
-            Given 複数の "Spark" が存在し、"Timeline" が画面高さを超えている
+            Given ユーザーは"メイン画面"を開いている
+            And 複数の "Spark" が存在し、"Timeline" が画面高さを超えている
 
         Example: 初期表示時の挙動 (Default Sticky)
-            When ユーザーがページを開く（またはリロードする）
             Then "Timeline" は最初から「最下部」にスクロールされた状態で表示される
             And ユーザーが操作しなくても、新しい "Spark" が来れば自動で表示される
 
         Example: ユーザーが過去ログを見ている場合 (Scroll Up)
-            When ユーザーがページを開く
-            And ユーザーが意図的に上へスクロールする
+            When ユーザーが意図的に上へスクロールする
             Then 自動スクロールは解除され、その場に留まる（新しいSparkが来ても勝手に動かない）
 
-    Rule: Sparkは「熱量」と「残り時間」を可視化する
+    Rule: Sparkは熱量を持ち、時間とともに冷めて消える
         Background:
             Given ユーザーは "Timeline" を閲覧している
 
@@ -49,3 +48,4 @@ Feature: Timeline
         Example: Empty Stateの表示 (The Silent Sky)
             Then 画面中央にアイコン等は表示せず、テキストのみを表示する
             And テキストの内容は「静かな夜空です。」とする
+

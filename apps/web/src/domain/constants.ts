@@ -41,6 +41,13 @@ export const LOG_EVENTS = {
     POST_SUCCESS: "SPARK_POST_SUCCESS",
     POST_ERROR: "SPARK_POST_ERROR",
   },
+  // Add Fuel (薪をくべる)
+  ADD_FUEL: {
+    START: "ADD_FUEL_START",
+    SUCCESS: "ADD_FUEL_SUCCESS",
+    ERROR: "ADD_FUEL_ERROR",
+    HAPTIC_NOT_SUPPORTED: "ADD_FUEL_HAPTIC_NOT_SUPPORTED",
+  },
 } as const;
 
 /**

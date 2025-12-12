@@ -8,11 +8,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, status
 
 from app.adapter.entrypoints.dependencies import (
+    get_add_fuel_usecase,
+    get_identity_provider,
     get_logger,
     get_post_spark_usecase,
     get_stream_timeline_usecase,
 )
 from app.domain.constants import LOG_EVENTS
+from app.domain.service.identity_provider import IIdentityProvider
+from app.usecase.add_fuel.interface import AddFuelInput, AddFuelOutput, IAddFuelUseCase
 from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
 from app.usecase.ports.logger import ILogger
 from app.usecase.post_spark.interface import IPostSparkUseCase
@@ -87,6 +91,54 @@ async def post_spark(
     )
 
     return result
+
+
+@router.post("/{spark_id}/fuel", status_code=status.HTTP_200_OK)
+async def add_fuel_to_spark(
+    request: Request,
+    spark_id: str,
+    usecase: Annotated[IAddFuelUseCase, Depends(get_add_fuel_usecase)],
+    identity_provider: Annotated[IIdentityProvider, Depends(get_identity_provider)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> AddFuelOutput:
+    """Add fuel to a spark.
+
+    Args:
+        request: FastAPI request object (for IP extraction)
+        spark_id: The spark ID to add fuel to
+        usecase: Add fuel use case (injected)
+        identity_provider: Identity provider (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Success response (without revealing fuel count)
+
+    Raises:
+        AppError: If spark not found (1005) or already decayed (1001)
+
+    """
+    ip_address = get_client_ip(request)
+    user_hash = identity_provider.get_user_hash(ip_address)
+
+    logger.info(
+        LOG_EVENTS.FUEL_ADD_STARTED,
+        "Fuel add request received",
+        context={
+            "spark_id": spark_id,
+            "ip_address": ip_address,
+        },
+    )
+
+    input_data = AddFuelInput(spark_id=spark_id, user_hash=user_hash)
+    output = await usecase.execute(input_data)
+
+    logger.info(
+        LOG_EVENTS.FUEL_ADD_SUCCESS,
+        "Fuel add request completed",
+        context={"spark_id": spark_id},
+    )
+
+    return output
 
 
 @router.websocket("/ws")

@@ -22,6 +22,7 @@ describe("usePostSpark", () => {
     // Create fresh mocks before each test
     mockRepository = {
       postSpark: vi.fn(),
+      addFuel: vi.fn(),
     };
 
     mockLogger = {

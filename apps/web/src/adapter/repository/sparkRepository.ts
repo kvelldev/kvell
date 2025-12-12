@@ -5,7 +5,7 @@
  * Handles API communication for spark operations using apiClient.
  */
 
-import type { PostSparkRequest, Spark } from "@/domain/model/spark";
+import type { AddFuelRequest, PostSparkRequest, Spark } from "@/domain/model/spark";
 import type { ISparkRepository } from "@/domain/repository/sparkRepository";
 import { apiClient } from "@/adapter/apiClient";
 
@@ -36,6 +36,14 @@ class SparkRepositoryImpl implements ISparkRepository {
       createdAt: data.created_at,
       decayAt: data.decay_at,
     };
+  }
+
+  async addFuel(request: AddFuelRequest): Promise<void> {
+    // POST /api/sparks/{sparkId}/fuel
+    // The API returns 204 No Content to hide fuel count from users
+    await apiClient<null>(`/api/sparks/${request.sparkId}/fuel`, {
+      method: "POST",
+    });
   }
 }
 
