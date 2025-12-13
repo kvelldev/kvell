@@ -1,702 +1,819 @@
-/**
- * Spark Repository Implementation
- *
- * Adapter layer implementation of ISparkRepository.
- * Handles API communication for spark operations using apiClient.
- */
+# Kvell Infrastructure
 
-import type { AddFuelRequest, PostSparkRequest, Spark } from "@/domain/model/spark";
-import type { ISparkRepository } from "@/domain/repository/sparkRepository";
-import { apiClient } from "@/adapter/apiClient";
+本番環境のCloudFormationテンプレート。
 
-/**
- * API response type for spark endpoints (snake_case from backend)
- */
-interface SparkApiResponse {
-  id: string;
-  content: string;
-  created_at: string;
-  decay_at: string;
+## アーキテクチャ
+
+```
+User → CloudFront → S3 (SPA)
+                 → EC2 (Docker: API + MongoDB + Redis)
+```
+
+## ファイル構成
+
+```
+infra/
+├── README.md          # このファイル
+├── network.yml        # VPC, Subnet, IGW
+├── instance.yml       # EC2, Security Group, IAM, Data EBS
+├── cdn.yml            # S3, CloudFront
+└── scripts/
+    ├── setup-prod.sh  # EC2起動時に実行
+    └── backup.sh      # Cronで毎時実行
+```
+
+## デプロイ順序
+
+### 1. 事前準備
+
+```bash
+# ACM証明書の作成 (us-east-1, AWSコンソールで)
+
+# ECRリポジトリの作成
+aws ecr create-repository --repository-name kvell-api --region ap-northeast-1
+
+# APIイメージをビルド・プッシュ
+cd apps/api
+aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin <account-id>.dkr.ecr.ap-northeast-1.amazonaws.com
+docker build -t kvell-api .
+docker tag kvell-api:latest <account-id>.dkr.ecr.ap-northeast-1.amazonaws.com/kvell-api:latest
+docker push <account-id>.dkr.ecr.ap-northeast-1.amazonaws.com/kvell-api:latest
+```
+
+### 2. ネットワーク
+
+```bash
+aws cloudformation deploy \
+  --template-file network.yml \
+  --stack-name kvell-network \
+  --region ap-northeast-1
+```
+
+### 3. S3/CloudFront
+
+```bash
+aws cloudformation deploy \
+  --template-file cdn.yml \
+  --stack-name kvell-cdn \
+  --parameter-overrides \
+    DomainName=kvell.example.com \
+    AcmCertificateArn=arn:aws:acm:us-east-1:xxx:certificate/xxx \
+    ApiOriginDomain=dummy.example.com \
+  --capabilities CAPABILITY_IAM \
+  --region ap-northeast-1
+```
+
+### 4. EC2インスタンス
+
+```bash
+aws cloudformation deploy \
+  --template-file instance.yml \
+  --stack-name kvell-instance \
+  --parameter-overrides \
+    GitHubRepo=https://github.com/your-org/kvell.git \
+    EcrRepository=<account-id>.dkr.ecr.ap-northeast-1.amazonaws.com/kvell-api \
+    CorsOrigins=https://kvell.example.com \
+    BackupS3Bucket=kvell-prod-backups \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region ap-northeast-1
+```
+
+### 5. CloudFront Origin更新
+
+```bash
+PUBLIC_IP=$(aws cloudformation describe-stacks \
+  --stack-name kvell-instance \
+  --query 'Stacks[0].Outputs[?OutputKey==`PublicIp`].OutputValue' \
+  --output text)
+
+aws cloudformation deploy \
+  --template-file cdn.yml \
+  --stack-name kvell-cdn \
+  --parameter-overrides ApiOriginDomain=$PUBLIC_IP \
+  --region ap-northeast-1
+```
+
+### 6. SPA デプロイ
+
+```bash
+cd apps/web && npm run build
+aws s3 sync dist/ s3://kvell-prod-spa/ --delete
+aws cloudfront create-invalidation --distribution-id XXXX --paths "/*"
+```
+
+## 運用
+
+### 新バージョンデプロイ
+
+```bash
+# イメージをビルド・プッシュ
+docker build -t kvell-api apps/api
+docker tag kvell-api:latest <ecr-repo>:v1.2.3
+docker push <ecr-repo>:v1.2.3
+
+# EC2でイメージ更新
+aws ssm start-session --target i-xxxx
+cd /opt/kvell
+git pull
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+### バックアップ復旧
+
+```bash
+aws s3 cp s3://kvell-prod-backups/bonfires-YYYYMMDD-HHMM.bson /tmp/
+docker cp /tmp/bonfires.bson kvell-mongo-1:/tmp/
+docker exec kvell-mongo-1 mongorestore \
+  --uri="mongodb://localhost:27017/kvell" \
+  --collection=bonfires /tmp/bonfires.bson
+```
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Kvell S3 Buckets and CloudFront Distribution
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: kvell-prod
+    Description: Environment name prefix
+
+  DomainName:
+    Type: String
+    Description: Custom domain name (e.g., kvell.example.com)
+
+  AcmCertificateArn:
+    Type: String
+    Description: ACM Certificate ARN for HTTPS (must be in us-east-1)
+
+  ApiOriginDomain:
+    Type: String
+    Description: EC2 Public IP or domain for API origin
+
+Resources:
+  # S3 Bucket for SPA
+  SpaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-spa"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket for Setup Scripts
+  ScriptsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-scripts"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket for Backups
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-backups"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldBackups
+            Status: Enabled
+            ExpirationInDays: 30
+
+  # CloudFront Origin Access Control for S3
+  S3OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${EnvironmentName}-s3-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # S3 Bucket Policy for CloudFront
+  SpaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SpaBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${SpaBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${EnvironmentName} distribution"
+        DefaultRootObject: index.html
+        Aliases:
+          - !Ref DomainName
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        # Geo Restriction - Japan Only
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: whitelist
+            Locations:
+              - JP
+        Origins:
+          # S3 Origin for SPA
+          - Id: S3Origin
+            DomainName: !GetAtt SpaBucket.RegionalDomainName
+            OriginAccessControlId: !Ref S3OriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          # EC2 Origin for API (with extended timeouts for WebSocket)
+          - Id: ApiOrigin
+            DomainName: !Ref ApiOriginDomain
+            CustomOriginConfig:
+              HTTPPort: 8000
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60  # Extended for WebSocket
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          Compress: true
+        CacheBehaviors:
+          # WebSocket - No Cache
+          - PathPattern: /api/sparks/ws
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3  # AllViewer
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+          # GET /api/bonfires - 5 second cache
+          - PathPattern: /api/bonfires
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            CachePolicyId: !Ref BonfiresCachePolicy
+            AllowedMethods:
+              - GET
+              - HEAD
+          # Other API - No Cache
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3  # AllViewer
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+        CustomErrorResponses:
+          # SPA routing - return index.html for 404
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+  # Custom Cache Policy for Bonfires (5 second TTL)
+  BonfiresCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${EnvironmentName}-bonfires-cache"
+        DefaultTTL: 5
+        MaxTTL: 30
+        MinTTL: 5
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          HeadersConfig:
+            HeaderBehavior: none
+          CookiesConfig:
+            CookieBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+Outputs:
+  SpaBucketName:
+    Description: S3 bucket for SPA deployment
+    Value: !Ref SpaBucket
+
+  ScriptsBucketName:
+    Description: S3 bucket for setup scripts
+    Value: !Ref ScriptsBucket
+
+  BackupBucketName:
+    Description: S3 bucket for MongoDB backups
+    Value: !Ref BackupBucket
+
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !Ref CloudFrontDistribution
+
+  CloudFrontDomainName:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Kvell Production EC2 Instance with Docker
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: kvell-prod
+    Description: Environment name prefix
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+    Description: EC2 instance type (t3.small recommended for MongoDB)
+
+  KeyPairName:
+    Type: String
+    Default: ""
+    Description: EC2 Key Pair for SSH access (optional, SSM recommended)
+
+  GitHubRepo:
+    Type: String
+    Default: https://github.com/your-org/kvell.git
+    Description: GitHub repository URL
+
+  EcrRepository:
+    Type: String
+    Description: ECR repository URI (e.g., 123456789.dkr.ecr.ap-northeast-1.amazonaws.com/kvell-api)
+
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: Docker image tag to deploy
+
+  CorsOrigins:
+    Type: String
+    Default: https://kvell.example.com
+    Description: CORS allowed origins
+
+  BackupS3Bucket:
+    Type: String
+    Description: S3 bucket for MongoDB backups
+
+  DataVolumeSize:
+    Type: Number
+    Default: 10
+    Description: Size of data EBS volume in GB (for MongoDB)
+
+  # Dynamic AMI using SSM Parameter Store
+  LatestUbuntuAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id
+    Description: SSM Parameter for latest Ubuntu 22.04 AMI
+
+  # CloudFront Managed Prefix List ID (for restricting SG to CloudFront only)
+  # Get this from: aws ec2 describe-managed-prefix-lists --filters "Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing"
+  CloudFrontPrefixListId:
+    Type: String
+    Default: pl-58a04531  # ap-northeast-1 CloudFront prefix list
+    Description: CloudFront managed prefix list ID for security group
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, ""]]
+
+Resources:
+  # Security Group
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Kvell production instance security group
+      VpcId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-vpc-id"
+      SecurityGroupIngress:
+        # HTTP from CloudFront only (using AWS managed prefix list)
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
+          Description: FastAPI from CloudFront only
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-sg"
+
+  # IAM Role for EC2
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-instance-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: KvellInstancePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # ECR Access for pulling images
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/kvell-api"
+              # S3 Access for backups
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${BackupS3Bucket}/*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  # Data EBS Volume (survives instance replacement)
+  DataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Size: !Ref DataVolumeSize
+      VolumeType: gp3
+      Encrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-data-volume"
+
+  # EC2 Instance
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      SubnetId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-public-subnet-id"
+      ImageId: !Ref LatestUbuntuAmiId
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue"]
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 10
+            VolumeType: gp3
+            DeleteOnTermination: true  # OS volume can be deleted
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+
+          # Export environment variables for setup script
+          export AWS_REGION=${AWS::Region}
+          export S3_BUCKET=${SetupScriptS3Bucket}
+          export CORS_ORIGINS=${CorsOrigins}
+          export BACKUP_BUCKET=${BackupS3Bucket}
+          export DATA_VOLUME_ID=${DataVolume}
+
+          # Wait for data volume to be available
+          aws ec2 wait volume-available --volume-ids ${DataVolume} --region ${AWS::Region} || true
+
+          # Attach data volume
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          aws ec2 attach-volume --volume-id ${DataVolume} --instance-id $INSTANCE_ID --device /dev/xvdf --region ${AWS::Region} || true
+
+          # Wait for device to appear
+          sleep 10
+
+          # Format if new volume (check if filesystem exists)
+          if ! blkid /dev/xvdf; then
+            mkfs.ext4 /dev/xvdf
+          fi
+
+          # Mount data volume
+          mkdir -p /data
+          mount /dev/xvdf /data
+
+          # Add to fstab for persistence
+          echo '/dev/xvdf /data ext4 defaults,nofail 0 2' >> /etc/fstab
+
+          # Install dependencies and clone repo
+          apt update -y && apt install -y git curl
+
+          # Clone repository and run setup script
+          git clone ${GitHubRepo} /opt/kvell
+
+          # Export environment variables and run setup
+          export AWS_REGION=${AWS::Region}
+          export ECR_REPO=${EcrRepository}
+          export CORS_ORIGINS=${CorsOrigins}
+          export BACKUP_BUCKET=${BackupS3Bucket}
+          export GITHUB_REPO=${GitHubRepo}
+          export IMAGE_TAG=${ImageTag}
+
+          chmod +x /opt/kvell/infra/scripts/setup-prod.sh
+          /opt/kvell/infra/scripts/setup-prod.sh
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-instance"
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref Instance
+
+  PublicIp:
+    Description: Public IP address (use for CloudFront origin)
+    Value: !GetAtt Instance.PublicIp
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref InstanceSecurityGroup
+
+  DataVolumeId:
+    Description: Data EBS Volume ID (contains MongoDB data)
+    Value: !Ref DataVolume
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Kvell Production Network - VPC, Public Subnet, Internet Gateway
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: kvell-prod
+    Description: Environment name prefix
+
+Resources:
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-vpc"
+
+  # Public Subnet (Single AZ for cost optimization)
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-subnet"
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-igw"
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-rt"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${EnvironmentName}-vpc-id"
+
+  PublicSubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub "${EnvironmentName}-public-subnet-id"
+#!/bin/bash
+# Kvell MongoDB Backup Script
+# Called by cron hourly
+set -euo pipefail
+
+BACKUP_BUCKET="${BACKUP_BUCKET:-kvell-prod-backups}"
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+
+# Dump bonfires collection only
+docker exec kvell-mongo-1 mongodump \
+    --uri="mongodb://localhost:27017/kvell" \
+    --collection=bonfires \
+    --out=/tmp/backup
+
+# Upload to S3
+docker cp kvell-mongo-1:/tmp/backup/kvell/bonfires.bson /tmp/
+aws s3 cp /tmp/bonfires.bson "s3://${BACKUP_BUCKET}/bonfires-${TIMESTAMP}.bson"
+
+# Cleanup
+docker exec kvell-mongo-1 rm -rf /tmp/backup
+rm -f /tmp/bonfires.bson
+
+echo "$(date): Backup completed - bonfires-${TIMESTAMP}.bson"
+#!/bin/bash
+# Kvell Production Setup Script
+# This script is embedded in UserData and clones the repo from GitHub
+set -euo pipefail
+
+readonly KVELL_HOME="/opt/kvell"
+readonly GITHUB_REPO="${GITHUB_REPO:-https://github.com/your-org/kvell.git}"
+readonly LOG_FILE="/var/log/kvell-setup.log"
+
+exec > >(tee -a "$LOG_FILE")
+exec 2>&1
+
+log_info() { echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $1"; }
+log_error() { echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $1" >&2; }
+log_success() { echo "$(date '+%Y-%m-%d %H:%M:%S') [SUCCESS] $1"; }
+
+# --------------------------------------------------------------------
+# System Setup
+# --------------------------------------------------------------------
+setup_system() {
+    log_info "Setting up system..."
+
+    timedatectl set-timezone Asia/Tokyo
+
+    apt update -y && apt upgrade -y
+    apt install -y curl wget unzip jq git
+
+    # Install AWS CLI v2
+    if ! command -v aws &> /dev/null; then
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+        unzip -q /tmp/awscliv2.zip -d /tmp
+        /tmp/aws/install
+        rm -rf /tmp/aws /tmp/awscliv2.zip
+    fi
+
+    log_success "System setup completed"
 }
 
-/**
- * Spark Repository implementation
- */
-class SparkRepositoryImpl implements ISparkRepository {
-  async postSpark(request: PostSparkRequest): Promise<Spark> {
-    const data = await apiClient<SparkApiResponse>("/api/sparks", {
-      method: "POST",
-      body: JSON.stringify({ content: request.content }),
-    });
+# --------------------------------------------------------------------
+# Docker Installation
+# --------------------------------------------------------------------
+install_docker() {
+    log_info "Installing Docker..."
 
-    // Transform snake_case API response to camelCase domain model
-    return {
-      id: data.id,
-      content: data.content,
-      createdAt: data.created_at,
-      decayAt: data.decay_at,
-    };
-  }
+    if command -v docker &> /dev/null; then
+        log_info "Docker already installed"
+        return 0
+    fi
 
-  async addFuel(request: AddFuelRequest): Promise<void> {
-    // POST /api/sparks/{sparkId}/fuel
-    // The API returns 204 No Content to hide fuel count from users
-    await apiClient<null>(`/api/sparks/${request.sparkId}/fuel`, {
-      method: "POST",
-    });
-  }
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+      https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+      | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    apt update -y
+    apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+    systemctl enable --now docker
+
+    log_success "Docker installed"
 }
 
-/**
- * Singleton instance of Spark Repository
- */
-export const sparkRepository: ISparkRepository = new SparkRepositoryImpl();
-/**
- * Ignite Effect Component
- *
- * Visual feedback component that displays particle animation when fuel is added.
- * Uses Framer Motion for physics-based particle animation.
- * No quantitative information (fuel count) is displayed - only visual celebration.
- */
+# --------------------------------------------------------------------
+# Clone Repository
+# --------------------------------------------------------------------
+clone_repo() {
+    log_info "Cloning Kvell repository..."
 
-import { motion, AnimatePresence } from "framer-motion";
-import { useEffect, useState } from "react";
+    mkdir -p /data/mongo
 
-interface IgniteEffectProps {
-  /**
-   * Trigger flag: when true, animation starts and self-destructs
-   */
-  trigger: boolean;
-  /**
-   * Callback when animation completes
-   */
-  onComplete?: () => void;
+    if [ -d "$KVELL_HOME" ]; then
+        cd "$KVELL_HOME"
+        git pull
+    else
+        git clone "$GITHUB_REPO" "$KVELL_HOME"
+    fi
+
+    cd "$KVELL_HOME"
+
+    # Create .env file
+    cat > .env << EOF
+ECR_REPO=${ECR_REPO}
+IMAGE_TAG=${IMAGE_TAG:-latest}
+CORS_ORIGINS=${CORS_ORIGINS}
+LOG_LEVEL=info
+EOF
+
+    log_success "Repository cloned"
 }
 
-interface Particle {
-  id: number;
-  x: number;
-  y: number;
-  size: number;
-  duration: number;
-  delay: number;
+# --------------------------------------------------------------------
+# Backup Script Setup
+# --------------------------------------------------------------------
+setup_backup() {
+    log_info "Setting up backup cron job..."
+
+    # Add cron job (hourly backup)
+    echo "0 * * * * root BACKUP_BUCKET=${BACKUP_BUCKET} $KVELL_HOME/infra/scripts/backup.sh >> /var/log/kvell-backup.log 2>&1" > /etc/cron.d/kvell-backup
+
+    log_success "Backup cron job configured"
 }
 
-/**
- * Generate random particles for ignite effect
- * @param count - Number of particles to generate
- * @returns Array of particle configurations
- */
-const generateParticles = (count: number): Particle[] => {
-  return Array.from({ length: count }, (_, index) => ({
-    id: index,
-    // Spread particles horizontally from center
-    x: (Math.random() - 0.5) * 60,
-    // Random vertical starting position
-    y: Math.random() * 20,
-    // Random size between 4-10px
-    size: Math.random() * 6 + 4,
-    // Random duration between 0.6-1.2s
-    duration: Math.random() * 0.6 + 0.6,
-    // Stagger animation slightly
-    delay: Math.random() * 0.1,
-  }));
-};
+# --------------------------------------------------------------------
+# Start Application
+# --------------------------------------------------------------------
+start_application() {
+    log_info "Starting Kvell application..."
 
-/**
- * IgniteEffect Component (Atom)
- *
- * Renders particle animation that flies upward when fuel is added.
- * Positioned absolutely over the trigger element (fuel button).
- * @param props - Component props
- * @param props.trigger - Flag to trigger animation
- * @param props.onComplete - Callback when animation completes
- * @returns Rendered particle animation element
- */
-export const IgniteEffect = ({ trigger, onComplete }: IgniteEffectProps) => {
-  const [particles, setParticles] = useState<Particle[]>([]);
-  const [isAnimating, setIsAnimating] = useState(false);
+    cd "$KVELL_HOME"
 
-  useEffect(() => {
-    if (trigger) {
-      // Generate 8-12 particles
-      const particleCount = Math.floor(Math.random() * 5) + 8;
-      setParticles(generateParticles(particleCount));
-      setIsAnimating(true);
+    # Login to ECR
+    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO%%/*}
 
-      // Clean up after longest animation completes
-      const timer = setTimeout(() => {
-        setIsAnimating(false);
-        setParticles([]);
-        if (onComplete) {
-          onComplete();
-        }
-      }, 1500);
+    # Use production compose file
+    docker compose -f docker-compose.prod.yml pull
+    docker compose -f docker-compose.prod.yml up -d
 
-      return () => {
-        clearTimeout(timer);
-      };
-    }
-  }, [trigger, onComplete]);
-
-  return (
-    <div className="pointer-events-none absolute inset-0 overflow-visible">
-      <AnimatePresence>
-        {isAnimating &&
-          particles.map((particle) => (
-            <motion.div
-              key={particle.id}
-              className="absolute left-1/2 top-1/2 rounded-full"
-              style={{
-                width: particle.size,
-                height: particle.size,
-                // Gradient from spark (bright) to ember (orange)
-                background:
-                  "radial-gradient(circle, var(--color-spark-500) 0%, var(--color-ember-500) 100%)",
-                boxShadow: "0 0 8px rgba(253, 186, 116, 0.6)",
-              }}
-              initial={{
-                x: particle.x,
-                y: particle.y,
-                opacity: 1,
-                scale: 1,
-              }}
-              animate={{
-                // Rise upward
-                y: particle.y - 80 - Math.random() * 40,
-                // Spread horizontally
-                x: particle.x + (Math.random() - 0.5) * 40,
-                opacity: 0,
-                scale: 0.3,
-              }}
-              exit={{ opacity: 0 }}
-              transition={{
-                duration: particle.duration,
-                delay: particle.delay,
-                ease: "easeOut",
-              }}
-            />
-          ))}
-      </AnimatePresence>
-    </div>
-  );
-};
-import { memo, useState } from "react";
-import clsx from "clsx";
-import { Flame } from "lucide-react";
-import type { SparkViewModel } from "@/domain/model/spark";
-import { IgniteEffect } from "@/components/atoms/IgniteEffect";
-
-interface SparkCardProps {
-  spark: SparkViewModel;
-  /**
-   * Callback when fuel button is clicked
-   */
-  onAddFuel?: (sparkId: string) => void;
+    log_success "Kvell application started"
 }
 
-const formatTime = (totalSeconds: number): string => {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-};
+# --------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------
+main() {
+    log_info "Starting Kvell production setup..."
 
-/**
- * SparkCard Component (Memoized)
- *
- * Renders a single spark with:
- * - Fade-in animation on mount
- * - Color temperature based heat expression (white→ash transition)
- * - Dynamic glow: Visible when hot, disappears when cooled (Ash)
- * - TTL countdown timer in bottom-right corner
- * - Text truncation for long content
- * - Add fuel button with ignite effect
- *
- * Performance:
- * - Memoized to prevent re-renders when temperature state doesn't change
- * - Only re-renders if spark.id, spark.content, spark.temperature, or spark.remainingTimeInSeconds changes
- * @returns Rendered spark card element
- */
-const SparkCardComponent = ({ spark, onAddFuel }: SparkCardProps) => {
-  const isHot = spark.temperature === "hot";
-  const [showEffect, setShowEffect] = useState(false);
+    setup_system
+    install_docker
+    clone_repo
+    setup_backup
+    start_application
 
-  const shadowClass = isHot ? "shadow-glow-sm" : "shadow-none";
-  const borderClass = isHot ? "border-ember-500" : "border-ash-500";
-
-  const handleAddFuel = () => {
-    // Trigger ignite effect
-    setShowEffect(true);
-    // Call parent callback
-    onAddFuel?.(spark.id);
-  };
-
-  return (
-    <div
-      className={clsx(
-        "rounded-card bg-night-800 text-ash-500 border p-4 transition-all duration-1000 ease-in-out",
-        shadowClass,
-        borderClass,
-      )}
-      data-testid="spark-item"
-      data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
-    >
-      <p className="font-base line-clamp-3 text-sm leading-relaxed">
-        {spark.content}
-      </p>
-      <div className="mt-2 flex items-center justify-between">
-        {/* Add Fuel Button */}
-        <button
-          onClick={handleAddFuel}
-          className={clsx(
-            "relative flex items-center gap-1.5 rounded-button px-3 py-1.5 text-xs font-medium transition-all",
-            "border border-ember-500/30 bg-ember-500/10 text-ember-500",
-            "hover:border-ember-500/50 hover:bg-ember-500/20",
-            "focus:outline-none focus:ring-2 focus:ring-ember-500/50",
-          )}
-          data-testid="add-fuel-button"
-          aria-label="Add fuel to spark"
-        >
-          <Flame className="h-3.5 w-3.5" />
-          <span>薪をくべる</span>
-          <IgniteEffect
-            trigger={showEffect}
-            onComplete={() => {
-              setShowEffect(false);
-            }}
-          />
-        </button>
-
-        {/* TTL Timer */}
-        <span
-          className={clsx("font-mono text-xs transition-colors duration-1000")}
-          data-testid="spark-timer"
-        >
-          {formatTime(spark.remainingTimeInSeconds)}
-        </span>
-      </div>
-    </div>
-  );
-};
-
-export const SparkCard = memo(SparkCardComponent);
-/**
- * TimelineStream Organism Component (Dumb)
- *
- * YouTube Live-style scrolling timeline for real-time spark display.
- * Pure presentational component - receives all data via props.
- */
-
-import { Virtuoso } from "react-virtuoso";
-import type { SparkViewModel } from "@/domain/model/spark";
-import { SparkCard } from "@/components/molecules/SparkCard";
-
-/**
- * Props for TimelineStream component
- */
-interface TimelineStreamProps {
-  /**
-   * Array of spark ViewModels to display (ascending order - oldest first, newest last)
-   */
-  sparks: SparkViewModel[];
-  /**
-   * Callback when fuel is added to a spark
-   */
-  onAddFuel?: (sparkId: string) => void;
+    log_success "Kvell production setup completed!"
+    echo "Kvell setup completed at $(date)" | tee /etc/motd
 }
 
-/**
- * TimelineStream Component
- *
- * Features:
- * - Virtual scrolling for performance (react-virtuoso)
- * - Auto-scroll to bottom when new sparks arrive (followOutput="auto")
- * - Initial display at bottom (YouTube Live-style)
- * - Color temperature based heat expression (handled by SparkCard)
- * - Empty state display when no sparks are available
- * @returns Rendered timeline stream element
- */
-export const TimelineStream = ({ sparks, onAddFuel }: TimelineStreamProps) => {
-  // Empty State: Display "The Silent Sky" when no sparks are available
-  if (sparks.length === 0) {
-    return (
-      <div
-        className="flex size-full items-center justify-center"
-        data-testid="timeline-stream"
-      >
-        <p
-          className="font-base text-sm text-ash-500"
-          data-testid="timeline-empty-state"
-        >
-          静かな夜空です。
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative size-full" data-testid="timeline-container">
-      <Virtuoso
-        data={sparks}
-        alignToBottom
-        initialTopMostItemIndex={sparks.length - 1}
-        followOutput="smooth"
-        computeItemKey={(_, spark) => spark.id}
-        itemContent={(_index, spark) => (
-          <div className="pb-4 pr-2">
-            <SparkCard spark={spark} onAddFuel={onAddFuel} />
-          </div>
-        )}
-        style={{ height: "100%" }}
-      />
-    </div>
-  );
-};
-/**
- * Timeline Page (Smart Component)
- *
- * Entry point for the Timeline feature.
- * Handles dependency injection and wiring of UseCase to UI components.
- * Includes spark posting functionality with FAB and modal.
- */
-
-import { useState } from "react";
-import { Flame } from "lucide-react";
-import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
-import { sparkRepository } from "@/adapter/repository/sparkRepository";
-import { useTimelineStream } from "@/usecase/useTimelineStream";
-import { usePostSpark } from "@/usecase/usePostSpark";
-import { useAddFuel } from "@/usecase/useAddFuel";
-import { TimelineStream } from "@/components/organisms/TimelineStream";
-import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
-import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
-import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
-import { SparkPostModal } from "@/components/organisms/SparkPostModal";
-import { useLogger } from "@/components/useLogger";
-import { settings } from "@/adapter/infra/settings";
-
-/**
- * Timeline Page Component
- *
- * Responsibilities:
- * - Display real-time timeline of sparks
- * - Provide FAB button to open spark posting modal
- * - Handle spark posting with error display
- * @returns Rendered timeline page with posting capability
- */
-export const TimelinePage = () => {
-  // Local UI state for posting
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [content, setContent] = useState("");
-
-  // Dependency Injection: Logger
-  const logger = useLogger();
-
-  // UseCase: Connect to WebSocket and receive sparks
-  const { sparks, hasError } = useTimelineStream(wsTimelineRepository);
-
-  // UseCase: Post spark
-  const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
-
-  // UseCase: Add fuel to spark
-  const { addFuel } = useAddFuel(sparkRepository, logger);
-
-  // Event Handler: Submit spark
-  const handleSubmit = async () => {
-    const trimmedContent = content.trim();
-    if (!trimmedContent) return;
-
-    try {
-      await postSpark({ content: trimmedContent });
-      // On success: Clear input and close modal
-      setContent("");
-      setIsModalOpen(false);
-    } catch {
-      // Error is already logged by UseCase and stored in error state
-      // UI will display error via SparkPostModal
-    }
-  };
-
-  // Event Handler: Add fuel to spark
-  const handleAddFuel = (sparkId: string) => {
-    void addFuel({ sparkId });
-  };
-
-  return (
-    <TimelineTemplate>
-      {hasError ? (
-        <ErrorStateMessage
-          title="サーバーに接続できません"
-          description="ネットワーク接続を確認してページを再読み込みしてください"
-          testId="timeline-error-message"
-        />
-      ) : (
-        <TimelineStream sparks={sparks} onAddFuel={handleAddFuel} />
-      )}
-
-      <FloatingActionButton
-        onClick={() => {
-          setIsModalOpen(true);
-        }}
-        icon={<Flame size={24} />}
-        label="種火を投げる"
-        testId="spark-post-fab"
-      />
-
-      <SparkPostModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-        }}
-        content={content}
-        onContentChange={setContent}
-        onSubmit={() => {
-          void handleSubmit();
-        }}
-        isPosting={isPosting}
-        maxLength={settings.sparkMaxLength}
-        error={error}
-      />
-    </TimelineTemplate>
-  );
-};
-export const internalStatuses = {
-  // Sucess
-  200: "OK",
-  201: "Created",
-  204: "No Content",
-  // Client Errors
-  400: "Bad Request",
-  401: "Unauthorized",
-  403: "Forbidden",
-  404: "Not Found",
-  409: "Conflict",
-  422: "Unprocessable Entity",
-  // Business Logic Errors
-  1001: "Invalid email format.",
-  // Server Errors
-  500: "Internal Server Error",
-} as const;
-
-/**
- * Type representing valid internal status codes.
- */
-export type InternalStatusCodes = keyof typeof internalStatuses;
-
-/**
- * Log Event IDs for structured logging.
- * Use these constants in logger calls for testable, consistent event tracking.
- */
-export const LOG_EVENTS = {
-  // Health Check
-  HEALTH_CHECK: {
-    FETCH_START: "HEALTH_FETCH_START",
-    FETCH_SUCCESS: "HEALTH_FETCH_SUCCESS",
-    FETCH_ERROR: "HEALTH_FETCH_ERROR",
-    SAVE_START: "HEALTH_SAVE_START",
-    SAVE_SUCCESS: "HEALTH_SAVE_SUCCESS",
-    SAVE_ERROR: "HEALTH_SAVE_ERROR",
-  },
-  // Spark Post
-  SPARK: {
-    POST_START: "SPARK_POST_START",
-    POST_SUCCESS: "SPARK_POST_SUCCESS",
-    POST_ERROR: "SPARK_POST_ERROR",
-  },
-  // Add Fuel (薪をくべる)
-  ADD_FUEL: {
-    START: "ADD_FUEL_START",
-    SUCCESS: "ADD_FUEL_SUCCESS",
-    ERROR: "ADD_FUEL_ERROR",
-    HAPTIC_NOT_SUPPORTED: "ADD_FUEL_HAPTIC_NOT_SUPPORTED",
-  },
-} as const;
-
-/**
- * Spark cooling threshold ratio
- * Sparks with less than this percentage of their total lifetime remaining
- * will display as "cooling" (ash)
- *
- * This value is derived from the BDD specification:
- * "システムの '冷却閾値' は 'Decay time' に対して '30%' の割合である"
- */
-export const COOLING_THRESHOLD_RATIO = 0.3;
-/**
- * Spark Domain Model
- *
- * Represents a single spark (種火) - the core unit of all topics in Kvell.
- */
-
-import type { SparkTemperature } from "@/domain/service/sparkService";
-
-/**
- * Spark interface
- */
-export interface Spark {
-  /**
-   * Unique identifier for the spark
-   */
-  id: string;
-
-  /**
-   * Spark content text
-   */
-  content: string;
-
-  /**
-   * ISO timestamp when the spark was created
-   */
-  createdAt: string;
-
-  /**
-   * ISO timestamp when the spark decays (becomes invisible)
-   */
-  decayAt: string;
-}
-
-/**
- * Spark ViewModel with computed temperature state and remaining time
- * Used for UI rendering to avoid recalculation on every render
- */
-export interface SparkViewModel extends Spark {
-  /**
-   * Computed temperature state ('hot' or 'ash')
-   * Determines visual representation (color, border glow)
-   */
-  temperature: SparkTemperature;
-
-  /**
-   * Remaining time until expiration in seconds
-   * Used for countdown timer display (mm:ss format)
-   */
-  remainingTimeInSeconds: number;
-}
-
-/**
- * Request payload for posting a new spark
- */
-export interface PostSparkRequest {
-  /**
-   * Spark content text to post
-   */
-  content: string;
-}
-
-/**
- * Request payload for adding fuel to a spark
- */
-export interface AddFuelRequest {
-  /**
-   * Target spark ID to add fuel
-   */
-  sparkId: string;
-}
-/**
- * Spark Repository Interface (DIP)
- *
- * Abstract definition of data access operations for Spark entities.
- */
-
-import type { AddFuelRequest, PostSparkRequest, Spark } from "@/domain/model/spark";
-
-/**
- * Spark Repository Interface
- */
-export interface ISparkRepository {
-  /**
-   * Post a new spark.
-   * @param request - The spark content to post
-   * @returns The created spark details
-   */
-  postSpark(request: PostSparkRequest): Promise<Spark>;
-
-  /**
-   * Add fuel to a spark.
-   * This operation sends an event to the backend but does not return fuel count
-   * to maintain the principle of hiding quantitative evaluation from users.
-   * @param request - The spark ID to add fuel
-   * @returns void (No data returned to hide fuel count)
-   */
-  addFuel(request: AddFuelRequest): Promise<void>;
-}
-/**
- * UseCase Layer Constants
- *
- * SWR cache keys and other usecase-specific constants.
- */
-
-export const SWR_KEYS = {
-  HEALTH_LATEST: "/health/latest",
-  SPARK_POST: "/spark/post",
-  ADD_FUEL: "/spark/add-fuel",
-} as const;
-/**
- * Add Fuel UseCase Hook
- *
- * Custom hook for adding fuel to a spark.
- * Triggers haptic feedback and ignite effect without displaying fuel count.
- */
-
-import useSWRMutation from "swr/mutation";
-import type { AddFuelRequest } from "@/domain/model/spark";
-import type { ISparkRepository } from "@/domain/repository/sparkRepository";
-import type { ILogger } from "@/usecase/ports/ILogger";
-import { SWR_KEYS } from "@/usecase/constants";
-import { LOG_EVENTS } from "@/domain/constants";
-import { triggerHapticFeedback } from "@/lib/haptic";
-
-/**
- * UseCase Hook for adding fuel to a spark (Mutation).
- * @param repository - Repository implementation (injected from outside)
- * @param logger - Logger implementation (injected from outside)
- * @returns Mutation state, trigger function, and haptic support status
- */
-export const useAddFuel = (repository: ISparkRepository, logger: ILogger) => {
-  const { trigger, isMutating, error } = useSWRMutation<
-    null,
-    Error,
-    string,
-    AddFuelRequest
-  >(
-    SWR_KEYS.ADD_FUEL,
-    async (_key: string, { arg }: { arg: AddFuelRequest }) => {
-      try {
-        logger.info("Adding fuel to spark", {
-          event: LOG_EVENTS.ADD_FUEL.START,
-          sparkId: arg.sparkId,
-        });
-
-        // Trigger haptic feedback (if supported)
-        const hapticTriggered = triggerHapticFeedback();
-        if (!hapticTriggered) {
-          logger.info("Haptic feedback not supported", {
-            event: LOG_EVENTS.ADD_FUEL.HAPTIC_NOT_SUPPORTED,
-          });
-        }
-
-        // Send fuel event to backend (no fuel count returned)
-        await repository.addFuel(arg);
-
-        logger.info("Successfully added fuel", {
-          event: LOG_EVENTS.ADD_FUEL.SUCCESS,
-          sparkId: arg.sparkId,
-        });
-
-        return null;
-      } catch (error_) {
-        logger.error(error_, {
-          event: LOG_EVENTS.ADD_FUEL.ERROR,
-          context: "useAddFuel",
-          sparkId: arg.sparkId,
-        });
-        throw error_;
-      }
-    },
-  );
-
-  return {
-    addFuel: trigger,
-    isAdding: isMutating,
-    error: error ?? null,
-  };
-};
+main "$@"

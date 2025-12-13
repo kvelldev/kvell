@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, Field
 
+from app.domain.model.spark import SparkLevel
+
 
 class AddFuelInput(BaseModel):
     """Input DTO for adding fuel to a spark."""
@@ -25,6 +27,22 @@ class AddFuelOutput(BaseModel):
     success: bool = Field(
         default=True,
         description="Always true - indicates the action was acknowledged",
+    )
+    promoted: bool = Field(
+        default=False,
+        description="Whether this action triggered a promotion",
+    )
+    previous_level: SparkLevel | None = Field(
+        default=None,
+        description="Level before this action (if promoted)",
+    )
+    current_level: SparkLevel | None = Field(
+        default=None,
+        description="Level after this action (if promoted)",
+    )
+    bonfire_created: bool = Field(
+        default=False,
+        description="Whether a new bonfire was created by this action",
     )
 
 

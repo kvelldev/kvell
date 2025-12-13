@@ -18,6 +18,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "freezegun>=1.5.5",
     "httpx>=0.28.1",
     "import-linter",
     "pyright>=1.1.407",

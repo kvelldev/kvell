@@ -8,7 +8,14 @@
 import type { ReactNode } from "react";
 
 interface TimelineTemplateProps {
-  children: ReactNode;
+  /**
+   * Content for the spark timeline area (main content)
+   */
+  sparkArea: ReactNode;
+  /**
+   * Content for the bonfire carousel area (top section)
+   */
+  bonfireArea?: ReactNode;
 }
 
 /**
@@ -16,17 +23,17 @@ interface TimelineTemplateProps {
  *
  * Features:
  * - Full-screen layout (100vh)
- * - Night background (bg-night-900)
  * - Proper z-index layering (z-0 for timeline content)
  * @returns Rendered timeline template layout
  */
-export const TimelineTemplate = ({ children }: TimelineTemplateProps) => {
+export const TimelineTemplate = ({
+  sparkArea,
+  bonfireArea,
+}: TimelineTemplateProps) => {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">
-      <div className="text-ash-500 flex h-40 flex-none items-center justify-center border-2 backdrop-blur-md">
-        Here is a prepared area for bonfire.
-      </div>
-      <main className="z-0 min-h-0 w-full flex-1">{children}</main>
+      <div className="z-10 flex-none">{bonfireArea}</div>
+      <main className="z-0 min-h-0 w-full flex-1">{sparkArea}</main>
     </div>
   );
 };

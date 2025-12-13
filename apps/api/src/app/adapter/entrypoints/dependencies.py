@@ -12,21 +12,31 @@ from fastapi import Depends
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from redis.asyncio import Redis
 
+from app.adapter.gateways.mongo_bonfire_repository import MongoBonfireRepository
 from app.adapter.gateways.mongo_health_repository import MongoHealthRepository
 from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
 from app.adapter.gateways.redis_pubsub_gateway import RedisPubSubGateway
 from app.adapter.gateways.redis_rate_limiter import RedisRateLimiter
+from app.adapter.gateways.redis_threshold_config import RedisThresholdConfigRepository
 from app.adapter.gateways.simple_ip_provider import SimpleIPProvider
 from app.adapter.infra.database import Database
 from app.adapter.infra.logger import JsonLogger
 from app.adapter.infra.redis_client import RedisClient
 from app.adapter.infra.settings import settings
+from app.domain.repository.bonfire_repository import IBonfireRepository
 from app.domain.repository.health_repository import IHealthRepository
 from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.repository.threshold_config_repository import IThresholdConfigRepository
 from app.domain.service.identity_provider import IIdentityProvider
+from app.domain.service.ignition_service import IgnitionService
 from app.domain.service.rate_limiter import IRateLimiter
+from app.domain.service.bonfire_service import BonfireService
 from app.usecase.add_fuel.interactor import AddFuelInteractor
 from app.usecase.add_fuel.interface import IAddFuelUseCase
+from app.usecase.check_promotion.interactor import CheckPromotionInteractor
+from app.usecase.check_promotion.interface import ICheckPromotionUseCase
+from app.usecase.get_bonfires.interactor import GetActiveBonfiresInteractor
+from app.usecase.get_bonfires.interface import IGetActiveBonfiresUseCase
 from app.usecase.health_check.interactor import HealthCheckInteractor
 from app.usecase.health_check.interface import IHealthCheckUseCase
 from app.usecase.ports.logger import ILogger
@@ -236,14 +246,139 @@ def get_stream_timeline_usecase(
     )
 
 
+# Bonfire Dependencies
+
+
+def get_bonfire_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> IBonfireRepository:
+    """Get the bonfire repository instance.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Bonfire repository instance
+
+    """
+    return MongoBonfireRepository(db, logger)
+
+
+def get_threshold_config(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+    logger: ILogger = Depends(get_logger),
+) -> IThresholdConfigRepository:
+    """Get the threshold config repository instance.
+
+    Args:
+        redis: Redis client instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Threshold config repository instance
+
+    """
+    return RedisThresholdConfigRepository(redis, logger)
+
+
+def get_ignition_service() -> IgnitionService:
+    """Get the ignition service instance.
+
+    Returns:
+        Ignition service instance
+
+    """
+    return IgnitionService()
+
+
+def get_check_promotion_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+    threshold_config: IThresholdConfigRepository = Depends(get_threshold_config),
+    ignition_service: IgnitionService = Depends(get_ignition_service),
+    pubsub: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> ICheckPromotionUseCase:
+    """Get the check promotion use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        bonfire_repository: Bonfire repository instance (injected)
+        threshold_config: Threshold config repository instance (injected)
+        ignition_service: Ignition service instance (injected)
+        pubsub: PubSub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Check promotion use case instance
+
+    """
+    return CheckPromotionInteractor(
+        spark_repository=spark_repository,
+        bonfire_repository=bonfire_repository,
+        threshold_config=threshold_config,
+        ignition_service=ignition_service,
+        pubsub=pubsub,
+        logger=logger,
+    )
+
+
+def get_get_bonfires_usecase(
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+    logger: ILogger = Depends(get_logger),
+) -> IGetActiveBonfiresUseCase:
+    """Get the get active bonfires use case instance.
+
+    Args:
+        bonfire_repository: Bonfire repository instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Get active bonfires use case instance
+
+    """
+    return GetActiveBonfiresInteractor(
+        bonfire_repository=bonfire_repository,
+        logger=logger,
+    )
+
+
+def get_bonfire_service(
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+) -> BonfireService:
+    """Get the bonfire service instance.
+
+    Args:
+        bonfire_repository: Bonfire repository instance (injected)
+
+    Returns:
+        Bonfire service instance
+
+    """
+    return BonfireService(
+        bonfire_repository=bonfire_repository,
+    )
+
+
+# Add Fuel (depends on Bonfire services)
+
+
 def get_add_fuel_usecase(
     spark_repository: ISparkRepository = Depends(get_spark_repository),
+    check_promotion: ICheckPromotionUseCase = Depends(get_check_promotion_usecase),
+    bonfire_service: BonfireService = Depends(get_bonfire_service),
+    pubsub: IPubSubGateway = Depends(get_pubsub_gateway),
     logger: ILogger = Depends(get_logger),
 ) -> IAddFuelUseCase:
     """Get the add fuel use case instance.
 
     Args:
         spark_repository: Spark repository instance (injected)
+        check_promotion: Check promotion use case (injected)
+        bonfire_service: Bonfire service (injected)
+        pubsub: PubSub gateway instance (injected)
         logger: Logger instance (injected)
 
     Returns:
@@ -252,5 +387,8 @@ def get_add_fuel_usecase(
     """
     return AddFuelInteractor(
         spark_repository=spark_repository,
+        check_promotion=check_promotion,
+        bonfire_service=bonfire_service,
+        pubsub=pubsub,
         logger=logger,
     )

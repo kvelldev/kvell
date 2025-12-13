@@ -1,0 +1,1 @@
+"""Extend Bonfire UseCase package."""
