@@ -5,8 +5,17 @@ Feature: Timeline
 
     Background: System Configuration
         Given システムの "Decay time" は "1分" に設定されている
-        Given システムの "冷却閾値" は "Decay time" に対して "30%" の割合である
+        And システムの "冷却閾値" は "Decay time" に対して "30%" の割合である
+        And システムの "中火(Kindling)昇格UU" は "3名" に設定されている
+        And システムの "中火(Kindling)延長時間" は "3時間" に設定されている
+        # Note: 焚き火昇格閾値は過去のDAUに基づいて動的に計算される。ここでは振る舞いのテストができればよいので、固定値を用いる。
+        And システムの "焚き火(Bonfire)昇格UU" は "10名" に設定されている
+        And システムの "焚き火(Bonfire)初期寿命" は "24時間" に設定されている
+        And システムの "焚き火(Bonfire)昇格スコア" は "50pt" に設定されている
+        And システムの "薪(Button)係数" は "1pt" に設定されている
 
+
+    # 表示
     Rule: Timelineは「常に最新」を表示することをデフォルトとする
         Background:
             Given ユーザーは"メイン画面"を開いている
@@ -34,13 +43,32 @@ Feature: Timeline
             When その "Spark" の残り寿命が "冷却閾値" を下回る
             Then その "Spark" のGlowは消失する
 
-
-    Rule: 寿命尽きたSparkはDecayする
+        # Decay & kindling
+    Rule: Sparkは放置するとDecayする
         Example: 寿命超過によるDecay
             Given "Timeline" 上に "Spark A" が表示されている
             When "Spark A" の経過時間が "Decay time" を超える
             Then "Spark A" はリストから削除され、Timelineが詰まる
 
+    Rule: 複数のユーザーが反応すると寿命が延びる (Kindling)
+        Example: 3人のユーザーが反応して中火になる
+            Given 投稿直後の種火が存在する
+            When "中火(Kindling)昇格UU" と同数のユニークユーザーが、それぞれ薪(ボタン)をくべた
+            Then その種火の有効期限(decayAt)は "最終アクション時刻 + 中火(Kindling)延長時間" に延長される
+            And その種火は強いGlowを持つ
+            And その種火の表示エリアは "種火エリア(Timeline)" のままである
+
+    Rule: 多くのユーザーが反応すると焚き火に昇格する (Bonfire)
+        Example: 多くの人が反応して焚き火になる
+            Given 種火が存在する
+            When "焚き火(Bonfire)昇格UU" と同数のユニークユーザーが、それぞれ "薪" をくべた
+            And その種火の熱量スコアは "焚き火(Bonfire)昇格スコア" 以上になった
+            Then その種火は "焚き火(Bonfire)" に昇格する
+            And その種火の有効期限(decayAt)は "現在時刻 + 焚き火(Bonfire)初期寿命" に設定される
+            And その種火は"種火エリア(Timeline)"から削除される
+
+
+        # EdgeCase
     Rule: Sparkが一つもない場合は「静寂」を表現する
         Background:
             Given "Timeline" に表示できる有効な "Spark" が0件である
