@@ -1,702 +1,2079 @@
-/**
- * Spark Repository Implementation
- *
- * Adapter layer implementation of ISparkRepository.
- * Handles API communication for spark operations using apiClient.
- */
+"""Dependency Injection Configuration.
 
-import type { AddFuelRequest, PostSparkRequest, Spark } from "@/domain/model/spark";
-import type { ISparkRepository } from "@/domain/repository/sparkRepository";
-import { apiClient } from "@/adapter/apiClient";
+This module defines FastAPI dependencies for dependency injection.
+Following the Dependency Inversion Principle, dependencies are injected
+through FastAPI's Depends mechanism, making testing easier through
+dependency_overrides.
+"""
 
-/**
- * API response type for spark endpoints (snake_case from backend)
- */
-interface SparkApiResponse {
-  id: string;
-  content: string;
-  created_at: string;
-  decay_at: string;
+from typing import Any
+
+from fastapi import Depends
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from redis.asyncio import Redis
+
+from app.adapter.gateways.mongo_bonfire_repository import MongoBonfireRepository
+from app.adapter.gateways.mongo_health_repository import MongoHealthRepository
+from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+from app.adapter.gateways.redis_pubsub_gateway import RedisPubSubGateway
+from app.adapter.gateways.redis_rate_limiter import RedisRateLimiter
+from app.adapter.gateways.redis_threshold_config import RedisThresholdConfigRepository
+from app.adapter.gateways.simple_ip_provider import SimpleIPProvider
+from app.adapter.infra.database import Database
+from app.adapter.infra.logger import JsonLogger
+from app.adapter.infra.redis_client import RedisClient
+from app.adapter.infra.settings import settings
+from app.domain.repository.bonfire_repository import IBonfireRepository
+from app.domain.repository.health_repository import IHealthRepository
+from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.repository.threshold_config_repository import IThresholdConfigRepository
+from app.domain.service.identity_provider import IIdentityProvider
+from app.domain.service.ignition_service import IgnitionService
+from app.domain.service.rate_limiter import IRateLimiter
+from app.domain.service.bonfire_service import BonfireService
+from app.usecase.add_fuel.interactor import AddFuelInteractor
+from app.usecase.add_fuel.interface import IAddFuelUseCase
+from app.usecase.check_promotion.interactor import CheckPromotionInteractor
+from app.usecase.check_promotion.interface import ICheckPromotionUseCase
+from app.usecase.get_bonfires.interactor import GetActiveBonfiresInteractor
+from app.usecase.get_bonfires.interface import IGetActiveBonfiresUseCase
+from app.usecase.health_check.interactor import HealthCheckInteractor
+from app.usecase.health_check.interface import IHealthCheckUseCase
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+from app.usecase.post_spark.interactor import PostSparkInteractor
+from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_timeline.interactor import StreamTimelineInteractor
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
+
+
+def get_db() -> AsyncIOMotorDatabase[Any]:
+    """Get the database instance.
+
+    This is the base dependency that provides the MongoDB connection.
+    Can be overridden in tests to use a different database.
+
+    Returns:
+        MongoDB database instance
+
+    """
+    return Database.get_database()
+
+
+def get_logger() -> ILogger:
+    """Get the logger instance.
+
+    This dependency provides the application logger.
+    Can be overridden in tests to use a mock logger.
+
+    Returns:
+        Logger instance
+
+    """
+    return JsonLogger(service_name="kvell-api")
+
+
+def get_health_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> IHealthRepository:
+    """Get the health repository instance.
+
+    This dependency chains from get_db() and provides the health repository.
+    Can be overridden in tests to use a mock repository.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Health repository instance
+
+    """
+    return MongoHealthRepository(db, logger)
+
+
+def get_health_usecase(
+    repo: IHealthRepository = Depends(get_health_repository),
+    logger: ILogger = Depends(get_logger),
+) -> IHealthCheckUseCase:
+    """Get the health check use case instance.
+
+    This dependency chains from get_health_repository() and provides
+    the use case interactor. Can be overridden in tests to use a mock use case.
+
+    Args:
+        repo: Health repository instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Health check use case instance
+
+    """
+    return HealthCheckInteractor(repo, logger)
+
+
+# Spark Dependencies
+
+
+def get_redis() -> Redis:  # type: ignore[type-arg]
+    """Get the Redis client instance.
+
+    Returns:
+        Redis client instance
+
+    """
+    return RedisClient.get_client()
+
+
+def get_spark_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> ISparkRepository:
+    """Get the spark repository instance.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Spark repository instance
+
+    """
+    return MongoSparkRepository(db, logger)
+
+
+def get_identity_provider() -> IIdentityProvider:
+    """Get the identity provider instance.
+
+    Returns:
+        Identity provider instance
+
+    """
+    return SimpleIPProvider(secret_key=settings.identity_secret_key)
+
+
+def get_rate_limiter(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+) -> IRateLimiter:
+    """Get the rate limiter instance.
+
+    Args:
+        redis: Redis client instance (injected)
+
+    Returns:
+        Rate limiter instance
+
+    """
+    return RedisRateLimiter(redis)
+
+
+def get_pubsub_gateway(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+    logger: ILogger = Depends(get_logger),
+) -> IPubSubGateway:
+    """Get the pub/sub gateway instance.
+
+    Args:
+        redis: Redis client instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Pub/sub gateway instance
+
+    """
+    return RedisPubSubGateway(redis, logger)
+
+
+def get_post_spark_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    identity_provider: IIdentityProvider = Depends(get_identity_provider),
+    rate_limiter: IRateLimiter = Depends(get_rate_limiter),
+    logger: ILogger = Depends(get_logger),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+) -> IPostSparkUseCase:
+    """Get the post spark use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        identity_provider: Identity provider instance (injected)
+        rate_limiter: Rate limiter instance (injected)
+        logger: Logger instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+
+    Returns:
+        Post spark use case instance
+
+    """
+    return PostSparkInteractor(
+        spark_repository=spark_repository,
+        identity_provider=identity_provider,
+        rate_limiter=rate_limiter,
+        logger=logger,
+        pubsub_gateway=pubsub_gateway,
+        max_length=settings.spark_max_length,
+        rate_limit_count=settings.spark_rate_limit_count,
+        rate_limit_window_seconds=settings.spark_rate_limit_window_seconds,
+        decay_after_seconds=settings.spark_decay_after_seconds,
+        vanish_after_days=settings.spark_vanish_after_days,
+        ng_words=settings.spark_ng_words_list,
+        pubsub_channel="sparks:events",
+    )
+
+
+def get_stream_timeline_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> IStreamTimelineUseCase:
+    """Get the stream timeline use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Stream timeline use case instance
+
+    """
+    return StreamTimelineInteractor(
+        spark_repository=spark_repository,
+        pubsub_gateway=pubsub_gateway,
+        logger=logger,
+        active_spark_seconds=settings.spark_decay_after_seconds,
+        pubsub_channel="sparks:events",
+    )
+
+
+# Bonfire Dependencies
+
+
+def get_bonfire_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> IBonfireRepository:
+    """Get the bonfire repository instance.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Bonfire repository instance
+
+    """
+    return MongoBonfireRepository(db, logger)
+
+
+def get_threshold_config(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+    logger: ILogger = Depends(get_logger),
+) -> IThresholdConfigRepository:
+    """Get the threshold config repository instance.
+
+    Args:
+        redis: Redis client instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Threshold config repository instance
+
+    """
+    return RedisThresholdConfigRepository(redis, logger)
+
+
+def get_ignition_service() -> IgnitionService:
+    """Get the ignition service instance.
+
+    Returns:
+        Ignition service instance
+
+    """
+    return IgnitionService()
+
+
+def get_check_promotion_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+    threshold_config: IThresholdConfigRepository = Depends(get_threshold_config),
+    ignition_service: IgnitionService = Depends(get_ignition_service),
+    pubsub: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> ICheckPromotionUseCase:
+    """Get the check promotion use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        bonfire_repository: Bonfire repository instance (injected)
+        threshold_config: Threshold config repository instance (injected)
+        ignition_service: Ignition service instance (injected)
+        pubsub: PubSub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Check promotion use case instance
+
+    """
+    return CheckPromotionInteractor(
+        spark_repository=spark_repository,
+        bonfire_repository=bonfire_repository,
+        threshold_config=threshold_config,
+        ignition_service=ignition_service,
+        pubsub=pubsub,
+        logger=logger,
+    )
+
+
+def get_get_bonfires_usecase(
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+    logger: ILogger = Depends(get_logger),
+) -> IGetActiveBonfiresUseCase:
+    """Get the get active bonfires use case instance.
+
+    Args:
+        bonfire_repository: Bonfire repository instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Get active bonfires use case instance
+
+    """
+    return GetActiveBonfiresInteractor(
+        bonfire_repository=bonfire_repository,
+        logger=logger,
+    )
+
+
+def get_bonfire_service(
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+    threshold_config: IThresholdConfigRepository = Depends(get_threshold_config),
+) -> BonfireService:
+    """Get the bonfire service instance.
+
+    Args:
+        bonfire_repository: Bonfire repository instance (injected)
+        threshold_config: Threshold config repository instance (injected)
+
+    Returns:
+        Bonfire service instance
+
+    """
+    return BonfireService(
+        bonfire_repository=bonfire_repository,
+        threshold_config=threshold_config,
+    )
+
+
+# Add Fuel (depends on Bonfire services)
+
+
+def get_add_fuel_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    check_promotion: ICheckPromotionUseCase = Depends(get_check_promotion_usecase),
+    bonfire_service: BonfireService = Depends(get_bonfire_service),
+    pubsub: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> IAddFuelUseCase:
+    """Get the add fuel use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        check_promotion: Check promotion use case (injected)
+        bonfire_service: Bonfire service (injected)
+        pubsub: PubSub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Add fuel use case instance
+
+    """
+    return AddFuelInteractor(
+        spark_repository=spark_repository,
+        check_promotion=check_promotion,
+        bonfire_service=bonfire_service,
+        pubsub=pubsub,
+        logger=logger,
+    )
+"""MongoDB implementation of Spark Repository.
+
+This module implements the spark repository using MongoDB.
+"""
+
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import IndexModel
+from pymongo.errors import DuplicateKeyError, PyMongoError
+
+from app.domain.constants import LOG_EVENTS
+from app.domain.exception import AppError
+from app.domain.model.spark import Spark, SparkLevel
+from app.domain.model.spark_engagement import SparkEngagement
+from app.domain.repository.spark_repository import ISparkRepository
+from app.usecase.ports.logger import ILogger
+
+
+class MongoSparkRepository(ISparkRepository):
+    """MongoDB implementation of spark repository."""
+
+    COLLECTION_NAME = "sparks"
+    FUEL_HISTORY_COLLECTION = "spark_fuel_history"
+
+    def __init__(self, db: AsyncIOMotorDatabase[Any], logger: ILogger) -> None:
+        """Initialize the repository.
+
+        Args:
+            db: MongoDB database instance
+            logger: Logger for structured logging
+
+        """
+        self.db = db
+        self.collection = db[self.COLLECTION_NAME]
+        self.fuel_history_collection = db[self.FUEL_HISTORY_COLLECTION]
+        self.logger = logger
+
+    async def ensure_indexes(self) -> None:
+        """Create necessary indexes for the sparks and fuel history collections.
+
+        This should be called during application startup.
+        """
+        try:
+            # Sparks collection indexes
+            spark_indexes = [
+                # TTL index for automatic deletion
+                IndexModel(
+                    [("vanish_at", 1)],
+                    name="vanish_at_ttl",
+                    expireAfterSeconds=0,
+                ),
+                # Query index for timeline retrieval (by decay_at)
+                IndexModel(
+                    [("decay_at", -1)],
+                    name="decay_at_desc",
+                ),
+                # Query index for active sparks retrieval (by created_at)
+                IndexModel(
+                    [("created_at", 1)],
+                    name="created_at_asc",
+                ),
+            ]
+            await self.collection.create_indexes(spark_indexes)
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark indexes created successfully",
+                context={"collection": self.COLLECTION_NAME},
+            )
+
+            # Fuel history collection indexes
+            fuel_history_indexes = [
+                # Unique compound index for idempotency
+                IndexModel(
+                    [("spark_id", 1), ("user_hash", 1)],
+                    name="spark_user_unique",
+                    unique=True,
+                ),
+                # TTL index for cleanup (optional - keep fuel history for 30 days)
+                IndexModel(
+                    [("created_at", 1)],
+                    name="created_at_ttl",
+                    expireAfterSeconds=30 * 24 * 60 * 60,  # 30 days
+                ),
+            ]
+            await self.fuel_history_collection.create_indexes(fuel_history_indexes)
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Fuel history indexes created successfully",
+                context={"collection": self.FUEL_HISTORY_COLLECTION},
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to create indexes",
+                error=e,
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": "sparks/fuel_history"},
+                cause=e,
+            ) from e
+
+    async def save(self, spark: Spark) -> Spark:
+        """Save a spark.
+
+        Args:
+            spark: The spark to save
+
+        Returns:
+            The saved spark
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Saving spark to MongoDB",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark.id,
+                },
+            )
+
+            document = {
+                "id": spark.id,
+                "content": spark.content,
+                "user_hash": spark.user_hash,
+                "fuel_count": spark.fuel_count,
+                "level": spark.level.value,
+                "created_at": spark.created_at,
+                "decay_at": spark.decay_at,
+                "vanish_at": spark.vanish_at,
+            }
+
+            await self.collection.insert_one(document)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark saved successfully",
+                context={"spark_id": spark.id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to save spark: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark.id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return spark
+
+    async def find_by_id(self, spark_id: str) -> Spark | None:
+        """Find a spark by ID.
+
+        Args:
+            spark_id: The spark ID to search for
+
+        Returns:
+            The spark if found, None otherwise
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying spark by ID",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark_id,
+                },
+            )
+
+            document: dict[str, Any] | None = await self.collection.find_one(
+                {"id": spark_id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query spark: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark_id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            if document is None:
+                self.logger.info(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found",
+                    context={
+                        "collection": self.COLLECTION_NAME,
+                        "spark_id": spark_id,
+                    },
+                )
+                return None
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": document["id"],
+                },
+            )
+
+            # MongoDB stores datetime as UTC but returns them as timezone-naive
+            # Add UTC timezone to match Spark model expectations
+            created_at = document["created_at"].replace(tzinfo=UTC)
+            decay_at = document["decay_at"].replace(tzinfo=UTC)
+            vanish_at = document["vanish_at"].replace(tzinfo=UTC)
+
+            # Parse level with fallback for legacy documents
+            level_str = document.get("level", SparkLevel.SPARK.value)
+            level = SparkLevel(level_str)
+
+            return Spark(
+                id=document["id"],
+                content=document["content"],
+                user_hash=document["user_hash"],
+                fuel_count=document.get("fuel_count", 0),
+                level=level,
+                created_at=created_at,
+                decay_at=decay_at,
+                vanish_at=vanish_at,
+            )
+
+    async def find_active_sparks(
+        self,
+        seconds: int,
+        limit: int = 1000,
+    ) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified seconds.
+
+        Args:
+            seconds: Number of seconds to look back from now
+            limit: Maximum number of sparks to return (default 1000)
+
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            # Calculate the cutoff time
+            cutoff_time = datetime.now(UTC) - timedelta(seconds=seconds)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying active sparks",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "cutoff_time": cutoff_time.isoformat(),
+                    "limit": limit,
+                },
+            )
+
+            # Query for sparks created after cutoff_time, sorted by created_at ascending
+            cursor = self.collection.find(
+                {"created_at": {"$gte": cutoff_time}},
+            ).sort("created_at", 1).limit(limit)
+
+            # Yield sparks one by one (streaming, no to_list)
+            count = 0
+            async for doc in cursor:
+                count += 1
+                # MongoDB returns datetime as UTC but timezone-naive
+                # Add UTC timezone to match Spark model expectations
+                created_at = doc["created_at"].replace(tzinfo=UTC)
+                decay_at = doc["decay_at"].replace(tzinfo=UTC)
+                vanish_at = doc["vanish_at"].replace(tzinfo=UTC)
+
+                # Parse level with fallback for legacy documents
+                level_str = doc.get("level", SparkLevel.SPARK.value)
+                level = SparkLevel(level_str)
+
+                yield Spark(
+                    id=doc["id"],
+                    content=doc["content"],
+                    user_hash=doc["user_hash"],
+                    fuel_count=doc.get("fuel_count", 0),
+                    level=level,
+                    created_at=created_at,
+                    decay_at=decay_at,
+                    vanish_at=vanish_at,
+                )
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Active sparks retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "count": count,
+                },
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query active sparks: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "seconds": seconds,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+
+    async def try_add_fuel(self, spark_id: str, user_hash: str) -> bool:
+        """Atomically add fuel to a spark if the user hasn't fueled it yet.
+
+        This method ensures atomicity and idempotency using MongoDB transactions:
+        1. Start a transaction session
+        2. Insert fuel history record (idempotency check via unique index)
+        3. Increment spark's fuel_count
+        4. Commit transaction (or abort on any error)
+
+        Args:
+            spark_id: The spark ID to add fuel to
+            user_hash: The user hash attempting to add fuel
+
+        Returns:
+            True if fuel was added (first time), False if user already fueled
+
+        Raises:
+            AppError: If database operation fails (excluding duplicate key)
+
+        """
+        # Start a session for transaction
+        async with await self.db.client.start_session() as session:
+            try:
+                async with session.start_transaction():
+                    # Step 1: Try to insert fuel history (idempotency check)
+                    fuel_history_doc = {
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                        "created_at": datetime.now(UTC),
+                    }
+
+                    await self.fuel_history_collection.insert_one(
+                        fuel_history_doc,
+                        session=session,
+                    )
+
+                    # Step 2: If insert succeeded, increment fuel_count atomically
+                    await self.collection.update_one(
+                        {"id": spark_id},
+                        {"$inc": {"fuel_count": 1}},
+                        session=session,
+                    )
+
+                    # Transaction commits automatically on context exit
+                    self.logger.info(
+                        LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                        "Fuel added successfully (transactional)",
+                        context={
+                            "spark_id": spark_id,
+                            "user_hash": user_hash,
+                        },
+                    )
+
+            except DuplicateKeyError:
+                # User already fueled this spark - idempotent behavior
+                # Transaction auto-aborts, no changes persisted
+                self.logger.info(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "User already fueled this spark (idempotent)",
+                    context={
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                    },
+                )
+                return False
+
+            except PyMongoError as e:
+                # Transaction auto-aborts on any PyMongo error
+                self.logger.exception(
+                    LOG_EVENTS.DB_QUERY_ERROR,
+                    "Failed to add fuel (transaction aborted)",
+                    error=e,
+                    context={
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                    },
+                )
+                raise AppError(
+                    internal_code=2002,
+                    context={"tableName": self.FUEL_HISTORY_COLLECTION},
+                    cause=e,
+                ) from e
+
+            else:
+                return True
+
+    async def get_engagement(self, spark_id: str) -> SparkEngagement | None:
+        """Get engagement metrics for a spark.
+
+        Calculates unique user count and fuel count from fuel history.
+
+        Args:
+            spark_id: The spark ID to get engagement for
+
+        Returns:
+            SparkEngagement if spark exists, None otherwise
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            # Check if spark exists first
+            spark_doc = await self.collection.find_one(
+                {"id": spark_id},
+                {"fuel_count": 1},
+            )
+
+            if spark_doc is None:
+                return None
+
+            # Count unique users from fuel history
+            unique_users = await self.fuel_history_collection.count_documents(
+                {"spark_id": spark_id},
+            )
+
+            fuel_count = spark_doc.get("fuel_count", 0)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Engagement metrics retrieved",
+                context={
+                    "spark_id": spark_id,
+                    "unique_user_count": unique_users,
+                    "fuel_count": fuel_count,
+                },
+            )
+
+            return SparkEngagement(
+                spark_id=spark_id,
+                unique_user_count=unique_users,
+                fuel_count=fuel_count,
+                reply_count=0,  # Future feature
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to get engagement metrics",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.FUEL_HISTORY_COLLECTION},
+                cause=e,
+            ) from e
+
+    async def update_level(self, spark_id: str, level: SparkLevel) -> bool:
+        """Update spark's promotion level.
+
+        Args:
+            spark_id: The spark ID to update
+            level: New spark level
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            result = await self.collection.update_one(
+                {"id": spark_id},
+                {"$set": {"level": level.value}},
+            )
+
+            if result.matched_count == 0:
+                self.logger.warning(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found for level update",
+                    context={"spark_id": spark_id},
+                )
+                return False
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark level updated",
+                context={
+                    "spark_id": spark_id,
+                    "new_level": level.value,
+                },
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to update spark level",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return True
+
+    async def update_decay_at(
+        self,
+        spark_id: str,
+        new_decay_at: datetime,
+    ) -> bool:
+        """Update spark's decay_at timestamp.
+
+        Used when promoting to kindling (TTL extension).
+
+        Args:
+            spark_id: The spark ID to update
+            new_decay_at: New decay timestamp
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            result = await self.collection.update_one(
+                {"id": spark_id},
+                {"$set": {"decay_at": new_decay_at}},
+            )
+
+            if result.matched_count == 0:
+                self.logger.warning(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found for decay_at update",
+                    context={"spark_id": spark_id},
+                )
+                return False
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark decay_at updated",
+                context={
+                    "spark_id": spark_id,
+                    "new_decay_at": new_decay_at.isoformat(),
+                },
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to update spark decay_at",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return True
+"""Redis PubSub Gateway Implementation.
+
+This module implements the pub/sub gateway using Redis.
+"""
+
+import json
+from collections.abc import AsyncIterator
+
+from redis.asyncio import Redis
+
+from app.domain.constants import LOG_EVENTS
+from app.usecase.dto.spark_dto import SparkOutput
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway, PubSubMessage
+
+
+class RedisPubSubGateway(IPubSubGateway):
+    """Redis implementation of pub/sub gateway."""
+
+    def __init__(self, redis: Redis, logger: ILogger) -> None:  # type: ignore[type-arg]
+        """Initialize the gateway.
+
+        Args:
+            redis: Redis client instance
+            logger: Logger for structured logging
+
+        """
+        self.redis = redis
+        self.logger = logger
+
+    async def publish(
+        self,
+        channel: str,
+        message: SparkOutput | PubSubMessage,
+    ) -> None:
+        """Publish a message to a channel.
+
+        Args:
+            channel: The channel name to publish to
+            message: The message to publish (SparkOutput or generic dict)
+
+        """
+        try:
+            # Serialize message to JSON string
+            if isinstance(message, SparkOutput):
+                json_message = message.model_dump_json()
+                message_id = message.id
+            else:
+                json_message = json.dumps(message)
+                message_id = message.get("id", message.get("spark_id", "unknown"))
+
+            # Publish to Redis
+            await self.redis.publish(channel, json_message)  # type: ignore[misc]
+
+            self.logger.info(
+                LOG_EVENTS.PUBSUB_PUBLISH_SUCCESS,
+                "Message published to Redis channel",
+                context={
+                    "channel": channel,
+                    "message_id": message_id,
+                },
+            )
+
+        except Exception as e:
+            self.logger.exception(
+                LOG_EVENTS.PUBSUB_PUBLISH_ERROR,
+                "Failed to publish message to Redis channel",
+                error=e,
+                context={"channel": channel},
+            )
+            raise
+
+    async def subscribe(self, channel: str) -> AsyncIterator[SparkOutput]:
+        """Subscribe to a channel and yield messages as they arrive.
+
+        Args:
+            channel: The channel name to subscribe to
+
+        Yields:
+            SparkOutput messages from the channel
+
+        """
+        pubsub = self.redis.pubsub()  # type: ignore[misc]
+
+        try:
+            await pubsub.subscribe(channel)  # type: ignore[misc]
+
+            self.logger.info(
+                LOG_EVENTS.PUBSUB_SUBSCRIBE_SUCCESS,
+                "Subscribed to Redis channel",
+                context={"channel": channel},
+            )
+
+            # Iterate over messages from the channel
+            async for message in pubsub.listen():  # type: ignore[misc]
+                # Skip subscription confirmation messages
+                if message["type"] != "message":
+                    continue
+
+                try:
+                    # Deserialize JSON string to Pydantic model
+                    data = message["data"]  # type: ignore[index]
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8")
+
+                    spark_dict = json.loads(data)  # type: ignore[arg-type]
+                    spark_output = SparkOutput(**spark_dict)
+
+                    self.logger.info(
+                        LOG_EVENTS.PUBSUB_MESSAGE_RECEIVED,
+                        "Received message from Redis channel",
+                        context={
+                            "channel": channel,
+                            "spark_id": spark_output.id,
+                        },
+                    )
+
+                    yield spark_output
+
+                except (json.JSONDecodeError, TypeError, KeyError) as e:
+                    self.logger.exception(
+                        LOG_EVENTS.PUBSUB_DESERIALIZATION_ERROR,
+                        "Failed to deserialize message from Redis channel",
+                        error=e,
+                        context={
+                            "channel": channel,
+                            "raw_data": str(message.get("data", "")),  # type: ignore[call-overload]
+                        },
+                    )
+                    # Skip malformed messages and continue listening
+                    continue
+
+        except Exception as e:
+            self.logger.exception(
+                LOG_EVENTS.PUBSUB_SUBSCRIBE_ERROR,
+                "Error during Redis subscription",
+                error=e,
+                context={"channel": channel},
+            )
+            raise
+
+        finally:
+            # Clean up subscription
+            await pubsub.unsubscribe(channel)  # type: ignore[misc]
+            await pubsub.aclose()
+
+            self.logger.info(
+                LOG_EVENTS.PUBSUB_UNSUBSCRIBE_SUCCESS,
+                "Unsubscribed from Redis channel",
+                context={"channel": channel},
+            )
+"""Internal status code definitions and log event IDs.
+
+Defines internal status codes and their corresponding messages.
+Defines event IDs for structured logging.
+"""
+
+from typing import Final
+
+INTERNAL_STATUSES: Final[dict[int, str]] = {
+    # Success
+    200: "OK",
+    201: "Created",
+    204: "No Content",
+    # Domain Errors (Client side origin / Business Logic)
+    1001: "この種火は既に燃え尽きています。",  # Gone (Life expired)
+    1002: "投稿に不適切な表現が含まれています。",  # NG Words (Validation)
+    1003: "投稿文字数が制限を超えています。",  # Length Limit (Validation)
+    1004: "薪をくべるペースが早すぎます。",  # Throttling (Rate Limit)
+    1005: "指定された種火が存在しないか、消滅しています。",  # Not Found
+    # Error caused by Server side (System Error)
+    2001: "DBへの接続中に異常が発生しました",
+    2002: "{tableName}テーブルへのクエリ中に異常が発生しました",
+    500: "Internal Server Error",
 }
 
-/**
- * Spark Repository implementation
- */
-class SparkRepositoryImpl implements ISparkRepository {
-  async postSpark(request: PostSparkRequest): Promise<Spark> {
-    const data = await apiClient<SparkApiResponse>("/api/sparks", {
-      method: "POST",
-      body: JSON.stringify({ content: request.content }),
-    });
+InternalStatusCode = int
 
-    // Transform snake_case API response to camelCase domain model
-    return {
-      id: data.id,
-      content: data.content,
-      createdAt: data.created_at,
-      decayAt: data.decay_at,
-    };
-  }
 
-  async addFuel(request: AddFuelRequest): Promise<void> {
-    // POST /api/sparks/{sparkId}/fuel
-    // The API returns 204 No Content to hide fuel count from users
-    await apiClient<null>(`/api/sparks/${request.sparkId}/fuel`, {
-      method: "POST",
-    });
-  }
-}
+class LogEvents:
+    """Log event ID constants for structured logging.
 
-/**
- * Singleton instance of Spark Repository
- */
-export const sparkRepository: ISparkRepository = new SparkRepositoryImpl();
-/**
- * Ignite Effect Component
- *
- * Visual feedback component that displays particle animation when fuel is added.
- * Uses Framer Motion for physics-based particle animation.
- * No quantitative information (fuel count) is displayed - only visual celebration.
- */
+    All log calls should use these event IDs instead of raw strings.
+    """
 
-import { motion, AnimatePresence } from "framer-motion";
-import { useEffect, useState } from "react";
+    # Health check events
+    HEALTH_CHECK_STARTED: Final[str] = "HEALTH_001"
+    HEALTH_CHECK_SUCCESS: Final[str] = "HEALTH_002"
+    HEALTH_CHECK_FAILED: Final[str] = "HEALTH_003"
+    HEALTH_MESSAGE_SAVED: Final[str] = "HEALTH_004"
+    HEALTH_MESSAGE_RETRIEVED: Final[str] = "HEALTH_005"
 
-interface IgniteEffectProps {
-  /**
-   * Trigger flag: when true, animation starts and self-destructs
-   */
-  trigger: boolean;
-  /**
-   * Callback when animation completes
-   */
-  onComplete?: () => void;
-}
+    # Spark events
+    SPARK_POST_STARTED: Final[str] = "SPARK_001"
+    SPARK_POST_SUCCESS: Final[str] = "SPARK_002"
+    SPARK_POST_FAILED: Final[str] = "SPARK_003"
+    SPARK_VALIDATION_FAILED: Final[str] = "SPARK_004"
+    SPARK_RATE_LIMIT_EXCEEDED: Final[str] = "SPARK_005"
+    SPARK_NG_WORD_DETECTED: Final[str] = "SPARK_006"
 
-interface Particle {
-  id: number;
-  x: number;
-  y: number;
-  size: number;
-  duration: number;
-  delay: number;
-}
+    # Fuel events
+    FUEL_ADD_STARTED: Final[str] = "FUEL_001"
+    FUEL_ADD_SUCCESS: Final[str] = "FUEL_002"
+    FUEL_ALREADY_ADDED: Final[str] = "FUEL_003"
+    FUEL_SELF_SPARK: Final[str] = "FUEL_004"
+    FUEL_SPARK_NOT_FOUND: Final[str] = "FUEL_005"
+    FUEL_SPARK_DECAYED: Final[str] = "FUEL_006"
+    FUEL_RETRY_ATTEMPT: Final[str] = "FUEL_007"
+    FUEL_RETRY_EXHAUSTED: Final[str] = "FUEL_008"
 
-/**
- * Generate random particles for ignite effect
- * @param count - Number of particles to generate
- * @returns Array of particle configurations
- */
-const generateParticles = (count: number): Particle[] => {
-  return Array.from({ length: count }, (_, index) => ({
-    id: index,
-    // Spread particles horizontally from center
-    x: (Math.random() - 0.5) * 60,
-    // Random vertical starting position
-    y: Math.random() * 20,
-    // Random size between 4-10px
-    size: Math.random() * 6 + 4,
-    // Random duration between 0.6-1.2s
-    duration: Math.random() * 0.6 + 0.6,
-    // Stagger animation slightly
-    delay: Math.random() * 0.1,
-  }));
-};
+    # Timeline streaming events
+    TIMELINE_SNAPSHOT_LOADED: Final[str] = "TIMELINE_001"
+    TIMELINE_STREAM_STARTED: Final[str] = "TIMELINE_002"
+    TIMELINE_STREAM_MESSAGE: Final[str] = "TIMELINE_003"
 
-/**
- * IgniteEffect Component (Atom)
- *
- * Renders particle animation that flies upward when fuel is added.
- * Positioned absolutely over the trigger element (fuel button).
- * @param props - Component props
- * @param props.trigger - Flag to trigger animation
- * @param props.onComplete - Callback when animation completes
- * @returns Rendered particle animation element
- */
-export const IgniteEffect = ({ trigger, onComplete }: IgniteEffectProps) => {
-  const [particles, setParticles] = useState<Particle[]>([]);
-  const [isAnimating, setIsAnimating] = useState(false);
+    # WebSocket events
+    WEBSOCKET_CONNECTED: Final[str] = "WS_001"
+    WEBSOCKET_DISCONNECTED: Final[str] = "WS_002"
+    WEBSOCKET_ERROR: Final[str] = "WS_003"
 
-  useEffect(() => {
-    if (trigger) {
-      // Generate 8-12 particles
-      const particleCount = Math.floor(Math.random() * 5) + 8;
-      setParticles(generateParticles(particleCount));
-      setIsAnimating(true);
+    # PubSub events
+    PUBSUB_PUBLISH_SUCCESS: Final[str] = "PUBSUB_001"
+    PUBSUB_PUBLISH_ERROR: Final[str] = "PUBSUB_002"
+    PUBSUB_SUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_003"
+    PUBSUB_MESSAGE_RECEIVED: Final[str] = "PUBSUB_004"
+    PUBSUB_DESERIALIZATION_ERROR: Final[str] = "PUBSUB_005"
+    PUBSUB_SUBSCRIBE_ERROR: Final[str] = "PUBSUB_006"
+    PUBSUB_UNSUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_007"
 
-      // Clean up after longest animation completes
-      const timer = setTimeout(() => {
-        setIsAnimating(false);
-        setParticles([]);
-        if (onComplete) {
-          onComplete();
-        }
-      }, 1500);
+    # Database events
+    DB_CONNECTION_SUCCESS: Final[str] = "DB_001"
+    DB_CONNECTION_FAILED: Final[str] = "DB_002"
+    DB_QUERY_ERROR: Final[str] = "DB_003"
 
-      return () => {
-        clearTimeout(timer);
-      };
-    }
-  }, [trigger, onComplete]);
+    # Application lifecycle events
+    APP_STARTUP: Final[str] = "APP_001"
+    APP_SHUTDOWN: Final[str] = "APP_002"
 
-  return (
-    <div className="pointer-events-none absolute inset-0 overflow-visible">
-      <AnimatePresence>
-        {isAnimating &&
-          particles.map((particle) => (
-            <motion.div
-              key={particle.id}
-              className="absolute left-1/2 top-1/2 rounded-full"
-              style={{
-                width: particle.size,
-                height: particle.size,
-                // Gradient from spark (bright) to ember (orange)
-                background:
-                  "radial-gradient(circle, var(--color-spark-500) 0%, var(--color-ember-500) 100%)",
-                boxShadow: "0 0 8px rgba(253, 186, 116, 0.6)",
-              }}
-              initial={{
-                x: particle.x,
-                y: particle.y,
-                opacity: 1,
-                scale: 1,
-              }}
-              animate={{
-                // Rise upward
-                y: particle.y - 80 - Math.random() * 40,
-                // Spread horizontally
-                x: particle.x + (Math.random() - 0.5) * 40,
-                opacity: 0,
-                scale: 0.3,
-              }}
-              exit={{ opacity: 0 }}
-              transition={{
-                duration: particle.duration,
-                delay: particle.delay,
-                ease: "easeOut",
-              }}
-            />
-          ))}
-      </AnimatePresence>
-    </div>
-  );
-};
-import { memo, useState } from "react";
-import clsx from "clsx";
-import { Flame } from "lucide-react";
-import type { SparkViewModel } from "@/domain/model/spark";
-import { IgniteEffect } from "@/components/atoms/IgniteEffect";
+    # Error events
+    UNHANDLED_ERROR: Final[str] = "ERROR_001"
+    VALIDATION_ERROR: Final[str] = "ERROR_002"
 
-interface SparkCardProps {
-  spark: SparkViewModel;
-  /**
-   * Callback when fuel button is clicked
-   */
-  onAddFuel?: (sparkId: string) => void;
-}
+    # Bonfire/Promotion events
+    PROMOTION_CHECK_STARTED: Final[str] = "PROMO_001"
+    PROMOTION_TO_KINDLING: Final[str] = "PROMO_002"
+    PROMOTION_TO_BONFIRE: Final[str] = "PROMO_003"
+    PROMOTION_NOT_NEEDED: Final[str] = "PROMO_004"
+    BONFIRE_CREATED: Final[str] = "BONFIRE_001"
+    BONFIRE_EXTENDED: Final[str] = "BONFIRE_002"
+    BONFIRE_DECAYED: Final[str] = "BONFIRE_003"
+    BONFIRE_NOT_FOUND: Final[str] = "BONFIRE_004"
 
-const formatTime = (totalSeconds: number): string => {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-};
+    # Threshold config events
+    THRESHOLD_FETCH_SUCCESS: Final[str] = "THRESH_001"
+    THRESHOLD_FETCH_FALLBACK: Final[str] = "THRESH_002"
 
-/**
- * SparkCard Component (Memoized)
- *
- * Renders a single spark with:
- * - Fade-in animation on mount
- * - Color temperature based heat expression (white→ash transition)
- * - Dynamic glow: Visible when hot, disappears when cooled (Ash)
- * - TTL countdown timer in bottom-right corner
- * - Text truncation for long content
- * - Add fuel button with ignite effect
- *
- * Performance:
- * - Memoized to prevent re-renders when temperature state doesn't change
- * - Only re-renders if spark.id, spark.content, spark.temperature, or spark.remainingTimeInSeconds changes
- * @returns Rendered spark card element
- */
-const SparkCardComponent = ({ spark, onAddFuel }: SparkCardProps) => {
-  const isHot = spark.temperature === "hot";
-  const [showEffect, setShowEffect] = useState(false);
 
-  const shadowClass = isHot ? "shadow-glow-sm" : "shadow-none";
-  const borderClass = isHot ? "border-ember-500" : "border-ash-500";
+# Singleton instance
+LOG_EVENTS = LogEvents()
+"""Spark Entity.
 
-  const handleAddFuel = () => {
-    // Trigger ignite effect
-    setShowEffect(true);
-    // Call parent callback
-    onAddFuel?.(spark.id);
-  };
+This module defines the Spark entity representing a user's post.
+"""
 
-  return (
-    <div
-      className={clsx(
-        "rounded-card bg-night-800 text-ash-500 border p-4 transition-all duration-1000 ease-in-out",
-        shadowClass,
-        borderClass,
-      )}
-      data-testid="spark-item"
-      data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
-    >
-      <p className="font-base line-clamp-3 text-sm leading-relaxed">
-        {spark.content}
-      </p>
-      <div className="mt-2 flex items-center justify-between">
-        {/* Add Fuel Button */}
-        <button
-          onClick={handleAddFuel}
-          className={clsx(
-            "relative flex items-center gap-1.5 rounded-button px-3 py-1.5 text-xs font-medium transition-all",
-            "border border-ember-500/30 bg-ember-500/10 text-ember-500",
-            "hover:border-ember-500/50 hover:bg-ember-500/20",
-            "focus:outline-none focus:ring-2 focus:ring-ember-500/50",
-          )}
-          data-testid="add-fuel-button"
-          aria-label="Add fuel to spark"
-        >
-          <Flame className="h-3.5 w-3.5" />
-          <span>薪をくべる</span>
-          <IgniteEffect
-            trigger={showEffect}
-            onComplete={() => {
-              setShowEffect(false);
-            }}
-          />
-        </button>
+from datetime import UTC, datetime, timedelta
+from enum import Enum
 
-        {/* TTL Timer */}
-        <span
-          className={clsx("font-mono text-xs transition-colors duration-1000")}
-          data-testid="spark-timer"
-        >
-          {formatTime(spark.remainingTimeInSeconds)}
-        </span>
-      </div>
-    </div>
-  );
-};
+from pydantic import BaseModel, ConfigDict, Field
 
-export const SparkCard = memo(SparkCardComponent);
-/**
- * TimelineStream Organism Component (Dumb)
- *
- * YouTube Live-style scrolling timeline for real-time spark display.
- * Pure presentational component - receives all data via props.
- */
 
-import { Virtuoso } from "react-virtuoso";
-import type { SparkViewModel } from "@/domain/model/spark";
-import { SparkCard } from "@/components/molecules/SparkCard";
+class SparkLevel(str, Enum):
+    """Level of spark engagement."""
 
-/**
- * Props for TimelineStream component
- */
-interface TimelineStreamProps {
-  /**
-   * Array of spark ViewModels to display (ascending order - oldest first, newest last)
-   */
-  sparks: SparkViewModel[];
-  /**
-   * Callback when fuel is added to a spark
-   */
-  onAddFuel?: (sparkId: string) => void;
-}
+    SPARK = "spark"  # Initial state (TTL: 30min)
+    KINDLING = "kindling"  # Extended state (UU >= 3, TTL: 3h)
+    BONFIRE = "bonfire"  # Promoted state (UU >= threshold AND heat_score >= 50)
 
-/**
- * TimelineStream Component
- *
- * Features:
- * - Virtual scrolling for performance (react-virtuoso)
- * - Auto-scroll to bottom when new sparks arrive (followOutput="auto")
- * - Initial display at bottom (YouTube Live-style)
- * - Color temperature based heat expression (handled by SparkCard)
- * - Empty state display when no sparks are available
- * @returns Rendered timeline stream element
- */
-export const TimelineStream = ({ sparks, onAddFuel }: TimelineStreamProps) => {
-  // Empty State: Display "The Silent Sky" when no sparks are available
-  if (sparks.length === 0) {
-    return (
-      <div
-        className="flex size-full items-center justify-center"
-        data-testid="timeline-stream"
-      >
-        <p
-          className="font-base text-sm text-ash-500"
-          data-testid="timeline-empty-state"
-        >
-          静かな夜空です。
-        </p>
-      </div>
-    );
-  }
 
-  return (
-    <div className="relative size-full" data-testid="timeline-container">
-      <Virtuoso
-        data={sparks}
-        alignToBottom
-        initialTopMostItemIndex={sparks.length - 1}
-        followOutput="smooth"
-        computeItemKey={(_, spark) => spark.id}
-        itemContent={(_index, spark) => (
-          <div className="pb-4 pr-2">
-            <SparkCard spark={spark} onAddFuel={onAddFuel} />
-          </div>
-        )}
-        style={{ height: "100%" }}
-      />
-    </div>
-  );
-};
-/**
- * Timeline Page (Smart Component)
- *
- * Entry point for the Timeline feature.
- * Handles dependency injection and wiring of UseCase to UI components.
- * Includes spark posting functionality with FAB and modal.
- */
+class Spark(BaseModel):
+    """Spark entity representing a user's post."""
 
-import { useState } from "react";
-import { Flame } from "lucide-react";
-import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
-import { sparkRepository } from "@/adapter/repository/sparkRepository";
-import { useTimelineStream } from "@/usecase/useTimelineStream";
-import { usePostSpark } from "@/usecase/usePostSpark";
-import { useAddFuel } from "@/usecase/useAddFuel";
-import { TimelineStream } from "@/components/organisms/TimelineStream";
-import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
-import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
-import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
-import { SparkPostModal } from "@/components/organisms/SparkPostModal";
-import { useLogger } from "@/components/useLogger";
-import { settings } from "@/adapter/infra/settings";
+    model_config = ConfigDict(frozen=True)
 
-/**
- * Timeline Page Component
- *
- * Responsibilities:
- * - Display real-time timeline of sparks
- * - Provide FAB button to open spark posting modal
- * - Handle spark posting with error display
- * @returns Rendered timeline page with posting capability
- */
-export const TimelinePage = () => {
-  // Local UI state for posting
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [content, setContent] = useState("");
+    id: str = Field(..., description="Unique identifier")
+    content: str = Field(..., description="Spark content text")
+    user_hash: str = Field(..., description="Anonymized user identifier")
+    fuel_count: int = Field(default=0, description="Number of fuel added to this spark")
+    level: SparkLevel = Field(
+        default=SparkLevel.SPARK,
+        description="Current promotion level",
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="Creation timestamp (UTC)",
+    )
+    decay_at: datetime = Field(
+        ...,
+        description="Timestamp when the spark decays (becomes invisible)",
+    )
+    vanish_at: datetime = Field(
+        ...,
+        description="Timestamp when the spark vanishes (physical deletion via TTL)",
+    )
 
-  // Dependency Injection: Logger
-  const logger = useLogger();
+    @staticmethod
+    def create(
+        spark_id: str,
+        content: str,
+        user_hash: str,
+        decay_after_seconds: int,
+        vanish_after_days: int,
+    ) -> "Spark":
+        """Create a new Spark entity with calculated timestamps.
 
-  // UseCase: Connect to WebSocket and receive sparks
-  const { sparks, hasError } = useTimelineStream(wsTimelineRepository);
+        Args:
+            spark_id: Unique identifier for the spark
+            content: Spark content text
+            user_hash: Anonymized user identifier
+            decay_after_seconds: Duration in seconds until spark decays
+            vanish_after_days: Days until spark vanishes (physical deletion)
 
-  // UseCase: Post spark
-  const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
+        Returns:
+            New Spark instance
 
-  // UseCase: Add fuel to spark
-  const { addFuel } = useAddFuel(sparkRepository, logger);
+        """
+        now = datetime.now(UTC)
+        return Spark(
+            id=spark_id,
+            content=content,
+            user_hash=user_hash,
+            fuel_count=0,
+            created_at=now,
+            decay_at=now + timedelta(seconds=decay_after_seconds),
+            vanish_at=now + timedelta(days=vanish_after_days),
+        )
+"""Spark Repository Interface.
 
-  // Event Handler: Submit spark
-  const handleSubmit = async () => {
-    const trimmedContent = content.trim();
-    if (!trimmedContent) return;
+This module defines the output port for spark persistence.
+"""
 
-    try {
-      await postSpark({ content: trimmedContent });
-      // On success: Clear input and close modal
-      setContent("");
-      setIsModalOpen(false);
-    } catch {
-      // Error is already logged by UseCase and stored in error state
-      // UI will display error via SparkPostModal
-    }
-  };
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from datetime import datetime
 
-  // Event Handler: Add fuel to spark
-  const handleAddFuel = (sparkId: string) => {
-    void addFuel({ sparkId });
-  };
+from app.domain.model.spark import Spark, SparkLevel
+from app.domain.model.spark_engagement import SparkEngagement
 
-  return (
-    <TimelineTemplate>
-      {hasError ? (
-        <ErrorStateMessage
-          title="サーバーに接続できません"
-          description="ネットワーク接続を確認してページを再読み込みしてください"
-          testId="timeline-error-message"
-        />
-      ) : (
-        <TimelineStream sparks={sparks} onAddFuel={handleAddFuel} />
-      )}
 
-      <FloatingActionButton
-        onClick={() => {
-          setIsModalOpen(true);
-        }}
-        icon={<Flame size={24} />}
-        label="種火を投げる"
-        testId="spark-post-fab"
-      />
+class ISparkRepository(ABC):
+    """Repository interface for spark operations."""
 
-      <SparkPostModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-        }}
-        content={content}
-        onContentChange={setContent}
-        onSubmit={() => {
-          void handleSubmit();
-        }}
-        isPosting={isPosting}
-        maxLength={settings.sparkMaxLength}
-        error={error}
-      />
-    </TimelineTemplate>
-  );
-};
-export const internalStatuses = {
-  // Sucess
-  200: "OK",
-  201: "Created",
-  204: "No Content",
-  // Client Errors
-  400: "Bad Request",
-  401: "Unauthorized",
-  403: "Forbidden",
-  404: "Not Found",
-  409: "Conflict",
-  422: "Unprocessable Entity",
-  // Business Logic Errors
-  1001: "Invalid email format.",
-  // Server Errors
-  500: "Internal Server Error",
-} as const;
+    @abstractmethod
+    async def save(self, spark: Spark) -> Spark:
+        """Save a spark.
 
-/**
- * Type representing valid internal status codes.
- */
-export type InternalStatusCodes = keyof typeof internalStatuses;
+        Args:
+            spark: The spark to save
 
-/**
- * Log Event IDs for structured logging.
- * Use these constants in logger calls for testable, consistent event tracking.
- */
-export const LOG_EVENTS = {
-  // Health Check
-  HEALTH_CHECK: {
-    FETCH_START: "HEALTH_FETCH_START",
-    FETCH_SUCCESS: "HEALTH_FETCH_SUCCESS",
-    FETCH_ERROR: "HEALTH_FETCH_ERROR",
-    SAVE_START: "HEALTH_SAVE_START",
-    SAVE_SUCCESS: "HEALTH_SAVE_SUCCESS",
-    SAVE_ERROR: "HEALTH_SAVE_ERROR",
-  },
-  // Spark Post
-  SPARK: {
-    POST_START: "SPARK_POST_START",
-    POST_SUCCESS: "SPARK_POST_SUCCESS",
-    POST_ERROR: "SPARK_POST_ERROR",
-  },
-  // Add Fuel (薪をくべる)
-  ADD_FUEL: {
-    START: "ADD_FUEL_START",
-    SUCCESS: "ADD_FUEL_SUCCESS",
-    ERROR: "ADD_FUEL_ERROR",
-    HAPTIC_NOT_SUPPORTED: "ADD_FUEL_HAPTIC_NOT_SUPPORTED",
-  },
-} as const;
+        Returns:
+            The saved spark
 
-/**
- * Spark cooling threshold ratio
- * Sparks with less than this percentage of their total lifetime remaining
- * will display as "cooling" (ash)
- *
- * This value is derived from the BDD specification:
- * "システムの '冷却閾値' は 'Decay time' に対して '30%' の割合である"
- */
-export const COOLING_THRESHOLD_RATIO = 0.3;
-/**
- * Spark Domain Model
- *
- * Represents a single spark (種火) - the core unit of all topics in Kvell.
- */
+        """
 
-import type { SparkTemperature } from "@/domain/service/sparkService";
+    @abstractmethod
+    async def find_by_id(self, spark_id: str) -> Spark | None:
+        """Find a spark by ID.
 
-/**
- * Spark interface
- */
-export interface Spark {
-  /**
-   * Unique identifier for the spark
-   */
-  id: string;
+        Args:
+            spark_id: The spark ID to search for
 
-  /**
-   * Spark content text
-   */
-  content: string;
+        Returns:
+            The spark if found, None otherwise
 
-  /**
-   * ISO timestamp when the spark was created
-   */
-  createdAt: string;
+        """
 
-  /**
-   * ISO timestamp when the spark decays (becomes invisible)
-   */
-  decayAt: string;
-}
+    @abstractmethod
+    async def find_active_sparks(
+        self,
+        seconds: int,
+        limit: int = 1000,
+    ) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified seconds.
 
-/**
- * Spark ViewModel with computed temperature state and remaining time
- * Used for UI rendering to avoid recalculation on every render
- */
-export interface SparkViewModel extends Spark {
-  /**
-   * Computed temperature state ('hot' or 'ash')
-   * Determines visual representation (color, border glow)
-   */
-  temperature: SparkTemperature;
+        Args:
+            seconds: Number of seconds to look back from now
+            limit: Maximum number of sparks to return (default 1000)
 
-  /**
-   * Remaining time until expiration in seconds
-   * Used for countdown timer display (mm:ss format)
-   */
-  remainingTimeInSeconds: number;
-}
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
 
-/**
- * Request payload for posting a new spark
- */
-export interface PostSparkRequest {
-  /**
-   * Spark content text to post
-   */
-  content: string;
-}
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError
 
-/**
- * Request payload for adding fuel to a spark
- */
-export interface AddFuelRequest {
-  /**
-   * Target spark ID to add fuel
-   */
-  sparkId: string;
-}
-/**
- * Spark Repository Interface (DIP)
- *
- * Abstract definition of data access operations for Spark entities.
- */
+    @abstractmethod
+    async def try_add_fuel(self, spark_id: str, user_hash: str) -> bool:
+        """Atomically add fuel to a spark if the user hasn't fueled it yet.
 
-import type { AddFuelRequest, PostSparkRequest, Spark } from "@/domain/model/spark";
+        This method ensures idempotency by checking if the user has already
+        added fuel to this spark. If not, it increments the fuel_count and
+        records the user's action.
 
-/**
- * Spark Repository Interface
- */
-export interface ISparkRepository {
-  /**
-   * Post a new spark.
-   * @param request - The spark content to post
-   * @returns The created spark details
-   */
-  postSpark(request: PostSparkRequest): Promise<Spark>;
+        Args:
+            spark_id: The spark ID to add fuel to
+            user_hash: The user hash attempting to add fuel
 
-  /**
-   * Add fuel to a spark.
-   * This operation sends an event to the backend but does not return fuel count
-   * to maintain the principle of hiding quantitative evaluation from users.
-   * @param request - The spark ID to add fuel
-   * @returns void (No data returned to hide fuel count)
-   */
-  addFuel(request: AddFuelRequest): Promise<void>;
-}
-/**
- * UseCase Layer Constants
- *
- * SWR cache keys and other usecase-specific constants.
- */
+        Returns:
+            True if fuel was added (first time), False if user already fueled
 
-export const SWR_KEYS = {
-  HEALTH_LATEST: "/health/latest",
-  SPARK_POST: "/spark/post",
-  ADD_FUEL: "/spark/add-fuel",
-} as const;
-/**
- * Add Fuel UseCase Hook
- *
- * Custom hook for adding fuel to a spark.
- * Triggers haptic feedback and ignite effect without displaying fuel count.
- */
+        """
 
-import useSWRMutation from "swr/mutation";
-import type { AddFuelRequest } from "@/domain/model/spark";
-import type { ISparkRepository } from "@/domain/repository/sparkRepository";
-import type { ILogger } from "@/usecase/ports/ILogger";
-import { SWR_KEYS } from "@/usecase/constants";
-import { LOG_EVENTS } from "@/domain/constants";
-import { triggerHapticFeedback } from "@/lib/haptic";
+    @abstractmethod
+    async def get_engagement(self, spark_id: str) -> SparkEngagement | None:
+        """Get engagement metrics for a spark.
 
-/**
- * UseCase Hook for adding fuel to a spark (Mutation).
- * @param repository - Repository implementation (injected from outside)
- * @param logger - Logger implementation (injected from outside)
- * @returns Mutation state, trigger function, and haptic support status
- */
-export const useAddFuel = (repository: ISparkRepository, logger: ILogger) => {
-  const { trigger, isMutating, error } = useSWRMutation<
-    null,
-    Error,
-    string,
-    AddFuelRequest
-  >(
-    SWR_KEYS.ADD_FUEL,
-    async (_key: string, { arg }: { arg: AddFuelRequest }) => {
-      try {
-        logger.info("Adding fuel to spark", {
-          event: LOG_EVENTS.ADD_FUEL.START,
-          sparkId: arg.sparkId,
-        });
+        Calculates unique user count and fuel count from fuel history.
 
-        // Trigger haptic feedback (if supported)
-        const hapticTriggered = triggerHapticFeedback();
-        if (!hapticTriggered) {
-          logger.info("Haptic feedback not supported", {
-            event: LOG_EVENTS.ADD_FUEL.HAPTIC_NOT_SUPPORTED,
-          });
-        }
+        Args:
+            spark_id: The spark ID to get engagement for
 
-        // Send fuel event to backend (no fuel count returned)
-        await repository.addFuel(arg);
+        Returns:
+            SparkEngagement if spark exists, None otherwise
 
-        logger.info("Successfully added fuel", {
-          event: LOG_EVENTS.ADD_FUEL.SUCCESS,
-          sparkId: arg.sparkId,
-        });
+        """
 
-        return null;
-      } catch (error_) {
-        logger.error(error_, {
-          event: LOG_EVENTS.ADD_FUEL.ERROR,
-          context: "useAddFuel",
-          sparkId: arg.sparkId,
-        });
-        throw error_;
-      }
-    },
-  );
+    @abstractmethod
+    async def update_level(self, spark_id: str, level: SparkLevel) -> bool:
+        """Update spark's promotion level.
 
-  return {
-    addFuel: trigger,
-    isAdding: isMutating,
-    error: error ?? null,
-  };
-};
+        Args:
+            spark_id: The spark ID to update
+            level: New spark level
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        """
+
+    @abstractmethod
+    async def update_decay_at(
+        self,
+        spark_id: str,
+        new_decay_at: datetime,
+    ) -> bool:
+        """Update spark's decay_at timestamp.
+
+        Used when promoting to kindling (TTL extension).
+
+        Args:
+            spark_id: The spark ID to update
+            new_decay_at: New decay timestamp
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        """
+"""FastAPI Application Entry Point.
+
+This module initializes the FastAPI application with CORS and database connection.
+"""
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pymongo.errors import PyMongoError
+
+from app.adapter.entrypoints.bonfire_router import router as bonfire_router
+from app.adapter.entrypoints.error_handler import app_error_handler
+from app.adapter.entrypoints.health_router import router as health_router
+from app.adapter.entrypoints.spark_router import router as spark_router
+from app.adapter.gateways.mongo_bonfire_repository import MongoBonfireRepository
+from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+from app.adapter.infra.database import Database
+from app.adapter.infra.logger import JsonLogger
+from app.adapter.infra.redis_client import RedisClient
+from app.adapter.infra.settings import settings
+from app.domain.constants import LOG_EVENTS
+from app.domain.exception import AppError
+
+if TYPE_CHECKING:
+    from app.usecase.ports.logger import ILogger
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Application lifespan manager.
+
+    Args:
+        _app: FastAPI application instance
+
+    Yields:
+        None
+
+    """
+    logger: ILogger = JsonLogger(service_name="kvell-api")
+
+    # Startup
+    logger.info(LOG_EVENTS.APP_STARTUP, "Kvell API starting up")
+    try:
+        Database.connect()
+        logger.info(LOG_EVENTS.APP_STARTUP, "Database connected")
+    except (PyMongoError, OSError, ConnectionError) as e:
+        logger.exception(
+            LOG_EVENTS.APP_STARTUP,
+            "Database connection failed",
+            error=e,
+        )
+        raise
+
+    try:
+        await RedisClient.connect()
+        logger.info(LOG_EVENTS.APP_STARTUP, "Redis connected")
+    except (OSError, ConnectionError) as e:
+        logger.exception(
+            LOG_EVENTS.APP_STARTUP,
+            "Redis connection failed",
+            error=e,
+        )
+        raise
+
+    # Create indexes for all collections
+    try:
+        db = Database.get_database()
+
+        # Spark indexes (includes TTL for automatic deletion)
+        spark_repo = MongoSparkRepository(db, logger)
+        await spark_repo.ensure_indexes()
+        logger.info(LOG_EVENTS.APP_STARTUP, "Spark indexes created")
+
+        # Bonfire indexes (includes TTL for automatic deletion)
+        bonfire_repo = MongoBonfireRepository(db, logger)
+        await bonfire_repo.ensure_indexes()
+        logger.info(LOG_EVENTS.APP_STARTUP, "Bonfire indexes created")
+
+    except PyMongoError as e:
+        logger.exception(
+            LOG_EVENTS.APP_STARTUP,
+            "Failed to create indexes",
+            error=e,
+        )
+        # Critical for TTL and performance - raise to prevent startup
+        raise
+
+    yield
+
+    # Shutdown
+    logger.info(LOG_EVENTS.APP_SHUTDOWN, "Kvell API shutting down")
+    try:
+        Database.disconnect()
+        logger.info(LOG_EVENTS.APP_SHUTDOWN, "Database disconnected")
+    except (PyMongoError, OSError, ConnectionError) as e:
+        logger.exception(
+            LOG_EVENTS.APP_SHUTDOWN,
+            "Database disconnection error",
+            error=e,
+        )
+
+    try:
+        await RedisClient.disconnect()
+        logger.info(LOG_EVENTS.APP_SHUTDOWN, "Redis disconnected")
+    except (OSError, ConnectionError) as e:
+        logger.exception(
+            LOG_EVENTS.APP_SHUTDOWN,
+            "Redis disconnection error",
+            error=e,
+        )
+
+
+# Create FastAPI application
+app = FastAPI(
+    title="Kvell API",
+    description="Kvell Backend API",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register exception handlers using decorator pattern
+
+
+@app.exception_handler(AppError)
+async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
+    """Handle AppError exceptions.
+
+    Args:
+        _request: FastAPI request (unused but required by signature)
+        exc: Application error
+
+    Returns:
+        JSON response with appropriate HTTP status
+
+    """
+    return await app_error_handler(_request, exc)
+
+
+# Register routers
+app.include_router(health_router)
+app.include_router(spark_router)
+app.include_router(bonfire_router)
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    """Root endpoint.
+
+    Returns:
+        Welcome message
+
+    """
+    return {"message": "Welcome to Kvell API"}
+"""Add Fuel Interactor.
+
+This module implements the business logic for adding fuel to sparks.
+"""
+
+from datetime import UTC, datetime
+
+from pymongo.errors import PyMongoError
+from tenacity import (
+    AsyncRetrying,
+    RetryCallState,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+from app.domain.constants import LOG_EVENTS
+from app.domain.exception import AppError
+from app.domain.model.spark import SparkLevel
+from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.service.bonfire_service import BonfireService
+from app.usecase.add_fuel.interface import (
+    AddFuelInput,
+    AddFuelOutput,
+    IAddFuelUseCase,
+)
+from app.usecase.check_promotion.interface import (
+    CheckPromotionInput,
+    ICheckPromotionUseCase,
+)
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+
+
+def _is_transient_transaction_error(exception: BaseException) -> bool:
+    """Check if exception is a MongoDB TransientTransactionError.
+
+    Args:
+        exception: The exception to check
+
+    Returns:
+        True if this is a transient transaction error that can be retried
+
+    """
+    # If it's an AppError, check the cause
+    if isinstance(exception, AppError):
+        cause = exception.cause
+        if cause and isinstance(cause, PyMongoError):
+            return cause.has_error_label("TransientTransactionError")
+        return False
+
+    # Direct PyMongoError check
+    if isinstance(exception, PyMongoError):
+        return exception.has_error_label("TransientTransactionError")
+
+    return False
+
+
+class AddFuelInteractor(IAddFuelUseCase):
+    """Interactor for adding fuel to a spark."""
+
+    MAX_RETRY_ATTEMPTS = 3
+    RETRY_WAIT_MIN_SECONDS = 0.01  # 10ms
+    RETRY_WAIT_MAX_SECONDS = 1.0  # 1s
+
+    def __init__(
+        self,
+        spark_repository: ISparkRepository,
+        check_promotion: ICheckPromotionUseCase,
+        bonfire_service: BonfireService,
+        pubsub: IPubSubGateway,
+        logger: ILogger,
+    ) -> None:
+        """Initialize the interactor.
+
+        Args:
+            spark_repository: Repository for spark operations
+            check_promotion: UseCase for checking promotions
+            bonfire_service: Service for bonfire operations
+            pubsub: PubSub gateway for broadcasting events
+            logger: Logger for structured logging
+
+        """
+        self.spark_repository = spark_repository
+        self.check_promotion = check_promotion
+        self.bonfire_service = bonfire_service
+        self.pubsub = pubsub
+        self.logger = logger
+
+    async def execute(self, input_data: AddFuelInput) -> AddFuelOutput:
+        """Add fuel to a spark.
+
+        Business rules:
+        1. Spark must exist (else error 1005)
+        2. Spark must not be decayed (else error 1001)
+        3. Users cannot fuel their own sparks (success, no increment)
+        4. Users can only fuel a spark once (idempotent, no increment)
+        5. After fuel added: check promotion (Spark/Kindling) or extend (Bonfire)
+
+        Args:
+            input_data: Input data containing spark_id and user_hash
+
+        Returns:
+            Output indicating success and promotion status
+
+        Raises:
+            AppError: If spark not found (1005) or already decayed (1001)
+
+        """
+        self.logger.info(
+            LOG_EVENTS.FUEL_ADD_STARTED,
+            "Add fuel request received",
+            context={
+                "spark_id": input_data.spark_id,
+                "user_hash": input_data.user_hash,
+            },
+        )
+
+        # 1. Find the spark
+        spark = await self.spark_repository.find_by_id(input_data.spark_id)
+
+        if spark is None:
+            self.logger.warning(
+                LOG_EVENTS.FUEL_SPARK_NOT_FOUND,
+                "Spark not found",
+                context={"spark_id": input_data.spark_id},
+            )
+            raise AppError(internal_code=1005)
+
+        # 2. Check if spark is still active (not decayed)
+        now = datetime.now(UTC)
+        if spark.decay_at <= now:
+            self.logger.warning(
+                LOG_EVENTS.FUEL_SPARK_DECAYED,
+                "Spark has already decayed",
+                context={
+                    "spark_id": input_data.spark_id,
+                    "decay_at": spark.decay_at.isoformat(),
+                    "now": now.isoformat(),
+                },
+            )
+            raise AppError(internal_code=1001)
+
+        # 3. Check if user is trying to fuel their own spark
+        if spark.user_hash == input_data.user_hash:
+            self.logger.info(
+                LOG_EVENTS.FUEL_SELF_SPARK,
+                "User attempted to fuel their own spark (skipped)",
+                context={
+                    "spark_id": input_data.spark_id,
+                    "user_hash": input_data.user_hash,
+                },
+            )
+            # Return success to show UI effect, but don't increment count
+            return AddFuelOutput(success=True)
+
+        # 4. Try to add fuel with retry logic for transient transaction errors
+        fuel_added = await self._try_add_fuel_with_retry(
+            input_data.spark_id,
+            input_data.user_hash,
+        )
+
+        if not fuel_added:
+            self.logger.info(
+                LOG_EVENTS.FUEL_ALREADY_ADDED,
+                "User already fueled this spark (idempotent)",
+                context={
+                    "spark_id": input_data.spark_id,
+                    "user_hash": input_data.user_hash,
+                },
+            )
+            return AddFuelOutput(success=True)
+
+        self.logger.info(
+            LOG_EVENTS.FUEL_ADD_SUCCESS,
+            "Fuel added successfully",
+            context={
+                "spark_id": input_data.spark_id,
+                "fuel_added": fuel_added,
+            },
+        )
+
+        # 5. Check status and process accordingly
+        return await self._process_after_fuel(input_data.spark_id, spark.level)
+
+    async def _process_after_fuel(
+        self,
+        spark_id: str,
+        current_level: SparkLevel,
+    ) -> AddFuelOutput:
+        """Process promotion or extension after fuel is added.
+
+        Args:
+            spark_id: ID of the spark
+            current_level: Current level of the spark
+
+        Returns:
+            Output with promotion/extension status
+
+        """
+        # If already Bonfire, extend TTL
+        if current_level == SparkLevel.BONFIRE:
+            return await self._extend_bonfire(spark_id)
+
+        # Otherwise, check for promotion (Spark/Kindling)
+        return await self._check_and_promote(spark_id)
+
+    async def _check_and_promote(self, spark_id: str) -> AddFuelOutput:
+        """Check and execute promotion for Spark/Kindling.
+
+        Args:
+            spark_id: ID of the spark to check
+
+        Returns:
+            Output with promotion status
+
+        """
+        promotion_result = await self.check_promotion.execute(
+            CheckPromotionInput(spark_id=spark_id)
+        )
+
+        return AddFuelOutput(
+            success=True,
+            promoted=promotion_result.promoted,
+            previous_level=promotion_result.previous_level,
+            current_level=promotion_result.current_level,
+            bonfire_created=promotion_result.bonfire_created,
+        )
+
+    async def _extend_bonfire(self, spark_id: str) -> AddFuelOutput:
+        """Extend bonfire TTL when fuel is added.
+
+        Args:
+            spark_id: ID of the original spark (now bonfire)
+
+        Returns:
+            Output indicating success (no promotion since already bonfire)
+
+        """
+        bonfire = await self.bonfire_service.find_by_spark_id(spark_id)
+
+        if bonfire is None:
+            self.logger.warning(
+                LOG_EVENTS.BONFIRE_NOT_FOUND,
+                "Bonfire not found for spark",
+                context={"spark_id": spark_id},
+            )
+            return AddFuelOutput(success=True)
+
+        extended_bonfire, was_extended = await self.bonfire_service.extend_by_fuel(
+            bonfire
+        )
+
+        if was_extended:
+            self.logger.info(
+                LOG_EVENTS.BONFIRE_EXTENDED,
+                "Bonfire TTL extended by fuel",
+                context={
+                    "bonfire_id": bonfire.id,
+                    "spark_id": spark_id,
+                    "new_decay_at": extended_bonfire.decay_at.isoformat(),
+                },
+            )
+
+            # Broadcast extension event
+            await self.pubsub.publish(
+                "bonfire_events",
+                {
+                    "type": "bonfire_extended",
+                    "bonfire_id": bonfire.id,
+                    "spark_id": spark_id,
+                    "new_decay_at": extended_bonfire.decay_at.isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+
+        return AddFuelOutput(success=True)
+
+    async def _try_add_fuel_with_retry(
+        self,
+        spark_id: str,
+        user_hash: str,
+    ) -> bool:
+        """Try to add fuel with automatic retry on transient transaction errors.
+
+        Uses tenacity to retry on MongoDB TransientTransactionError with
+        exponential backoff.
+
+        Args:
+            spark_id: The spark ID to add fuel to
+            user_hash: The user hash attempting to add fuel
+
+        Returns:
+            True if fuel was added (first time), False if user already fueled
+
+        Raises:
+            AppError: If database operation fails after all retries
+
+        """
+
+        def _before_sleep(retry_state: RetryCallState) -> None:
+            """Log before each retry attempt."""
+            attempt_number = retry_state.attempt_number
+            exception = retry_state.outcome.exception() if retry_state.outcome else None
+            self.logger.warning(
+                LOG_EVENTS.FUEL_RETRY_ATTEMPT,
+                (
+                    f"Retrying add fuel due to transient error "
+                    f"(attempt {attempt_number}/{self.MAX_RETRY_ATTEMPTS})"
+                ),
+                context={
+                    "spark_id": spark_id,
+                    "user_hash": user_hash,
+                    "attempt": attempt_number,
+                    "exception": str(exception) if exception else None,
+                },
+            )
+
+        try:
+            # Use AsyncRetrying for async functions
+            async for attempt in AsyncRetrying(
+                retry=retry_if_exception(_is_transient_transaction_error),
+                stop=stop_after_attempt(self.MAX_RETRY_ATTEMPTS),
+                wait=wait_exponential(
+                    min=self.RETRY_WAIT_MIN_SECONDS,
+                    max=self.RETRY_WAIT_MAX_SECONDS,
+                ),
+                before_sleep=_before_sleep,
+                reraise=True,
+            ):
+                with attempt:
+                    return await self.spark_repository.try_add_fuel(
+                        spark_id,
+                        user_hash,
+                    )
+        except AppError as e:
+            # If all retries exhausted, log and re-raise
+            if _is_transient_transaction_error(e.cause) if e.cause else False:
+                self.logger.exception(
+                    LOG_EVENTS.FUEL_RETRY_EXHAUSTED,
+                    (
+                        f"Failed to add fuel after "
+                        f"{self.MAX_RETRY_ATTEMPTS} retry attempts"
+                    ),
+                    error=e,
+                    context={
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                        "max_attempts": self.MAX_RETRY_ATTEMPTS,
+                    },
+                )
+            raise
+
+        # This should never be reached due to reraise=True
+        msg = "Unexpected state: retry exhausted without exception"
+        raise RuntimeError(msg)
+"""Add Fuel UseCase Interface.
+
+This module defines the input port for adding fuel to a spark.
+"""
+
+from abc import ABC, abstractmethod
+
+from pydantic import BaseModel, Field
+
+from app.domain.model.spark import SparkLevel
+
+
+class AddFuelInput(BaseModel):
+    """Input DTO for adding fuel to a spark."""
+
+    spark_id: str = Field(..., description="The spark ID to add fuel to")
+    user_hash: str = Field(..., description="The user hash adding fuel")
+
+
+class AddFuelOutput(BaseModel):
+    """Output DTO for add fuel operation.
+
+    Note: This intentionally does NOT include fuel_count to prevent
+    displaying quantitative metrics to users (per project requirements).
+    """
+
+    success: bool = Field(
+        default=True,
+        description="Always true - indicates the action was acknowledged",
+    )
+    promoted: bool = Field(
+        default=False,
+        description="Whether this action triggered a promotion",
+    )
+    previous_level: SparkLevel | None = Field(
+        default=None,
+        description="Level before this action (if promoted)",
+    )
+    current_level: SparkLevel | None = Field(
+        default=None,
+        description="Level after this action (if promoted)",
+    )
+    bonfire_created: bool = Field(
+        default=False,
+        description="Whether a new bonfire was created by this action",
+    )
+
+
+class IAddFuelUseCase(ABC):
+    """UseCase interface for adding fuel to a spark."""
+
+    @abstractmethod
+    async def execute(self, input_data: AddFuelInput) -> AddFuelOutput:
+        """Add fuel to a spark.
+
+        Args:
+            input_data: Input data containing spark_id and user_hash
+
+        Returns:
+            Output indicating success (without revealing fuel count)
+
+        Raises:
+            AppError: If spark not found (1005) or already decayed (1001)
+
+        """
+"""PubSub Gateway Port.
+
+This module defines the port interface for publish-subscribe messaging.
+"""
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from typing import Any
+
+from app.usecase.dto.spark_dto import SparkOutput
+
+# Generic message type for non-spark events
+PubSubMessage = dict[str, Any]
+
+
+class IPubSubGateway(ABC):
+    """Interface for publish-subscribe messaging operations."""
+
+    @abstractmethod
+    async def publish(
+        self,
+        channel: str,
+        message: SparkOutput | PubSubMessage,
+    ) -> None:
+        """Publish a message to a channel.
+
+        Args:
+            channel: The channel name to publish to
+            message: The message to publish (SparkOutput or generic dict)
+
+        """
+
+    @abstractmethod
+    async def subscribe(self, channel: str) -> AsyncIterator[SparkOutput]:
+        """Subscribe to a channel and yield messages as they arrive.
+
+        Args:
+            channel: The channel name to subscribe to
+
+        Yields:
+            SparkOutput messages from the channel
+
+        """
+        # This is an async generator method
+        # Implementations should yield SparkOutput messages
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError

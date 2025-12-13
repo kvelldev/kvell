@@ -12,9 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pymongo.errors import PyMongoError
 
+from app.adapter.entrypoints.bonfire_router import router as bonfire_router
 from app.adapter.entrypoints.error_handler import app_error_handler
 from app.adapter.entrypoints.health_router import router as health_router
 from app.adapter.entrypoints.spark_router import router as spark_router
+from app.adapter.gateways.mongo_bonfire_repository import MongoBonfireRepository
+from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
 from app.adapter.infra.database import Database
 from app.adapter.infra.logger import JsonLogger
 from app.adapter.infra.redis_client import RedisClient
@@ -61,6 +64,29 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             "Redis connection failed",
             error=e,
         )
+        raise
+
+    # Create indexes for all collections
+    try:
+        db = Database.get_database()
+
+        # Spark indexes (includes TTL for automatic deletion)
+        spark_repo = MongoSparkRepository(db, logger)
+        await spark_repo.ensure_indexes()
+        logger.info(LOG_EVENTS.APP_STARTUP, "Spark indexes created")
+
+        # Bonfire indexes (includes TTL for automatic deletion)
+        bonfire_repo = MongoBonfireRepository(db, logger)
+        await bonfire_repo.ensure_indexes()
+        logger.info(LOG_EVENTS.APP_STARTUP, "Bonfire indexes created")
+
+    except PyMongoError as e:
+        logger.exception(
+            LOG_EVENTS.APP_STARTUP,
+            "Failed to create indexes",
+            error=e,
+        )
+        # Critical for TTL and performance - raise to prevent startup
         raise
 
     yield
@@ -126,6 +152,7 @@ async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
 # Register routers
 app.include_router(health_router)
 app.include_router(spark_router)
+app.include_router(bonfire_router)
 
 
 @app.get("/")

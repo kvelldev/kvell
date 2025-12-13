@@ -16,13 +16,20 @@ from tenacity import (
 
 from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
+from app.domain.model.spark import SparkLevel
 from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.service.bonfire_service import BonfireService
 from app.usecase.add_fuel.interface import (
     AddFuelInput,
     AddFuelOutput,
     IAddFuelUseCase,
 )
+from app.usecase.check_promotion.interface import (
+    CheckPromotionInput,
+    ICheckPromotionUseCase,
+)
 from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
 
 
 def _is_transient_transaction_error(exception: BaseException) -> bool:
@@ -59,16 +66,25 @@ class AddFuelInteractor(IAddFuelUseCase):
     def __init__(
         self,
         spark_repository: ISparkRepository,
+        check_promotion: ICheckPromotionUseCase,
+        bonfire_service: BonfireService,
+        pubsub: IPubSubGateway,
         logger: ILogger,
     ) -> None:
         """Initialize the interactor.
 
         Args:
             spark_repository: Repository for spark operations
+            check_promotion: UseCase for checking promotions
+            bonfire_service: Service for bonfire operations
+            pubsub: PubSub gateway for broadcasting events
             logger: Logger for structured logging
 
         """
         self.spark_repository = spark_repository
+        self.check_promotion = check_promotion
+        self.bonfire_service = bonfire_service
+        self.pubsub = pubsub
         self.logger = logger
 
     async def execute(self, input_data: AddFuelInput) -> AddFuelOutput:
@@ -79,12 +95,13 @@ class AddFuelInteractor(IAddFuelUseCase):
         2. Spark must not be decayed (else error 1001)
         3. Users cannot fuel their own sparks (success, no increment)
         4. Users can only fuel a spark once (idempotent, no increment)
+        5. After fuel added: check promotion (Spark/Kindling) or extend (Bonfire)
 
         Args:
             input_data: Input data containing spark_id and user_hash
 
         Returns:
-            Output indicating success (without revealing fuel count)
+            Output indicating success and promotion status
 
         Raises:
             AppError: If spark not found (1005) or already decayed (1001)
@@ -152,17 +169,111 @@ class AddFuelInteractor(IAddFuelUseCase):
                     "user_hash": input_data.user_hash,
                 },
             )
-        else:
+            return AddFuelOutput(success=True)
+
+        self.logger.info(
+            LOG_EVENTS.FUEL_ADD_SUCCESS,
+            "Fuel added successfully",
+            context={
+                "spark_id": input_data.spark_id,
+                "fuel_added": fuel_added,
+            },
+        )
+
+        # 5. Check status and process accordingly
+        return await self._process_after_fuel(input_data.spark_id, spark.level)
+
+    async def _process_after_fuel(
+        self,
+        spark_id: str,
+        current_level: SparkLevel,
+    ) -> AddFuelOutput:
+        """Process promotion or extension after fuel is added.
+
+        Args:
+            spark_id: ID of the spark
+            current_level: Current level of the spark
+
+        Returns:
+            Output with promotion/extension status
+
+        """
+        # If already Bonfire, extend TTL
+        if current_level == SparkLevel.BONFIRE:
+            return await self._extend_bonfire(spark_id)
+
+        # Otherwise, check for promotion (Spark/Kindling)
+        return await self._check_and_promote(spark_id)
+
+    async def _check_and_promote(self, spark_id: str) -> AddFuelOutput:
+        """Check and execute promotion for Spark/Kindling.
+
+        Args:
+            spark_id: ID of the spark to check
+
+        Returns:
+            Output with promotion status
+
+        """
+        promotion_result = await self.check_promotion.execute(
+            CheckPromotionInput(spark_id=spark_id)
+        )
+
+        return AddFuelOutput(
+            success=True,
+            promoted=promotion_result.promoted,
+            previous_level=promotion_result.previous_level,
+            current_level=promotion_result.current_level,
+            bonfire_created=promotion_result.bonfire_created,
+        )
+
+    async def _extend_bonfire(self, spark_id: str) -> AddFuelOutput:
+        """Extend bonfire TTL when fuel is added.
+
+        Args:
+            spark_id: ID of the original spark (now bonfire)
+
+        Returns:
+            Output indicating success (no promotion since already bonfire)
+
+        """
+        bonfire = await self.bonfire_service.find_by_spark_id(spark_id)
+
+        if bonfire is None:
+            self.logger.warning(
+                LOG_EVENTS.BONFIRE_NOT_FOUND,
+                "Bonfire not found for spark",
+                context={"spark_id": spark_id},
+            )
+            return AddFuelOutput(success=True)
+
+        extended_bonfire, was_extended = await self.bonfire_service.extend_by_fuel(
+            bonfire
+        )
+
+        if was_extended:
             self.logger.info(
-                LOG_EVENTS.FUEL_ADD_SUCCESS,
-                "Fuel added successfully",
+                LOG_EVENTS.BONFIRE_EXTENDED,
+                "Bonfire TTL extended by fuel",
                 context={
-                    "spark_id": input_data.spark_id,
-                    "fuel_added": fuel_added,
+                    "bonfire_id": bonfire.id,
+                    "spark_id": spark_id,
+                    "new_decay_at": extended_bonfire.decay_at.isoformat(),
                 },
             )
 
-        # Always return success (UI effect is shown regardless)
+            # Broadcast extension event
+            await self.pubsub.publish(
+                "bonfire_events",
+                {
+                    "type": "bonfire_extended",
+                    "bonfire_id": bonfire.id,
+                    "spark_id": spark_id,
+                    "new_decay_at": extended_bonfire.decay_at.isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+
         return AddFuelOutput(success=True)
 
     async def _try_add_fuel_with_retry(

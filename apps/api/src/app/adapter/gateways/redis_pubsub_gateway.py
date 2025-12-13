@@ -11,7 +11,7 @@ from redis.asyncio import Redis
 from app.domain.constants import LOG_EVENTS
 from app.usecase.dto.spark_dto import SparkOutput
 from app.usecase.ports.logger import ILogger
-from app.usecase.ports.pubsub import IPubSubGateway
+from app.usecase.ports.pubsub import IPubSubGateway, PubSubMessage
 
 
 class RedisPubSubGateway(IPubSubGateway):
@@ -28,17 +28,26 @@ class RedisPubSubGateway(IPubSubGateway):
         self.redis = redis
         self.logger = logger
 
-    async def publish(self, channel: str, message: SparkOutput) -> None:
+    async def publish(
+        self,
+        channel: str,
+        message: SparkOutput | PubSubMessage,
+    ) -> None:
         """Publish a message to a channel.
 
         Args:
             channel: The channel name to publish to
-            message: The spark output to publish
+            message: The message to publish (SparkOutput or generic dict)
 
         """
         try:
-            # Serialize Pydantic model to JSON string
-            json_message = message.model_dump_json()
+            # Serialize message to JSON string
+            if isinstance(message, SparkOutput):
+                json_message = message.model_dump_json()
+                message_id = message.id
+            else:
+                json_message = json.dumps(message)
+                message_id = message.get("id", message.get("spark_id", "unknown"))
 
             # Publish to Redis
             await self.redis.publish(channel, json_message)  # type: ignore[misc]
@@ -48,7 +57,7 @@ class RedisPubSubGateway(IPubSubGateway):
                 "Message published to Redis channel",
                 context={
                     "channel": channel,
-                    "spark_id": message.id,
+                    "message_id": message_id,
                 },
             )
 
@@ -57,10 +66,7 @@ class RedisPubSubGateway(IPubSubGateway):
                 LOG_EVENTS.PUBSUB_PUBLISH_ERROR,
                 "Failed to publish message to Redis channel",
                 error=e,
-                context={
-                    "channel": channel,
-                    "spark_id": message.id,
-                },
+                context={"channel": channel},
             )
             raise
 

@@ -10,11 +10,17 @@ import pytest
 
 from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
-from app.domain.model.spark import Spark
+from app.domain.model.spark import Spark, SparkLevel
 from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.service.bonfire_service import BonfireService
 from app.usecase.add_fuel.interactor import AddFuelInteractor
 from app.usecase.add_fuel.interface import AddFuelInput
+from app.usecase.check_promotion.interface import (
+    CheckPromotionOutput,
+    ICheckPromotionUseCase,
+)
 from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
 
 
 class TestAddFuelInteractor:
@@ -26,6 +32,29 @@ class TestAddFuelInteractor:
         return AsyncMock(spec=ISparkRepository)
 
     @pytest.fixture
+    def mock_check_promotion(self) -> AsyncMock:
+        """Create a mock check promotion use case."""
+        mock = AsyncMock(spec=ICheckPromotionUseCase)
+        mock.execute.return_value = CheckPromotionOutput(
+            spark_id="spark_123",
+            promoted=False,
+            previous_level=SparkLevel.SPARK,
+            current_level=SparkLevel.SPARK,
+            bonfire_created=False,
+        )
+        return mock
+
+    @pytest.fixture
+    def mock_bonfire_service(self) -> AsyncMock:
+        """Create a mock bonfire service."""
+        return AsyncMock(spec=BonfireService)
+
+    @pytest.fixture
+    def mock_pubsub(self) -> AsyncMock:
+        """Create a mock pubsub gateway."""
+        return AsyncMock(spec=IPubSubGateway)
+
+    @pytest.fixture
     def mock_logger(self) -> Mock:
         """Create a mock logger."""
         return Mock(spec=ILogger)
@@ -34,11 +63,17 @@ class TestAddFuelInteractor:
     def interactor(
         self,
         mock_spark_repo: AsyncMock,
+        mock_check_promotion: AsyncMock,
+        mock_bonfire_service: AsyncMock,
+        mock_pubsub: AsyncMock,
         mock_logger: Mock,
     ) -> AddFuelInteractor:
         """Create an AddFuelInteractor instance."""
         return AddFuelInteractor(
             spark_repository=mock_spark_repo,
+            check_promotion=mock_check_promotion,
+            bonfire_service=mock_bonfire_service,
+            pubsub=mock_pubsub,
             logger=mock_logger,
         )
 

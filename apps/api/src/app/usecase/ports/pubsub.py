@@ -5,20 +5,28 @@ This module defines the port interface for publish-subscribe messaging.
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from typing import Any
 
 from app.usecase.dto.spark_dto import SparkOutput
+
+# Generic message type for non-spark events
+PubSubMessage = dict[str, Any]
 
 
 class IPubSubGateway(ABC):
     """Interface for publish-subscribe messaging operations."""
 
     @abstractmethod
-    async def publish(self, channel: str, message: SparkOutput) -> None:
+    async def publish(
+        self,
+        channel: str,
+        message: SparkOutput | PubSubMessage,
+    ) -> None:
         """Publish a message to a channel.
 
         Args:
             channel: The channel name to publish to
-            message: The spark output to publish
+            message: The message to publish (SparkOutput or generic dict)
 
         """
 

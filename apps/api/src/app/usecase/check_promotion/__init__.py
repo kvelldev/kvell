@@ -1,0 +1,1 @@
+"""Check Promotion UseCase package."""

@@ -151,12 +151,15 @@ async def test_client(
     await RedisClient.connect()
 
     # Ensure indexes are created for test database
+    from app.adapter.gateways.mongo_bonfire_repository import MongoBonfireRepository
     from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
     from app.adapter.infra.logger import JsonLogger
 
     logger = JsonLogger(service_name="kvell-test")
     spark_repo = MongoSparkRepository(test_database, logger)
     await spark_repo.ensure_indexes()
+    bonfire_repo = MongoBonfireRepository(test_database, logger)
+    await bonfire_repo.ensure_indexes()
 
     # Override the dependencies to use test instances
     def override_get_db() -> AsyncIOMotorDatabase[Any]:

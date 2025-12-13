@@ -89,6 +89,20 @@ class LogEvents:
     UNHANDLED_ERROR: Final[str] = "ERROR_001"
     VALIDATION_ERROR: Final[str] = "ERROR_002"
 
+    # Bonfire/Promotion events
+    PROMOTION_CHECK_STARTED: Final[str] = "PROMO_001"
+    PROMOTION_TO_KINDLING: Final[str] = "PROMO_002"
+    PROMOTION_TO_BONFIRE: Final[str] = "PROMO_003"
+    PROMOTION_NOT_NEEDED: Final[str] = "PROMO_004"
+    BONFIRE_CREATED: Final[str] = "BONFIRE_001"
+    BONFIRE_EXTENDED: Final[str] = "BONFIRE_002"
+    BONFIRE_DECAYED: Final[str] = "BONFIRE_003"
+    BONFIRE_NOT_FOUND: Final[str] = "BONFIRE_004"
+
+    # Threshold config events
+    THRESHOLD_FETCH_SUCCESS: Final[str] = "THRESH_001"
+    THRESHOLD_FETCH_FALLBACK: Final[str] = "THRESH_002"
+
 
 # Singleton instance
 LOG_EVENTS = LogEvents()

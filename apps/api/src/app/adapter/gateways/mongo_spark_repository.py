@@ -13,7 +13,8 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
-from app.domain.model.spark import Spark
+from app.domain.model.spark import Spark, SparkLevel
+from app.domain.model.spark_engagement import SparkEngagement
 from app.domain.repository.spark_repository import ISparkRepository
 from app.usecase.ports.logger import ILogger
 
@@ -131,6 +132,7 @@ class MongoSparkRepository(ISparkRepository):
                 "content": spark.content,
                 "user_hash": spark.user_hash,
                 "fuel_count": spark.fuel_count,
+                "level": spark.level.value,
                 "created_at": spark.created_at,
                 "decay_at": spark.decay_at,
                 "vanish_at": spark.vanish_at,
@@ -229,21 +231,31 @@ class MongoSparkRepository(ISparkRepository):
             decay_at = document["decay_at"].replace(tzinfo=UTC)
             vanish_at = document["vanish_at"].replace(tzinfo=UTC)
 
+            # Parse level with fallback for legacy documents
+            level_str = document.get("level", SparkLevel.SPARK.value)
+            level = SparkLevel(level_str)
+
             return Spark(
                 id=document["id"],
                 content=document["content"],
                 user_hash=document["user_hash"],
                 fuel_count=document.get("fuel_count", 0),
+                level=level,
                 created_at=created_at,
                 decay_at=decay_at,
                 vanish_at=vanish_at,
             )
 
-    async def find_active_sparks(self, seconds: int) -> AsyncIterator[Spark]:
+    async def find_active_sparks(
+        self,
+        seconds: int,
+        limit: int = 1000,
+    ) -> AsyncIterator[Spark]:
         """Find all active sparks created within the specified seconds.
 
         Args:
             seconds: Number of seconds to look back from now
+            limit: Maximum number of sparks to return (default 1000)
 
         Yields:
             Active sparks sorted by created_at in ascending order (oldest first)
@@ -262,13 +274,14 @@ class MongoSparkRepository(ISparkRepository):
                 context={
                     "collection": self.COLLECTION_NAME,
                     "cutoff_time": cutoff_time.isoformat(),
+                    "limit": limit,
                 },
             )
 
             # Query for sparks created after cutoff_time, sorted by created_at ascending
             cursor = self.collection.find(
                 {"created_at": {"$gte": cutoff_time}},
-            ).sort("created_at", 1)
+            ).sort("created_at", 1).limit(limit)
 
             # Yield sparks one by one (streaming, no to_list)
             count = 0
@@ -280,11 +293,16 @@ class MongoSparkRepository(ISparkRepository):
                 decay_at = doc["decay_at"].replace(tzinfo=UTC)
                 vanish_at = doc["vanish_at"].replace(tzinfo=UTC)
 
+                # Parse level with fallback for legacy documents
+                level_str = doc.get("level", SparkLevel.SPARK.value)
+                level = SparkLevel(level_str)
+
                 yield Spark(
                     id=doc["id"],
                     content=doc["content"],
                     user_hash=doc["user_hash"],
                     fuel_count=doc.get("fuel_count", 0),
+                    level=level,
                     created_at=created_at,
                     decay_at=decay_at,
                     vanish_at=vanish_at,
@@ -400,3 +418,182 @@ class MongoSparkRepository(ISparkRepository):
 
             else:
                 return True
+
+    async def get_engagement(
+        self,
+        spark_id: str,
+        fuel_weight: int = 1,
+        reply_weight: int = 5,
+    ) -> SparkEngagement | None:
+        """Get engagement metrics for a spark.
+
+        Calculates unique user count and fuel count from fuel history.
+
+        Args:
+            spark_id: The spark ID to get engagement for
+            fuel_weight: Weight for fuel actions in heat score calculation
+            reply_weight: Weight for reply actions in heat score calculation
+
+        Returns:
+            SparkEngagement if spark exists, None otherwise
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            # Check if spark exists first
+            spark_doc = await self.collection.find_one(
+                {"id": spark_id},
+                {"fuel_count": 1},
+            )
+
+            if spark_doc is None:
+                return None
+
+            # Count unique users from fuel history
+            unique_users = await self.fuel_history_collection.count_documents(
+                {"spark_id": spark_id},
+            )
+
+            fuel_count = spark_doc.get("fuel_count", 0)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Engagement metrics retrieved",
+                context={
+                    "spark_id": spark_id,
+                    "unique_user_count": unique_users,
+                    "fuel_count": fuel_count,
+                },
+            )
+
+            return SparkEngagement(
+                spark_id=spark_id,
+                unique_user_count=unique_users,
+                fuel_count=fuel_count,
+                reply_count=0,  # Future feature
+                fuel_weight=fuel_weight,
+                reply_weight=reply_weight,
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to get engagement metrics",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.FUEL_HISTORY_COLLECTION},
+                cause=e,
+            ) from e
+
+    async def update_level(self, spark_id: str, level: SparkLevel) -> bool:
+        """Update spark's promotion level.
+
+        Args:
+            spark_id: The spark ID to update
+            level: New spark level
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            result = await self.collection.update_one(
+                {"id": spark_id},
+                {"$set": {"level": level.value}},
+            )
+
+            if result.matched_count == 0:
+                self.logger.warning(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found for level update",
+                    context={"spark_id": spark_id},
+                )
+                return False
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark level updated",
+                context={
+                    "spark_id": spark_id,
+                    "new_level": level.value,
+                },
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to update spark level",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return True
+
+    async def update_decay_at(
+        self,
+        spark_id: str,
+        new_decay_at: datetime,
+    ) -> bool:
+        """Update spark's decay_at timestamp.
+
+        Used when promoting to kindling (TTL extension).
+
+        Args:
+            spark_id: The spark ID to update
+            new_decay_at: New decay timestamp
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            result = await self.collection.update_one(
+                {"id": spark_id},
+                {"$set": {"decay_at": new_decay_at}},
+            )
+
+            if result.matched_count == 0:
+                self.logger.warning(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found for decay_at update",
+                    context={"spark_id": spark_id},
+                )
+                return False
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark decay_at updated",
+                context={
+                    "spark_id": spark_id,
+                    "new_decay_at": new_decay_at.isoformat(),
+                },
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to update spark decay_at",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return True
