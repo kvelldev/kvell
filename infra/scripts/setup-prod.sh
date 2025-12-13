@@ -1,10 +1,9 @@
 #!/bin/bash
 # Kvell Production Setup Script
-# This script is embedded in UserData and clones the repo from GitHub
+# FastAPI runs natively via systemd, MongoDB/Redis in Docker
 set -euo pipefail
 
 readonly KVELL_HOME="/opt/kvell"
-readonly GITHUB_REPO="${GITHUB_REPO:-https://github.com/your-org/kvell.git}"
 readonly LOG_FILE="/var/log/kvell-setup.log"
 
 exec > >(tee -a "$LOG_FILE")
@@ -23,7 +22,7 @@ setup_system() {
     timedatectl set-timezone Asia/Tokyo
 
     apt update -y && apt upgrade -y
-    apt install -y curl wget unzip jq git
+    apt install -y curl wget unzip jq git python3 python3-pip python3-venv
 
     # Install AWS CLI v2
     if ! command -v aws &> /dev/null; then
@@ -37,7 +36,7 @@ setup_system() {
 }
 
 # --------------------------------------------------------------------
-# Docker Installation
+# Docker Installation (for MongoDB/Redis only)
 # --------------------------------------------------------------------
 install_docker() {
     log_info "Installing Docker..."
@@ -64,31 +63,102 @@ install_docker() {
 }
 
 # --------------------------------------------------------------------
-# Clone Repository
+# Setup Python Environment
 # --------------------------------------------------------------------
-clone_repo() {
-    log_info "Cloning Kvell repository..."
+setup_python_env() {
+    log_info "Setting up Python environment..."
+
+    cd "$KVELL_HOME/apps/api"
+
+    # Create venv as root (will be used by ubuntu user via systemd)
+    python3 -m venv .venv
+
+    # Install uv and dependencies
+    .venv/bin/pip install --upgrade pip
+    .venv/bin/pip install uv
+    .venv/bin/uv sync --frozen
+
+    # Fix ownership for ubuntu user
+    chown -R ubuntu:ubuntu .venv
+
+    log_success "Python environment setup completed"
+}
+
+# --------------------------------------------------------------------
+# Setup systemd Service for API
+# --------------------------------------------------------------------
+setup_api_service() {
+    log_info "Setting up Kvell API systemd service..."
+
+    cat > /etc/systemd/system/kvell-api.service << EOF
+[Unit]
+Description=Kvell FastAPI Application
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/kvell/apps/api
+Environment="PATH=/opt/kvell/apps/api/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/opt/kvell/apps/api/src"
+Environment="MONGODB_URI=mongodb://localhost:27017/kvell?replicaSet=rs0"
+Environment="REDIS_URL=redis://localhost:6379"
+Environment="CORS_ORIGINS=${CORS_ORIGINS:-https://kvellapp.com}"
+Environment="LOG_LEVEL=info"
+ExecStart=/opt/kvell/apps/api/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable kvell-api
+
+    log_success "Kvell API systemd service configured"
+}
+
+# --------------------------------------------------------------------
+# Start Database Services (Docker)
+# --------------------------------------------------------------------
+start_database_services() {
+    log_info "Starting database services (MongoDB/Redis)..."
 
     mkdir -p /data/mongo
-
-    if [ -d "$KVELL_HOME" ]; then
-        cd "$KVELL_HOME"
-        git pull
-    else
-        git clone "$GITHUB_REPO" "$KVELL_HOME"
-    fi
+    chown -R 999:999 /data/mongo  # MongoDB container user
 
     cd "$KVELL_HOME"
 
-    # Create .env file
-    cat > .env << EOF
-ECR_REPO=${ECR_REPO}
-IMAGE_TAG=${IMAGE_TAG:-latest}
-CORS_ORIGINS=${CORS_ORIGINS}
-LOG_LEVEL=info
-EOF
+    # Use database-only compose file
+    docker compose -f docker-compose.db.yml up -d
 
-    log_success "Repository cloned"
+    # Wait for MongoDB to be ready
+    log_info "Waiting for MongoDB to be ready..."
+    sleep 10
+
+    log_success "Database services started"
+}
+
+# --------------------------------------------------------------------
+# Start API Service
+# --------------------------------------------------------------------
+start_api_service() {
+    log_info "Starting Kvell API service..."
+
+    systemctl start kvell-api
+
+    # Wait and check status
+    sleep 3
+    if systemctl is-active --quiet kvell-api; then
+        log_success "Kvell API service started successfully"
+    else
+        log_error "Kvell API service failed to start"
+        journalctl -u kvell-api.service -n 20
+        exit 1
+    fi
 }
 
 # --------------------------------------------------------------------
@@ -97,44 +167,41 @@ EOF
 setup_backup() {
     log_info "Setting up backup cron job..."
 
-    # Add cron job (hourly backup)
-    echo "0 * * * * root BACKUP_BUCKET=${BACKUP_BUCKET} $KVELL_HOME/infra/scripts/backup.sh >> /var/log/kvell-backup.log 2>&1" > /etc/cron.d/kvell-backup
+    echo "0 * * * * root BACKUP_BUCKET=${BACKUP_BUCKET:-} $KVELL_HOME/infra/scripts/backup.sh >> /var/log/kvell-backup.log 2>&1" > /etc/cron.d/kvell-backup
 
     log_success "Backup cron job configured"
-}
-
-# --------------------------------------------------------------------
-# Start Application
-# --------------------------------------------------------------------
-start_application() {
-    log_info "Starting Kvell application..."
-
-    cd "$KVELL_HOME"
-
-    # Login to ECR
-    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO%%/*}
-
-    # Use production compose file
-    docker compose -f docker-compose.prod.yml pull
-    docker compose -f docker-compose.prod.yml up -d
-
-    log_success "Kvell application started"
 }
 
 # --------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------
 main() {
-    log_info "Starting Kvell production setup..."
+    log_info "Starting Kvell production setup (non-containerized API)..."
 
     setup_system
     install_docker
-    clone_repo
+    setup_python_env
+    setup_api_service
+    start_database_services
+    start_api_service
     setup_backup
-    start_application
+
+    # Update MOTD
+    cat > /etc/motd << 'MOTD'
+
+╔══════════════════════════════════════════════════════════════╗
+║                    🔥 KVELL SERVER 🔥                        ║
+╠══════════════════════════════════════════════════════════════╣
+║  API:       systemctl status kvell-api                       ║
+║  Logs:      journalctl -u kvell-api -f                       ║
+║  Health:    curl http://localhost:8000/api/health            ║
+║  MongoDB:   docker logs kvell-mongo-1                        ║
+║  Redis:     docker logs kvell-redis-1                        ║
+╚══════════════════════════════════════════════════════════════╝
+
+MOTD
 
     log_success "Kvell production setup completed!"
-    echo "Kvell setup completed at $(date)" | tee /etc/motd
 }
 
 main "$@"

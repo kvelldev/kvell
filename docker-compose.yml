@@ -1,4 +1,24 @@
 services:
+  # --- ここを追加 ---
+  api:
+    build: apps/api
+    ports:
+      - "8000:8000"
+    environment:
+      # コンテナ間通信なので 'mongo' というサービス名でアクセスできます
+      - MONGODB_URI=mongodb://mongo:27017/kvell?replicaSet=rs0
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=debug
+      # 必要に応じてAWS認証情報などを追加
+      # - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      # - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_started
+  # ------------------
+
   mongo:
     image: mongo:7.0
     command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
@@ -6,7 +26,7 @@ services:
       - "27017:27017"
     volumes:
       - mongo-data:/data/db
-    healthcheck: # トランザクションを使えるようにするためにレプリカセット化する
+    healthcheck:
       test: |
         test $$(mongosh --quiet --eval "try { rs.initiate({_id:'rs0', members:[{_id:0, host:'localhost:27017'}]}).ok } catch(e) { rs.status().ok }") -eq 1
       interval: 10s

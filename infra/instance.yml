@@ -392,9 +392,10 @@ Resources:
           log_info "=========================================="
           log_info ""
           log_info "Quick Commands:"
-          log_info "  docker ps                              # Check containers"
+          log_info "  systemctl status kvell-api             # Check API service"
+          log_info "  journalctl -u kvell-api -f             # View API logs"
           log_info "  curl http://localhost:8000/api/health  # Check API"
-          log_info "  cat /var/log/kvell-setup.log           # View this log"
+          log_info "  docker ps                              # Check MongoDB/Redis"
           log_info ""
       Tags:
         - Key: Name

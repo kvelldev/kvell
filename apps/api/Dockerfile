@@ -33,19 +33,21 @@ FROM python:3.13-slim AS runtime
 
 WORKDIR /app
 
-# Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
+# Create non-root user first (before copying files)
+RUN useradd --create-home --shell /bin/bash appuser
 
-# Copy source code
-COPY --from=builder /app/src ./src
+# Copy virtual environment from builder with correct ownership
+COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+
+# Copy source code with correct ownership
+COPY --from=builder --chown=appuser:appuser /app/src ./src
 
 # Set environment variables
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/src"
 ENV PYTHONUNBUFFERED=1
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash appuser
+# Switch to non-root user
 USER appuser
 
 # Expose port
