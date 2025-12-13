@@ -1,0 +1,42 @@
+# Kvell Production Docker Compose
+# FastAPI + MongoDB + Redis
+
+services:
+  api:
+    image: ${ECR_REPO}:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/kvell?replicaSet=rs0
+      - REDIS_URL=redis://redis:6379
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://kvell.example.com}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/latest')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - /data/mongo:/data/db  # Use data EBS volume
+    healthcheck:
+      test: |
+        test $$(mongosh --quiet --eval "try { rs.initiate({_id:'rs0', members:[{_id:0, host:'localhost:27017'}]}).ok } catch(e) { rs.status().ok }") -eq 1
+      interval: 10s
+      start_period: 5s
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    # No persistence needed for Pub/Sub

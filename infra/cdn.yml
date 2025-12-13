@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Kvell S3 Buckets and CloudFront Distribution
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: kvell-prod
+    Description: Environment name prefix
+
+  DomainName:
+    Type: String
+    Description: Custom domain name (e.g., kvell.example.com)
+
+  AcmCertificateArn:
+    Type: String
+    Description: ACM Certificate ARN for HTTPS (must be in us-east-1)
+
+  ApiOriginDomain:
+    Type: String
+    Description: EC2 Public IP or domain for API origin
+
+  BasicAuthCredentials:
+    Type: String
+    Description: Basic auth credentials in base64 (user:password encoded)
+    NoEcho: true
+
+Resources:
+  # S3 Bucket for SPA
+  SpaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-spa"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket for Setup Scripts
+  ScriptsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-scripts"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket for Backups
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-backups"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldBackups
+            Status: Enabled
+            ExpirationInDays: 30
+
+  # CloudFront Origin Access Control for S3
+  S3OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${EnvironmentName}-s3-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # S3 Bucket Policy for CloudFront
+  SpaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SpaBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${SpaBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  # CloudFront Function for Basic Auth (SPA only)
+  BasicAuthFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${EnvironmentName}-basic-auth"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Basic authentication for SPA
+        Runtime: cloudfront-js-2.0
+      FunctionCode: !Sub |
+        function handler(event) {
+          var request = event.request;
+          var headers = request.headers;
+          var authString = 'Basic ${BasicAuthCredentials}';
+
+          if (typeof headers.authorization === 'undefined' || headers.authorization.value !== authString) {
+            return {
+              statusCode: 401,
+              statusDescription: 'Unauthorized',
+              headers: {
+                'www-authenticate': { value: 'Basic realm="Kvell"' },
+                'content-type': { value: 'text/plain' }
+              },
+              body: 'Unauthorized'
+            };
+          }
+
+          return request;
+        }
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${EnvironmentName} distribution"
+        DefaultRootObject: index.html
+        Aliases:
+          - !Ref DomainName
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        # Geo Restriction - Japan Only
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: whitelist
+            Locations:
+              - JP
+        Origins:
+          # S3 Origin for SPA
+          - Id: S3Origin
+            DomainName: !GetAtt SpaBucket.RegionalDomainName
+            OriginAccessControlId: !Ref S3OriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          # EC2 Origin for API (with extended timeouts for WebSocket)
+          - Id: ApiOrigin
+            DomainName: !Ref ApiOriginDomain
+            CustomOriginConfig:
+              HTTPPort: 8000
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60  # Extended for WebSocket
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          Compress: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt BasicAuthFunction.FunctionARN
+        CacheBehaviors:
+          # WebSocket - No Cache
+          - PathPattern: /api/sparks/ws
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3  # AllViewer
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+          # GET /api/bonfires - 5 second cache
+          - PathPattern: /api/bonfires
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            CachePolicyId: !Ref BonfiresCachePolicy
+            AllowedMethods:
+              - GET
+              - HEAD
+          # Other API - No Cache
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3  # AllViewer
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+        CustomErrorResponses:
+          # SPA routing - return index.html for 404
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+  # Custom Cache Policy for Bonfires (5 second TTL)
+  BonfiresCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${EnvironmentName}-bonfires-cache"
+        DefaultTTL: 5
+        MaxTTL: 30
+        MinTTL: 5
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          HeadersConfig:
+            HeaderBehavior: none
+          CookiesConfig:
+            CookieBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+Outputs:
+  SpaBucketName:
+    Description: S3 bucket for SPA deployment
+    Value: !Ref SpaBucket
+
+  ScriptsBucketName:
+    Description: S3 bucket for setup scripts
+    Value: !Ref ScriptsBucket
+
+  BackupBucketName:
+    Description: S3 bucket for MongoDB backups
+    Value: !Ref BackupBucket
+
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !Ref CloudFrontDistribution
+
+  CloudFrontDomainName:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt CloudFrontDistribution.DomainName

@@ -1,0 +1,418 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Kvell Production EC2 Instance with Docker
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: kvell-prod
+    Description: Environment name prefix
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+    Description: EC2 instance type (t3.small recommended for MongoDB)
+
+  KeyPairName:
+    Type: String
+    Default: ""
+    Description: EC2 Key Pair for SSH access (optional, SSM recommended)
+
+  GitHubRepo:
+    Type: String
+    Default: your-org/kvell
+    Description: GitHub repository (owner/repo format, e.g., your-org/kvell)
+
+  EcrRepository:
+    Type: String
+    Description: ECR repository URI (e.g., 123456789.dkr.ecr.ap-northeast-1.amazonaws.com/kvell-api)
+
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: Docker image tag to deploy
+
+  CorsOrigins:
+    Type: String
+    Default: https://kvellapp.com
+    Description: CORS allowed origins
+
+  BackupS3Bucket:
+    Type: String
+    Description: S3 bucket for MongoDB backups
+
+  DataVolumeSize:
+    Type: Number
+    Default: 10
+    Description: Size of data EBS volume in GB (for MongoDB)
+
+  # Dynamic AMI using SSM Parameter Store
+  LatestUbuntuAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id
+    Description: SSM Parameter for latest Ubuntu 22.04 AMI
+
+  # CloudFront Managed Prefix List ID (for restricting SG to CloudFront only)
+  # Get this from: aws ec2 describe-managed-prefix-lists --filters "Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing"
+  CloudFrontPrefixListId:
+    Type: String
+    Default: pl-58a04531  # ap-northeast-1 CloudFront prefix list
+    Description: CloudFront managed prefix list ID for security group
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, ""]]
+
+Resources:
+  # Security Group
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Kvell production instance security group
+      VpcId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-vpc-id"
+      SecurityGroupIngress:
+        # HTTP from CloudFront only (using AWS managed prefix list)
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
+          Description: FastAPI from CloudFront only
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-sg"
+
+  # IAM Role for EC2
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-instance-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: KvellInstancePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # ECR Access for pulling images
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/kvell-api"
+              # S3 Access for backups
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${BackupS3Bucket}/*"
+              # SSM Parameter Store for GitHub token
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/kvell/*"
+              # EC2 Volume Access for attaching data volume
+              - Effect: Allow
+                Action:
+                  - ec2:AttachVolume
+                  - ec2:DescribeVolumes
+                Resource: "*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  # Data EBS Volume (survives instance replacement)
+  DataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Size: !Ref DataVolumeSize
+      VolumeType: gp3
+      Encrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-data-volume"
+
+  # EC2 Instance
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      SubnetId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-public-subnet-id"
+      ImageId: !Ref LatestUbuntuAmiId
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue"]
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 10
+            VolumeType: gp3
+            DeleteOnTermination: true  # OS volume can be deleted
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+
+          # ==============================================================================
+          # Logging Functions
+          # ==============================================================================
+          LOG_FILE="/var/log/kvell-setup.log"
+          MOTD_FILE="/etc/motd"
+          SETUP_STATUS_FILE="/var/lib/kvell-setup-status"
+
+          log_info() {
+            local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [INFO]  $1"
+            echo "$msg" | tee -a "$LOG_FILE"
+          }
+
+          log_error() {
+            local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1"
+            echo "$msg" | tee -a "$LOG_FILE" >&2
+          }
+
+          log_success() {
+            local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [OK]    $1"
+            echo "$msg" | tee -a "$LOG_FILE"
+          }
+
+          log_step() {
+            local step_num=$1
+            local total=$2
+            local desc=$3
+            echo "" | tee -a "$LOG_FILE"
+            echo "============================================================" | tee -a "$LOG_FILE"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP $step_num/$total] $desc" | tee -a "$LOG_FILE"
+            echo "============================================================" | tee -a "$LOG_FILE"
+            echo "$step_num/$total $desc" > "$SETUP_STATUS_FILE"
+            update_motd "IN PROGRESS" "$step_num/$total: $desc"
+          }
+
+          update_motd() {
+            local status=$1
+            local current_step="${!2:-}"
+            cat > "$MOTD_FILE" << MOTD_EOF
+
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                    🔥 KVELL SERVER 🔥                        ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║  Environment: ${EnvironmentName}
+          ║  Region:      ${AWS::Region}
+          ║  Setup:       $status
+          ║  Step:        $current_step
+          ╠══════════════════════════════════════════════════════════════╣
+          ║  Logs:        cat /var/log/kvell-setup.log                   ║
+          ║  App Logs:    docker logs kvell-api                          ║
+          ║  API Health:  curl http://localhost:8000/api/health          ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          MOTD_EOF
+          }
+
+          # Initialize
+          echo "" > "$LOG_FILE"
+          log_info "=========================================="
+          log_info "  Kvell Server Setup Starting..."
+          log_info "  Instance: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)"
+          log_info "  Time: $(date)"
+          log_info "=========================================="
+
+          TOTAL_STEPS=5
+
+          # ==============================================================================
+          # Step 1: Install Dependencies
+          # ==============================================================================
+          log_step 1 $TOTAL_STEPS "Installing dependencies"
+
+          log_info "Updating apt packages..."
+          apt update -y >> "$LOG_FILE" 2>&1
+          log_success "apt update completed"
+
+          log_info "Installing git, curl, jq, unzip, nvme-cli..."
+          apt install -y git curl jq unzip nvme-cli >> "$LOG_FILE" 2>&1
+          log_success "Base packages installed"
+
+          log_info "Installing AWS CLI v2..."
+          curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+          unzip -q /tmp/awscliv2.zip -d /tmp
+          /tmp/aws/install >> "$LOG_FILE" 2>&1
+          rm -rf /tmp/aws /tmp/awscliv2.zip
+          log_success "AWS CLI installed: $(aws --version)"
+
+          # ==============================================================================
+          # Step 2: Environment Variables
+          # ==============================================================================
+          log_step 2 $TOTAL_STEPS "Setting environment variables"
+
+          export AWS_REGION=${AWS::Region}
+          export CORS_ORIGINS=${CorsOrigins}
+          export BACKUP_BUCKET=${BackupS3Bucket}
+          export DATA_VOLUME_ID=${DataVolume}
+
+          log_info "AWS_REGION=$AWS_REGION"
+          log_info "CORS_ORIGINS=$CORS_ORIGINS"
+          log_info "BACKUP_BUCKET=$BACKUP_BUCKET"
+          log_info "DATA_VOLUME_ID=$DATA_VOLUME_ID"
+          log_success "Environment variables set"
+
+          # ==============================================================================
+          # Step 3: Attach and Mount Data Volume
+          # ==============================================================================
+          log_step 3 $TOTAL_STEPS "Attaching and mounting data volume"
+
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          log_info "Instance ID: $INSTANCE_ID"
+
+          log_info "Waiting for data volume ${DataVolume} to be available..."
+          aws ec2 wait volume-available --volume-ids ${DataVolume} --region ${AWS::Region} || log_info "Volume may already be attached"
+
+          log_info "Attaching volume ${DataVolume} to instance..."
+          aws ec2 attach-volume --volume-id ${DataVolume} --instance-id $INSTANCE_ID --device /dev/sdf --region ${AWS::Region} 2>&1 | tee -a "$LOG_FILE" || log_info "Volume may already be attached"
+
+          log_info "Waiting for device to appear (15s)..."
+          sleep 15
+
+          log_info "Finding NVMe device for volume..."
+          DATA_DEVICE=""
+          for device in /dev/nvme?n1; do
+            if [ -e "$device" ]; then
+              VOL_ID=$(nvme id-ctrl -v "$device" 2>/dev/null | grep -oP 'vol-[a-f0-9]+' | head -1 || true)
+              log_info "  Device $device -> Volume $VOL_ID"
+              if [ "$VOL_ID" = "${DataVolume}" ]; then
+                DATA_DEVICE="$device"
+                log_success "Found matching device: $DATA_DEVICE"
+                break
+              fi
+            fi
+          done
+
+          if [ -z "$DATA_DEVICE" ]; then
+            DATA_DEVICE="/dev/nvme1n1"
+            log_info "Using fallback device: $DATA_DEVICE"
+          fi
+
+          if ! blkid "$DATA_DEVICE" >> "$LOG_FILE" 2>&1; then
+            log_info "Formatting new volume with ext4..."
+            mkfs.ext4 "$DATA_DEVICE" >> "$LOG_FILE" 2>&1
+            log_success "Volume formatted"
+          else
+            log_info "Volume already has filesystem"
+          fi
+
+          log_info "Mounting data volume to /data..."
+          mkdir -p /data
+          mount "$DATA_DEVICE" /data
+          log_success "Volume mounted at /data"
+
+          DATA_UUID=$(blkid -s UUID -o value "$DATA_DEVICE")
+          echo "UUID=$DATA_UUID /data ext4 defaults,nofail 0 2" >> /etc/fstab
+          log_success "Added to fstab (UUID=$DATA_UUID)"
+
+          # ==============================================================================
+          # Step 4: Clone Repository
+          # ==============================================================================
+          log_step 4 $TOTAL_STEPS "Cloning repository"
+
+          log_info "Fetching GitHub token from SSM..."
+          GITHUB_TOKEN=$(aws ssm get-parameter \
+            --name /kvell/github-token \
+            --with-decryption \
+            --query Parameter.Value \
+            --output text \
+            --region ${AWS::Region})
+
+          if [ -z "$GITHUB_TOKEN" ]; then
+            log_error "Failed to retrieve GitHub token from SSM!"
+            update_motd "FAILED" "Step 4: GitHub token retrieval failed"
+            exit 1
+          fi
+          log_success "GitHub token retrieved"
+
+          log_info "Cloning repository: ${GitHubRepo}..."
+          git clone https://${!GITHUB_TOKEN}@github.com/${GitHubRepo} /opt/kvell >> "$LOG_FILE" 2>&1
+          log_success "Repository cloned to /opt/kvell"
+
+          # ==============================================================================
+          # Step 5: Run Setup Script
+          # ==============================================================================
+          log_step 5 $TOTAL_STEPS "Running setup script"
+
+          export AWS_REGION=${AWS::Region}
+          export ECR_REPO=${EcrRepository}
+          export CORS_ORIGINS=${CorsOrigins}
+          export BACKUP_BUCKET=${BackupS3Bucket}
+          export GITHUB_REPO=${GitHubRepo}
+          export IMAGE_TAG=${ImageTag}
+
+          log_info "ECR_REPO=$ECR_REPO"
+          log_info "IMAGE_TAG=$IMAGE_TAG"
+
+          chmod +x /opt/kvell/infra/scripts/setup-prod.sh
+          log_info "Executing setup-prod.sh..."
+
+          if /opt/kvell/infra/scripts/setup-prod.sh >> "$LOG_FILE" 2>&1; then
+            log_success "Setup script completed successfully!"
+            update_motd "✅ READY" "All steps completed"
+          else
+            log_error "Setup script failed! Check logs for details."
+            update_motd "❌ FAILED" "Step 5: setup-prod.sh failed"
+            exit 1
+          fi
+
+          # ==============================================================================
+          # Final Summary
+          # ==============================================================================
+          echo "" | tee -a "$LOG_FILE"
+          log_info "=========================================="
+          log_info "  🎉 SETUP COMPLETED SUCCESSFULLY!"
+          log_info "  Time: $(date)"
+          log_info "  Duration: $SECONDS seconds"
+          log_info "=========================================="
+          log_info ""
+          log_info "Quick Commands:"
+          log_info "  docker ps                              # Check containers"
+          log_info "  curl http://localhost:8000/api/health  # Check API"
+          log_info "  cat /var/log/kvell-setup.log           # View this log"
+          log_info ""
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-instance"
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref Instance
+
+  PublicIp:
+    Description: Public IP address (use for CloudFront origin)
+    Value: !GetAtt Instance.PublicIp
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref InstanceSecurityGroup
+
+  DataVolumeId:
+    Description: Data EBS Volume ID (contains MongoDB data)
+    Value: !Ref DataVolume

@@ -24,6 +24,10 @@ interface BonfireListApiResponse {
   count: number;
 }
 
+interface MessageResponse {
+  message: string;
+}
+
 class BonfireRepositoryImpl implements IBonfireRepository {
   async getActiveBonfires(): Promise<BonfireList> {
     const data = await apiClient<BonfireListApiResponse>("/api/bonfires", {
@@ -42,6 +46,20 @@ class BonfireRepositoryImpl implements IBonfireRepository {
       })),
       count: data.count,
     };
+  }
+
+  async seedDemoBonfires(): Promise<string> {
+    const data = await apiClient<MessageResponse>("/api/bonfires/seed", {
+      method: "POST",
+    });
+    return data.message;
+  }
+
+  async deleteAllBonfires(): Promise<string> {
+    const data = await apiClient<MessageResponse>("/api/bonfires", {
+      method: "DELETE",
+    });
+    return data.message;
   }
 }
 

@@ -6,9 +6,12 @@ by multiple use cases (e.g., AddFuel, Reply).
 
 from datetime import UTC, datetime
 
+from app.domain.constants import (
+    BONFIRE_FUEL_EXTENSION_MINUTES,
+    BONFIRE_REPLY_EXTENSION_HOURS,
+)
 from app.domain.model.bonfire import Bonfire
 from app.domain.repository.bonfire_repository import IBonfireRepository
-from app.domain.repository.threshold_config_repository import IThresholdConfigRepository
 
 
 class BonfireService:
@@ -21,17 +24,14 @@ class BonfireService:
     def __init__(
         self,
         bonfire_repository: IBonfireRepository,
-        threshold_config: IThresholdConfigRepository,
     ) -> None:
         """Initialize the service.
 
         Args:
             bonfire_repository: Repository for bonfire operations
-            threshold_config: Repository for threshold configuration
 
         """
         self.bonfire_repository = bonfire_repository
-        self.threshold_config = threshold_config
 
     async def extend_by_fuel(self, bonfire: Bonfire) -> tuple[Bonfire, bool]:
         """Extend bonfire TTL by fuel action.
@@ -43,10 +43,7 @@ class BonfireService:
             Tuple of (extended bonfire, whether extension occurred)
 
         """
-        extension_minutes = (
-            await self.threshold_config.get_bonfire_fuel_extension_minutes()
-        )
-        extended_bonfire = bonfire.extend_by_fuel(extension_minutes)
+        extended_bonfire = bonfire.extend_by_fuel(BONFIRE_FUEL_EXTENSION_MINUTES)
         was_extended = extended_bonfire.decay_at != bonfire.decay_at
 
         if was_extended:
@@ -75,10 +72,10 @@ class BonfireService:
         if current_time is None:
             current_time = datetime.now(UTC)
 
-        extension_hours = (
-            await self.threshold_config.get_bonfire_reply_extension_hours()
+        extended_bonfire = bonfire.extend_by_reply(
+            BONFIRE_REPLY_EXTENSION_HOURS,
+            current_time,
         )
-        extended_bonfire = bonfire.extend_by_reply(extension_hours, current_time)
         was_extended = extended_bonfire.decay_at != bonfire.decay_at
 
         if was_extended:

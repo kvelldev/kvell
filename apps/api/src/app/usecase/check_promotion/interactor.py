@@ -6,7 +6,13 @@ spark promotions (Spark -> Kindling -> Bonfire).
 
 from datetime import UTC, datetime, timedelta
 
-from app.domain.constants import LOG_EVENTS
+from app.domain.constants import (
+    FUEL_WEIGHT,
+    KINDLING_DECAY_HOURS,
+    KINDLING_THRESHOLD_UU,
+    LOG_EVENTS,
+    REPLY_WEIGHT,
+)
 from app.domain.exception import AppError
 from app.domain.model.bonfire import Bonfire
 from app.domain.model.spark import SparkLevel
@@ -93,15 +99,11 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
 
         previous_level = spark.level
 
-        # 2. Get weights for heat score calculation
-        fuel_weight = await self.threshold_config.get_fuel_weight()
-        reply_weight = await self.threshold_config.get_reply_weight()
-
-        # 3. Get engagement metrics with weights
+        # 2. Get engagement metrics with fixed weights
         engagement = await self.spark_repository.get_engagement(
             input_data.spark_id,
-            fuel_weight=fuel_weight,
-            reply_weight=reply_weight,
+            fuel_weight=FUEL_WEIGHT,
+            reply_weight=REPLY_WEIGHT,
         )
         if engagement is None:
             # Spark exists but has no engagement yet - return early
@@ -118,16 +120,15 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
                 bonfire_created=False,
             )
 
-        # 4. Get thresholds
-        kindling_threshold = await self.threshold_config.get_kindling_threshold_uu()
+        # 3. Get dynamic thresholds from Redis
         bonfire_threshold = await self.threshold_config.get_bonfire_threshold_uu()
         heat_threshold = await self.threshold_config.get_heat_score_threshold()
 
-        # 5. Check promotion using domain service
+        # 4. Check promotion using domain service
         promotion_result = self.ignition_service.check_promotion(
             current_level=previous_level,
             engagement=engagement,
-            kindling_threshold_uu=kindling_threshold,
+            kindling_threshold_uu=KINDLING_THRESHOLD_UU,
             bonfire_threshold_uu=bonfire_threshold,
             heat_score_threshold=heat_threshold,
         )
@@ -190,8 +191,7 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
             spark_id: ID of the spark to promote
 
         """
-        extension_hours = await self.threshold_config.get_kindling_decay_hours()
-        new_decay_at = datetime.now(UTC) + timedelta(hours=extension_hours)
+        new_decay_at = datetime.now(UTC) + timedelta(hours=KINDLING_DECAY_HOURS)
 
         await self.spark_repository.update_decay_at(spark_id, new_decay_at)
 

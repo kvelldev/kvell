@@ -5,10 +5,13 @@ This module implements the business logic for extending bonfire TTL.
 
 from datetime import UTC, datetime
 
-from app.domain.constants import LOG_EVENTS
+from app.domain.constants import (
+    BONFIRE_FUEL_EXTENSION_MINUTES,
+    BONFIRE_REPLY_EXTENSION_HOURS,
+    LOG_EVENTS,
+)
 from app.domain.exception import AppError
 from app.domain.repository.bonfire_repository import IBonfireRepository
-from app.domain.repository.threshold_config_repository import IThresholdConfigRepository
 from app.usecase.extend_bonfire.interface import (
     ExtendBonfireInput,
     ExtendBonfireOutput,
@@ -25,7 +28,6 @@ class ExtendBonfireInteractor(IExtendBonfireUseCase):
     def __init__(
         self,
         bonfire_repository: IBonfireRepository,
-        threshold_config: IThresholdConfigRepository,
         pubsub: IPubSubGateway,
         logger: ILogger,
     ) -> None:
@@ -33,13 +35,11 @@ class ExtendBonfireInteractor(IExtendBonfireUseCase):
 
         Args:
             bonfire_repository: Repository for bonfire operations
-            threshold_config: Repository for threshold configuration
             pubsub: PubSub gateway for broadcasting events
             logger: Logger for structured logging
 
         """
         self.bonfire_repository = bonfire_repository
-        self.threshold_config = threshold_config
         self.pubsub = pubsub
         self.logger = logger
 
@@ -74,15 +74,9 @@ class ExtendBonfireInteractor(IExtendBonfireUseCase):
 
         # 2. Calculate new decay_at based on extension type
         if input_data.extension_type == ExtensionType.FUEL:
-            extension_minutes = (
-                await self.threshold_config.get_bonfire_fuel_extension_minutes()
-            )
-            extended_bonfire = bonfire.extend_by_fuel(extension_minutes)
+            extended_bonfire = bonfire.extend_by_fuel(BONFIRE_FUEL_EXTENSION_MINUTES)
         else:  # REPLY
-            extension_hours = (
-                await self.threshold_config.get_bonfire_reply_extension_hours()
-            )
-            extended_bonfire = bonfire.extend_by_reply(extension_hours)
+            extended_bonfire = bonfire.extend_by_reply(BONFIRE_REPLY_EXTENSION_HOURS)
 
         new_decay_at = extended_bonfire.decay_at
         was_extended = new_decay_at != previous_decay_at

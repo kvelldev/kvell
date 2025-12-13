@@ -347,13 +347,11 @@ def get_get_bonfires_usecase(
 
 def get_bonfire_service(
     bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
-    threshold_config: IThresholdConfigRepository = Depends(get_threshold_config),
 ) -> BonfireService:
     """Get the bonfire service instance.
 
     Args:
         bonfire_repository: Bonfire repository instance (injected)
-        threshold_config: Threshold config repository instance (injected)
 
     Returns:
         Bonfire service instance
@@ -361,7 +359,6 @@ def get_bonfire_service(
     """
     return BonfireService(
         bonfire_repository=bonfire_repository,
-        threshold_config=threshold_config,
     )
 
 
