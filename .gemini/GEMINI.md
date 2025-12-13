@@ -1,5 +1,5 @@
 
-# instruction to CLAUDE
+# instruction to Agentic AI
 
 ultrathink.
 

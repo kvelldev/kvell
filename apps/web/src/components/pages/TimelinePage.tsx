@@ -9,16 +9,19 @@
 import { useState } from "react";
 import { Flame } from "lucide-react";
 import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
+import { bonfireRepository } from "@/adapter/repository/bonfireRepository";
 import { sparkRepository } from "@/adapter/repository/sparkRepository";
 import { triggerHapticFeedback } from "@/adapter/infra/haptic";
 import { useTimelineStream } from "@/usecase/useTimelineStream";
 import { usePostSpark } from "@/usecase/usePostSpark";
 import { useAddFuel } from "@/usecase/useAddFuel";
+import { useBonfire } from "@/usecase/useBonfire";
 import { TimelineStream } from "@/components/organisms/TimelineStream";
 import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
 import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
 import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
 import { SparkPostModal } from "@/components/organisms/SparkPostModal";
+import { BonfireCarousel } from "@/components/organisms/BonfireCarousel";
 import { useLogger } from "@/components/useLogger";
 import { settings } from "@/adapter/infra/settings";
 import { LOG_EVENTS } from "@/domain/constants";
@@ -42,6 +45,9 @@ export const TimelinePage = () => {
 
   // UseCase: Connect to WebSocket and receive sparks
   const { sparks, hasError } = useTimelineStream(wsTimelineRepository);
+
+  // UseCase: Fetch bonfires
+  const { bonfires } = useBonfire(bonfireRepository);
 
   // UseCase: Post spark
   const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
@@ -80,16 +86,21 @@ export const TimelinePage = () => {
   };
 
   return (
-    <TimelineTemplate>
-      {hasError ? (
-        <ErrorStateMessage
-          title="サーバーに接続できません"
-          description="ネットワーク接続を確認してページを再読み込みしてください"
-          testId="timeline-error-message"
-        />
-      ) : (
-        <TimelineStream sparks={sparks} onAddFuel={handleAddFuel} />
-      )}
+    <>
+      <TimelineTemplate
+        bonfireArea={<BonfireCarousel bonfires={bonfires} />}
+        sparkArea={
+          hasError ? (
+            <ErrorStateMessage
+              title="サーバーに接続できません"
+              description="ネットワーク接続を確認してページを再読み込みしてください"
+              testId="timeline-error-message"
+            />
+          ) : (
+            <TimelineStream sparks={sparks} onAddFuel={handleAddFuel} />
+          )
+        }
+      />
 
       <FloatingActionButton
         onClick={() => {
@@ -114,6 +125,6 @@ export const TimelinePage = () => {
         maxLength={settings.sparkMaxLength}
         error={error}
       />
-    </TimelineTemplate>
+    </>
   );
 };
