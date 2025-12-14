@@ -33,8 +33,9 @@ const BonfireCardComponent = ({ bonfire }: BonfireCardProps) => {
   return (
     <Card
       className={clsx(
-        // Layout & Fixed dimensions
-        "h-72 w-72 flex-none snap-center overflow-hidden transition-all duration-300",
+        // Layout & Responsive dimensions (mobile: smaller, md: larger)
+        "h-52 w-52 md:h-72 md:w-72",
+        "flex-none snap-center overflow-hidden transition-all duration-300",
         "hover:scale-[1.02]",
 
         // Base Style
@@ -50,7 +51,7 @@ const BonfireCardComponent = ({ bonfire }: BonfireCardProps) => {
       data-testid="bonfire-item"
     >
       {/* Image Section */}
-      <div className="relative h-40 w-full overflow-hidden">
+      <div className="relative h-28 w-full overflow-hidden md:h-40">
         <img
           src={defaultImage}
           alt="Bonfire"
@@ -74,8 +75,8 @@ const BonfireCardComponent = ({ bonfire }: BonfireCardProps) => {
         </div>
       </div>
 
-      {/* Content Section - Fixed height with text truncation */}
-      <CardContent className="h-20 p-4">
+      {/* Content Section - Responsive height with text truncation */}
+      <CardContent className="h-16 p-3 md:h-20 md:p-4">
         <p className="font-base text-smoke-100 line-clamp-2 text-sm leading-relaxed">
           {bonfire.content}
         </p>

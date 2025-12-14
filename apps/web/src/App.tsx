@@ -11,7 +11,6 @@ import { LoggerProvider } from "@/components/LoggerContext";
 import { sentryLogger } from "@/adapter/infra/sentryLogger";
 import { DebugPage } from "./components/pages/debugPage";
 import { AtmosphereBackground } from "./components/atoms/AtmosphereBackground";
-import { DemoControls } from "./components/organisms/DemoControls";
 
 function App() {
   return (
@@ -25,7 +24,6 @@ function App() {
           <Route path="/debug" element={<DebugPage />} />
         </Routes>
       </BrowserRouter>
-      <DemoControls onSuccess={() => window.location.reload()} />
     </LoggerProvider>
   );
 }

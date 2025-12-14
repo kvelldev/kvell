@@ -2,6 +2,7 @@
 import { SparkCard } from "@/components/molecules/SparkCard";
 import { SparkViewModel } from "@/domain/model/spark";
 import { Button } from "../ui/button";
+import { DemoControls } from "../organisms/DemoControls";
 
 const now = new Date();
 const createdAt = new Date(now.getTime() - 5 * 60 * 1000);
@@ -43,6 +44,12 @@ export const DebugPage = () => {
       </div>
 
       <Button>button</Button>
+
+      {/* Demo Data Controls */}
+      <section className="rounded-card border-ash-500 space-y-4 border p-4">
+        <h2 className="text-xl">Demo Data</h2>
+        <DemoControls onSuccess={() => window.location.reload()} />
+      </section>
     </div>
   );
 };

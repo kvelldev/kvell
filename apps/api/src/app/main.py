@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from pymongo.errors import PyMongoError
 
 from app.adapter.entrypoints.bonfire_router import router as bonfire_router
+from app.adapter.entrypoints.debug_router import router as debug_router
 from app.adapter.entrypoints.error_handler import app_error_handler
 from app.adapter.entrypoints.health_router import router as health_router
 from app.adapter.entrypoints.spark_router import router as spark_router
@@ -153,6 +154,7 @@ async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
 app.include_router(health_router)
 app.include_router(spark_router)
 app.include_router(bonfire_router)
+app.include_router(debug_router)
 
 
 @app.get("/")

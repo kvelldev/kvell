@@ -17,16 +17,4 @@ export interface IBonfireRepository {
    * @returns Promise resolving to BonfireList
    */
   getActiveBonfires(): Promise<BonfireList>;
-
-  /**
-   * Seed demo bonfires for demonstration
-   * @returns Promise resolving to message
-   */
-  seedDemoBonfires(): Promise<string>;
-
-  /**
-   * Delete all bonfires (cleanup)
-   * @returns Promise resolving to message
-   */
-  deleteAllBonfires(): Promise<string>;
 }

@@ -2,11 +2,10 @@
  * DemoControls Component
  *
  * Admin buttons for seeding and cleaning up demo bonfires.
- * Placed at the bottom-right corner of the screen (floating).
  */
 
 import { useState } from "react";
-import { bonfireRepository } from "@/adapter/repository/bonfireRepository";
+import { debugRepository } from "@/adapter/repository/debugRepository";
 
 export const DemoControls = ({ onSuccess }: { onSuccess?: () => void }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -16,7 +15,7 @@ export const DemoControls = ({ onSuccess }: { onSuccess?: () => void }) => {
     setIsLoading(true);
     setMessage(null);
     try {
-      const result = await bonfireRepository.seedDemoBonfires();
+      const result = await debugRepository.seedBonfires();
       setMessage(result);
       onSuccess?.();
     } catch (error) {
@@ -31,7 +30,7 @@ export const DemoControls = ({ onSuccess }: { onSuccess?: () => void }) => {
     setIsLoading(true);
     setMessage(null);
     try {
-      const result = await bonfireRepository.deleteAllBonfires();
+      const result = await debugRepository.cleanupBonfires();
       setMessage(result);
       onSuccess?.();
     } catch (error) {
@@ -43,7 +42,7 @@ export const DemoControls = ({ onSuccess }: { onSuccess?: () => void }) => {
   };
 
   return (
-    <div className="fixed right-4 bottom-4 z-50 flex flex-col items-end gap-2">
+    <div className="flex flex-col items-start gap-2">
       {message && (
         <div className="rounded-md bg-gray-800/90 px-3 py-1 text-sm text-white">
           {message}
@@ -55,14 +54,14 @@ export const DemoControls = ({ onSuccess }: { onSuccess?: () => void }) => {
           disabled={isLoading}
           className="rounded-full bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:bg-orange-600 disabled:opacity-50"
         >
-          🔥 Seed
+          Seed
         </button>
         <button
           onClick={handleCleanup}
           disabled={isLoading}
           className="rounded-full bg-gray-600 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:bg-gray-700 disabled:opacity-50"
         >
-          🗑️ Cleanup
+          Cleanup
         </button>
       </div>
     </div>

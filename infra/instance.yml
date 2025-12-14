@@ -26,15 +26,6 @@ Parameters:
     Default: your-org/kvell
     Description: GitHub repository (owner/repo format, e.g., your-org/kvell)
 
-  EcrRepository:
-    Type: String
-    Description: ECR repository URI (e.g., 123456789.dkr.ecr.ap-northeast-1.amazonaws.com/kvell-api)
-
-  ImageTag:
-    Type: String
-    Default: latest
-    Description: Docker image tag to deploy
-
   CorsOrigins:
     Type: String
     Default: https://kvellapp.com
@@ -172,231 +163,165 @@ Resources:
             VolumeType: gp3
             DeleteOnTermination: true  # OS volume can be deleted
       UserData:
-        Fn::Base64: !Sub |
+        Fn::Base64: |
           #!/bin/bash
           set -euo pipefail
 
-          # ==============================================================================
-          # Logging Functions
-          # ==============================================================================
-          LOG_FILE="/var/log/kvell-setup.log"
-          MOTD_FILE="/etc/motd"
-          SETUP_STATUS_FILE="/var/lib/kvell-setup-status"
+          readonly TARGET_USER="ubuntu"
 
-          log_info() {
-            local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [INFO]  $1"
-            echo "$msg" | tee -a "$LOG_FILE"
+          # logging settings
+          LOG_FILE="/var/log/user-data.log"
+          exec > >(tee -a "$LOG_FILE")
+          exec 2>&1
+
+
+
+          # utility functions
+          mkdir -p /opt/scripts
+          cat <<"EOF" > /opt/scripts/common-functions.sh
+          error_exit() {
+              echo "$(date): ERROR: $1" >&2
+              exit 1
           }
 
-          log_error() {
-            local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1"
-            echo "$msg" | tee -a "$LOG_FILE" >&2
+          log_info() {
+              echo "$(date): INFO: $1"
           }
 
           log_success() {
-            local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [OK]    $1"
-            echo "$msg" | tee -a "$LOG_FILE"
+              echo "$(date): SUCCESS: $1"
           }
 
-          log_step() {
-            local step_num=$1
-            local total=$2
-            local desc=$3
-            echo "" | tee -a "$LOG_FILE"
-            echo "============================================================" | tee -a "$LOG_FILE"
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP $step_num/$total] $desc" | tee -a "$LOG_FILE"
-            echo "============================================================" | tee -a "$LOG_FILE"
-            echo "$step_num/$total $desc" > "$SETUP_STATUS_FILE"
-            update_motd "IN PROGRESS" "$step_num/$total: $desc"
+          command_exists() {
+              command -v "$1" >/dev/null 2>&1
+          }
+          EOF
+          source /opt/scripts/common-functions.sh
+
+          # --------------------------------------------------------------------
+          # system settings
+          # --------------------------------------------------------------------
+
+          setup_system() {
+              log_info "Setting up system configuration..."
+
+              # timezone
+              timedatectl set-timezone Asia/Tokyo || error_exit "Failed to set timezone"
+              log_success "Timezone set to Asia/Tokyo"
+
+              # apt
+              apt update -y && apt upgrade -y || error_exit "Failed to update packages"
+              log_success "Packages updated"
           }
 
-          update_motd() {
-            local status=$1
-            local current_step="${!2:-}"
-            cat > "$MOTD_FILE" << MOTD_EOF
+          install_essential_packages() {
+              log_info "Installing essential packages..."
 
-          ╔══════════════════════════════════════════════════════════════╗
-          ║                    🔥 KVELL SERVER 🔥                        ║
-          ╠══════════════════════════════════════════════════════════════╣
-          ║  Environment: ${EnvironmentName}
-          ║  Region:      ${AWS::Region}
-          ║  Setup:       $status
-          ║  Step:        $current_step
-          ╠══════════════════════════════════════════════════════════════╣
-          ║  Logs:        cat /var/log/kvell-setup.log                   ║
-          ║  App Logs:    docker logs kvell-api                          ║
-          ║  API Health:  curl http://localhost:8000/api/health          ║
-          ╚══════════════════════════════════════════════════════════════╝
+              local packages=(
+                  git curl wget unzip build-essential sqlite3 gnupg
+              )
+              local packages4python_build=(
+                  libbz2-dev libssl-dev libreadline-dev libffi-dev zlib1g-dev
+                  libncurses5-dev libncursesw5-dev libsqlite3-dev libgdbm-dev
+                  liblzma-dev tk-dev uuid-dev
+              )
 
-          MOTD_EOF
+              apt install -y "${packages[@]}" || error_exit "Failed to install essential packages"
+              apt install -y "${packages4python_build[@]}" || error_exit "Failed to install Python build dependencies"
+              log_success "Essential packages installed"
           }
 
-          # Initialize
-          echo "" > "$LOG_FILE"
-          log_info "=========================================="
-          log_info "  Kvell Server Setup Starting..."
-          log_info "  Instance: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)"
-          log_info "  Time: $(date)"
-          log_info "=========================================="
+          # --------------------------------------------------------------------
+          # AWS
+          # --------------------------------------------------------------------
 
-          TOTAL_STEPS=5
+          install_aws_cli() {
+              log_info "Installing AWS CLI..."
 
-          # ==============================================================================
-          # Step 1: Install Dependencies
-          # ==============================================================================
-          log_step 1 $TOTAL_STEPS "Installing dependencies"
-
-          log_info "Updating apt packages..."
-          apt update -y >> "$LOG_FILE" 2>&1
-          log_success "apt update completed"
-
-          log_info "Installing git, curl, jq, unzip, nvme-cli..."
-          apt install -y git curl jq unzip nvme-cli >> "$LOG_FILE" 2>&1
-          log_success "Base packages installed"
-
-          log_info "Installing AWS CLI v2..."
-          curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
-          unzip -q /tmp/awscliv2.zip -d /tmp
-          /tmp/aws/install >> "$LOG_FILE" 2>&1
-          rm -rf /tmp/aws /tmp/awscliv2.zip
-          log_success "AWS CLI installed: $(aws --version)"
-
-          # ==============================================================================
-          # Step 2: Environment Variables
-          # ==============================================================================
-          log_step 2 $TOTAL_STEPS "Setting environment variables"
-
-          export AWS_REGION=${AWS::Region}
-          export CORS_ORIGINS=${CorsOrigins}
-          export BACKUP_BUCKET=${BackupS3Bucket}
-          export DATA_VOLUME_ID=${DataVolume}
-
-          log_info "AWS_REGION=$AWS_REGION"
-          log_info "CORS_ORIGINS=$CORS_ORIGINS"
-          log_info "BACKUP_BUCKET=$BACKUP_BUCKET"
-          log_info "DATA_VOLUME_ID=$DATA_VOLUME_ID"
-          log_success "Environment variables set"
-
-          # ==============================================================================
-          # Step 3: Attach and Mount Data Volume
-          # ==============================================================================
-          log_step 3 $TOTAL_STEPS "Attaching and mounting data volume"
-
-          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-          log_info "Instance ID: $INSTANCE_ID"
-
-          log_info "Waiting for data volume ${DataVolume} to be available..."
-          aws ec2 wait volume-available --volume-ids ${DataVolume} --region ${AWS::Region} || log_info "Volume may already be attached"
-
-          log_info "Attaching volume ${DataVolume} to instance..."
-          aws ec2 attach-volume --volume-id ${DataVolume} --instance-id $INSTANCE_ID --device /dev/sdf --region ${AWS::Region} 2>&1 | tee -a "$LOG_FILE" || log_info "Volume may already be attached"
-
-          log_info "Waiting for device to appear (15s)..."
-          sleep 15
-
-          log_info "Finding NVMe device for volume..."
-          DATA_DEVICE=""
-          for device in /dev/nvme?n1; do
-            if [ -e "$device" ]; then
-              VOL_ID=$(nvme id-ctrl -v "$device" 2>/dev/null | grep -oP 'vol-[a-f0-9]+' | head -1 || true)
-              log_info "  Device $device -> Volume $VOL_ID"
-              if [ "$VOL_ID" = "${DataVolume}" ]; then
-                DATA_DEVICE="$device"
-                log_success "Found matching device: $DATA_DEVICE"
-                break
+              if command_exists aws; then
+                  log_success "AWS CLI already installed"
+                  return 0
               fi
-            fi
-          done
 
-          if [ -z "$DATA_DEVICE" ]; then
-            DATA_DEVICE="/dev/nvme1n1"
-            log_info "Using fallback device: $DATA_DEVICE"
-          fi
+              local temp_dir="/tmp/aws-cli-install"
+              mkdir -p "$temp_dir" && cd "$temp_dir"
 
-          if ! blkid "$DATA_DEVICE" >> "$LOG_FILE" 2>&1; then
-            log_info "Formatting new volume with ext4..."
-            mkfs.ext4 "$DATA_DEVICE" >> "$LOG_FILE" 2>&1
-            log_success "Volume formatted"
-          else
-            log_info "Volume already has filesystem"
-          fi
+              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" || error_exit "Failed to download AWS CLI"
+              unzip awscliv2.zip || error_exit "Failed to extract AWS CLI"
+              ./aws/install || error_exit "Failed to install AWS CLI"
 
-          log_info "Mounting data volume to /data..."
-          mkdir -p /data
-          mount "$DATA_DEVICE" /data
-          log_success "Volume mounted at /data"
+              rm -rf "$temp_dir"
+              log_success "AWS CLI installed"
+          }
 
-          DATA_UUID=$(blkid -s UUID -o value "$DATA_DEVICE")
-          echo "UUID=$DATA_UUID /data ext4 defaults,nofail 0 2" >> /etc/fstab
-          log_success "Added to fstab (UUID=$DATA_UUID)"
+          install_ssm_agent() {
+              log_info "Installing SSM Agent..."
 
-          # ==============================================================================
-          # Step 4: Clone Repository
-          # ==============================================================================
-          log_step 4 $TOTAL_STEPS "Cloning repository"
+              if snap list | grep -q amazon-ssm-agent; then
+                  log_success "SSM Agent already installed"
+                  return 0
+              fi
 
-          log_info "Fetching GitHub token from SSM..."
-          GITHUB_TOKEN=$(aws ssm get-parameter \
-            --name /kvell/github-token \
-            --with-decryption \
-            --query Parameter.Value \
-            --output text \
-            --region ${AWS::Region})
+              snap install amazon-ssm-agent --classic || error_exit "Failed to install SSM Agent"
+              snap start amazon-ssm-agent || error_exit "Failed to start SSM Agent"
+              log_success "SSM Agent installed and started"
+          }
 
-          if [ -z "$GITHUB_TOKEN" ]; then
-            log_error "Failed to retrieve GitHub token from SSM!"
-            update_motd "FAILED" "Step 4: GitHub token retrieval failed"
-            exit 1
-          fi
-          log_success "GitHub token retrieved"
+          # --------------------------------------------------------------------
+          # Docker
+          # --------------------------------------------------------------------
 
-          log_info "Cloning repository: ${GitHubRepo}..."
-          git clone https://${!GITHUB_TOKEN}@github.com/${GitHubRepo} /opt/kvell >> "$LOG_FILE" 2>&1
-          log_success "Repository cloned to /opt/kvell"
+          install_docker() {
+              log_info "Installing Docker..."
 
-          # ==============================================================================
-          # Step 5: Run Setup Script
-          # ==============================================================================
-          log_step 5 $TOTAL_STEPS "Running setup script"
+              if command_exists docker; then
+                  log_success "Docker already installed"
+                  return 0
+              fi
 
-          export AWS_REGION=${AWS::Region}
-          export ECR_REPO=${EcrRepository}
-          export CORS_ORIGINS=${CorsOrigins}
-          export BACKUP_BUCKET=${BackupS3Bucket}
-          export GITHUB_REPO=${GitHubRepo}
-          export IMAGE_TAG=${ImageTag}
+              # Get docker gpg key (apt will use this key to verify the authenticity of the packages when installing docker)
+              install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg || error_exit "Failed to add Docker GPG key"
 
-          log_info "ECR_REPO=$ECR_REPO"
-          log_info "IMAGE_TAG=$IMAGE_TAG"
+              # Set up docker repository to apt sources (so that apt can fetch docker packagets from this repository)
+              echo \
+                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+                https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+                | tee /etc/apt/sources.list.d/docker.list > /dev/null || error_exit "Failed to add Docker repository"
 
-          chmod +x /opt/kvell/infra/scripts/setup-prod.sh
-          log_info "Executing setup-prod.sh..."
+              # install docker
+              apt update -y || error_exit "Failed to update package list for Docker"
+              apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin || error_exit "Failed to install Docker"
 
-          if /opt/kvell/infra/scripts/setup-prod.sh >> "$LOG_FILE" 2>&1; then
-            log_success "Setup script completed successfully!"
-            update_motd "✅ READY" "All steps completed"
-          else
-            log_error "Setup script failed! Check logs for details."
-            update_motd "❌ FAILED" "Step 5: setup-prod.sh failed"
-            exit 1
-          fi
+              systemctl enable --now docker || error_exit "Failed to enable Docker service"
+              usermod -aG docker "$TARGET_USER" || error_exit "Failed to add user to docker group"
+              log_success "Docker installed and configured"
+          }
 
-          # ==============================================================================
-          # Final Summary
-          # ==============================================================================
-          echo "" | tee -a "$LOG_FILE"
-          log_info "=========================================="
-          log_info "  🎉 SETUP COMPLETED SUCCESSFULLY!"
-          log_info "  Time: $(date)"
-          log_info "  Duration: $SECONDS seconds"
-          log_info "=========================================="
-          log_info ""
-          log_info "Quick Commands:"
-          log_info "  systemctl status kvell-api             # Check API service"
-          log_info "  journalctl -u kvell-api -f             # View API logs"
-          log_info "  curl http://localhost:8000/api/health  # Check API"
-          log_info "  docker ps                              # Check MongoDB/Redis"
-          log_info ""
+          main() {
+              log_info "Starting EC2 UserData execution"
+
+
+              setup_system
+
+              install_essential_packages
+
+              install_aws_cli
+              install_ssm_agent
+
+              install_docker
+
+              log_info "System is ready for use"
+              echo "EC2 setup completed at $(date)" | tee /etc/motd
+
+              # motd (Message of the Day)
+              echo "Filtered user-data.log (INFO, SUCCESS, ERROR):" >> /etc/motd
+              grep -E 'INFO|SUCCESS|ERROR' /var/log/user-data.log >> /etc/motd || echo "(No matching log entries)" >> /etc/motd
+
+
+          }
+
+          main "$@"
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-instance"
