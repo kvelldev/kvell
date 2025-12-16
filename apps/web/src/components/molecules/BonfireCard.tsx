@@ -6,6 +6,7 @@
  * - Glow effect (shadow-glow)
  * - Default bonfire image
  * - Content with heat score indicator
+ * - Shared Element Transition support via Framer Motion layoutId
  *
  * Visual style follows SparkCard patterns and Design Token guidelines.
  * Uses shadcn/ui Card as base component.
@@ -14,12 +15,14 @@
 import { memo } from "react";
 import clsx from "clsx";
 import { Flame } from "lucide-react";
+import { motion } from "framer-motion";
 import type { Bonfire } from "@/domain/model/bonfire";
 import { Card, CardContent } from "@/components/ui/card";
 import defaultImage from "@/assets/bonfire_default.png";
 
 interface BonfireCardProps {
   bonfire: Bonfire;
+  onClick?: (bonfire: Bonfire) => void;
 }
 
 /**
@@ -29,7 +32,11 @@ interface BonfireCardProps {
  * - Memoized to prevent unnecessary re-renders
  * @returns Rendered bonfire card element
  */
-const BonfireCardComponent = ({ bonfire }: BonfireCardProps) => {
+const BonfireCardComponent = ({ bonfire, onClick }: BonfireCardProps) => {
+  const handleClick = () => {
+    onClick?.(bonfire);
+  };
+
   return (
     <Card
       className={clsx(
@@ -47,11 +54,18 @@ const BonfireCardComponent = ({ bonfire }: BonfireCardProps) => {
         // Hover Interaction (点火: 熱量と光)
         "hover:border-ember-500/30", // 触ると枠が熱くなる
         "hover:shadow-glow-sm", // 触ると光が漏れる (Design Tokenの影)
+
+        // Clickable
+        onClick && "cursor-pointer",
       )}
       data-testid="bonfire-item"
+      onClick={handleClick}
     >
-      {/* Image Section */}
-      <div className="relative h-28 w-full overflow-hidden md:h-40">
+      {/* Image Section with layoutId for Shared Element Transition */}
+      <motion.div
+        className="relative h-28 w-full overflow-hidden md:h-40"
+        layoutId={`bonfire-image-${bonfire.id}`}
+      >
         <img
           src={defaultImage}
           alt="Bonfire"
@@ -73,7 +87,7 @@ const BonfireCardComponent = ({ bonfire }: BonfireCardProps) => {
           <Flame className="size-3" />
           <span>{bonfire.heatScore}</span>
         </div>
-      </div>
+      </motion.div>
 
       {/* Content Section - Responsive height with text truncation */}
       <CardContent className="h-16 p-3 md:h-20 md:p-4">

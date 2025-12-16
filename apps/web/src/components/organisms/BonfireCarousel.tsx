@@ -30,6 +30,10 @@ interface BonfireCarouselProps {
    * Array of bonfires to display
    */
   bonfires: Bonfire[];
+  /**
+   * Callback when a bonfire card is clicked
+   */
+  onBonfireClick?: (bonfire: Bonfire) => void;
 }
 
 /**
@@ -42,7 +46,10 @@ interface BonfireCarouselProps {
  * - Empty state returns null (no bonfires = no carousel)
  * @returns Rendered carousel element or null if empty
  */
-export const BonfireCarousel = ({ bonfires }: BonfireCarouselProps) => {
+export const BonfireCarousel = ({
+  bonfires,
+  onBonfireClick,
+}: BonfireCarouselProps) => {
   // Empty State: Return null when no bonfires are available
   if (bonfires.length === 0) {
     return null;
@@ -65,7 +72,7 @@ export const BonfireCarousel = ({ bonfires }: BonfireCarouselProps) => {
         <CarouselContent className="-ml-4 overflow-visible">
           {bonfires.map((bonfire) => (
             <CarouselItem key={bonfire.id} className="basis-auto py-4 pl-4">
-              <BonfireCard bonfire={bonfire} />
+              <BonfireCard bonfire={bonfire} onClick={onBonfireClick} />
             </CarouselItem>
           ))}
         </CarouselContent>

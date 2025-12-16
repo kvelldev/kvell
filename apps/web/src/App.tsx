@@ -20,6 +20,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/timeline" replace />} />
           <Route path="/timeline" element={<TimelinePage />} />
+          <Route path="/timeline/bonfire/:bonfireId" element={<TimelinePage />} />
           <Route path="/health" element={<HealthCheckPage />} />
           <Route path="/debug" element={<DebugPage />} />
         </Routes>
