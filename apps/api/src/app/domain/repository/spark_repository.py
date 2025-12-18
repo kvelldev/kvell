@@ -127,3 +127,23 @@ class ISparkRepository(ABC):
             True if updated successfully, False if spark not found
 
         """
+
+    @abstractmethod
+    async def find_replies_by_bonfire_id(
+        self,
+        bonfire_id: str,
+        limit: int = 1000,
+    ) -> AsyncIterator[Spark]:
+        """Find all replies for a specific bonfire.
+
+        Args:
+            bonfire_id: The parent bonfire ID
+            limit: Maximum number of replies to return (default 1000)
+
+        Yields:
+            Reply sparks sorted by created_at in ascending order (oldest first)
+
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError

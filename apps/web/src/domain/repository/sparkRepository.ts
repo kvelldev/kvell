@@ -4,7 +4,26 @@
  * Abstract definition of data access operations for Spark entities.
  */
 
-import type { AddFuelRequest, PostSparkRequest, Spark } from "@/domain/model/spark";
+import type {
+  AddFuelRequest,
+  PostSparkRequest,
+  Spark,
+} from "@/domain/model/spark";
+
+/**
+ * Request payload for posting a reply to a bonfire
+ */
+export interface PostReplyRequest {
+  /**
+   * Reply content text
+   */
+  content: string;
+
+  /**
+   * Parent bonfire ID to reply to
+   */
+  parentBonfireId: string;
+}
 
 /**
  * Spark Repository Interface
@@ -16,6 +35,13 @@ export interface ISparkRepository {
    * @returns The created spark details
    */
   postSpark(request: PostSparkRequest): Promise<Spark>;
+
+  /**
+   * Post a reply to a bonfire.
+   * @param request - The reply content and parent bonfire ID
+   * @returns The created reply spark details
+   */
+  postReply(request: PostReplyRequest): Promise<Spark>;
 
   /**
    * Add fuel to a spark.

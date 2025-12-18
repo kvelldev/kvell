@@ -43,6 +43,8 @@ from app.usecase.ports.logger import ILogger
 from app.usecase.ports.pubsub import IPubSubGateway
 from app.usecase.post_spark.interactor import PostSparkInteractor
 from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_bonfire.interactor import StreamBonfireInteractor
+from app.usecase.stream_bonfire.interface import IStreamBonfireUseCase
 from app.usecase.stream_timeline.interactor import StreamTimelineInteractor
 from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
 
@@ -185,12 +187,30 @@ def get_pubsub_gateway(
     return RedisPubSubGateway(redis, logger)
 
 
+def get_bonfire_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> IBonfireRepository:
+    """Get the bonfire repository instance.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Bonfire repository instance
+
+    """
+    return MongoBonfireRepository(db, logger)
+
+
 def get_post_spark_usecase(
     spark_repository: ISparkRepository = Depends(get_spark_repository),
     identity_provider: IIdentityProvider = Depends(get_identity_provider),
     rate_limiter: IRateLimiter = Depends(get_rate_limiter),
     logger: ILogger = Depends(get_logger),
     pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
 ) -> IPostSparkUseCase:
     """Get the post spark use case instance.
 
@@ -200,6 +220,7 @@ def get_post_spark_usecase(
         rate_limiter: Rate limiter instance (injected)
         logger: Logger instance (injected)
         pubsub_gateway: Pub/sub gateway instance (injected)
+        bonfire_repository: Bonfire repository instance (injected)
 
     Returns:
         Post spark use case instance
@@ -211,6 +232,7 @@ def get_post_spark_usecase(
         rate_limiter=rate_limiter,
         logger=logger,
         pubsub_gateway=pubsub_gateway,
+        bonfire_repository=bonfire_repository,
         max_length=settings.spark_max_length,
         rate_limit_count=settings.spark_rate_limit_count,
         rate_limit_window_seconds=settings.spark_rate_limit_window_seconds,
@@ -247,23 +269,6 @@ def get_stream_timeline_usecase(
 
 
 # Bonfire Dependencies
-
-
-def get_bonfire_repository(
-    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
-    logger: ILogger = Depends(get_logger),
-) -> IBonfireRepository:
-    """Get the bonfire repository instance.
-
-    Args:
-        db: MongoDB database instance (injected)
-        logger: Logger instance (injected)
-
-    Returns:
-        Bonfire repository instance
-
-    """
-    return MongoBonfireRepository(db, logger)
 
 
 def get_threshold_config(
@@ -390,5 +395,31 @@ def get_add_fuel_usecase(
         check_promotion=check_promotion,
         bonfire_service=bonfire_service,
         pubsub=pubsub,
+        logger=logger,
+    )
+
+
+def get_stream_bonfire_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> IStreamBonfireUseCase:
+    """Get the stream bonfire use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        bonfire_repository: Bonfire repository instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Stream bonfire use case instance
+
+    """
+    return StreamBonfireInteractor(
+        spark_repository=spark_repository,
+        bonfire_repository=bonfire_repository,
+        pubsub_gateway=pubsub_gateway,
         logger=logger,
     )

@@ -149,3 +149,82 @@ class RedisPubSubGateway(IPubSubGateway):
                 "Unsubscribed from Redis channel",
                 context={"channel": channel},
             )
+
+    async def subscribe_raw(self, channel: str) -> AsyncIterator[PubSubMessage]:
+        """Subscribe to a channel and yield raw messages as they arrive.
+
+        Args:
+            channel: The channel name to subscribe to
+
+        Yields:
+            Raw dict messages from the channel
+
+        """
+        pubsub = self.redis.pubsub()  # type: ignore[misc]
+
+        try:
+            await pubsub.subscribe(channel)  # type: ignore[misc]
+
+            self.logger.info(
+                LOG_EVENTS.PUBSUB_SUBSCRIBE_SUCCESS,
+                "Subscribed to Redis channel (raw)",
+                context={"channel": channel},
+            )
+
+            # Iterate over messages from the channel
+            async for message in pubsub.listen():  # type: ignore[misc]
+                # Skip subscription confirmation messages
+                if message["type"] != "message":
+                    continue
+
+                try:
+                    # Deserialize JSON string to dict
+                    data = message["data"]  # type: ignore[index]
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8")
+
+                    raw_dict: PubSubMessage = json.loads(data)  # type: ignore[arg-type]
+
+                    self.logger.info(
+                        LOG_EVENTS.PUBSUB_MESSAGE_RECEIVED,
+                        "Received raw message from Redis channel",
+                        context={
+                            "channel": channel,
+                            "message_type": raw_dict.get("type", "unknown"),
+                        },
+                    )
+
+                    yield raw_dict
+
+                except (json.JSONDecodeError, TypeError) as e:
+                    self.logger.exception(
+                        LOG_EVENTS.PUBSUB_DESERIALIZATION_ERROR,
+                        "Failed to deserialize raw message from Redis channel",
+                        error=e,
+                        context={
+                            "channel": channel,
+                            "raw_data": str(message.get("data", "")),  # type: ignore[call-overload]
+                        },
+                    )
+                    # Skip malformed messages and continue listening
+                    continue
+
+        except Exception as e:
+            self.logger.exception(
+                LOG_EVENTS.PUBSUB_SUBSCRIBE_ERROR,
+                "Error during Redis raw subscription",
+                error=e,
+                context={"channel": channel},
+            )
+            raise
+
+        finally:
+            # Clean up subscription
+            await pubsub.unsubscribe(channel)  # type: ignore[misc]
+            await pubsub.aclose()
+
+            self.logger.info(
+                LOG_EVENTS.PUBSUB_UNSUBSCRIBE_SUCCESS,
+                "Unsubscribed from Redis channel (raw)",
+                context={"channel": channel},
+            )

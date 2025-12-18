@@ -97,6 +97,7 @@ class LogEvents:
     PUBSUB_DESERIALIZATION_ERROR: Final[str] = "PUBSUB_005"
     PUBSUB_SUBSCRIBE_ERROR: Final[str] = "PUBSUB_006"
     PUBSUB_UNSUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_007"
+    PUBSUB_BUFFER_OVERFLOW: Final[str] = "PUBSUB_008"
 
     # Database events
     DB_CONNECTION_SUCCESS: Final[str] = "DB_001"

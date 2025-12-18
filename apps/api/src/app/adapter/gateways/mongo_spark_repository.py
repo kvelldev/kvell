@@ -62,6 +62,11 @@ class MongoSparkRepository(ISparkRepository):
                     [("created_at", 1)],
                     name="created_at_asc",
                 ),
+                # Query index for replies retrieval (by parent_bonfire_id)
+                IndexModel(
+                    [("parent_bonfire_id", 1), ("created_at", 1)],
+                    name="parent_bonfire_id_created_at_asc",
+                ),
             ]
             await self.collection.create_indexes(spark_indexes)
             self.logger.info(
@@ -133,6 +138,7 @@ class MongoSparkRepository(ISparkRepository):
                 "user_hash": spark.user_hash,
                 "fuel_count": spark.fuel_count,
                 "level": spark.level.value,
+                "parent_bonfire_id": spark.parent_bonfire_id,
                 "created_at": spark.created_at,
                 "decay_at": spark.decay_at,
                 "vanish_at": spark.vanish_at,
@@ -241,6 +247,7 @@ class MongoSparkRepository(ISparkRepository):
                 user_hash=document["user_hash"],
                 fuel_count=document.get("fuel_count", 0),
                 level=level,
+                parent_bonfire_id=document.get("parent_bonfire_id"),
                 created_at=created_at,
                 decay_at=decay_at,
                 vanish_at=vanish_at,
@@ -303,6 +310,7 @@ class MongoSparkRepository(ISparkRepository):
                     user_hash=doc["user_hash"],
                     fuel_count=doc.get("fuel_count", 0),
                     level=level,
+                    parent_bonfire_id=doc.get("parent_bonfire_id"),
                     created_at=created_at,
                     decay_at=decay_at,
                     vanish_at=vanish_at,
@@ -597,3 +605,88 @@ class MongoSparkRepository(ISparkRepository):
             ) from e
         else:
             return True
+
+    async def find_replies_by_bonfire_id(
+        self,
+        bonfire_id: str,
+        limit: int = 1000,
+    ) -> AsyncIterator[Spark]:
+        """Find all replies for a specific bonfire.
+
+        Args:
+            bonfire_id: The parent bonfire ID
+            limit: Maximum number of replies to return (default 1000)
+
+        Yields:
+            Reply sparks sorted by created_at in ascending order (oldest first)
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying replies by bonfire ID",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "bonfire_id": bonfire_id,
+                    "limit": limit,
+                },
+            )
+
+            # Query for sparks with matching parent_bonfire_id, sorted by created_at
+            cursor = self.collection.find(
+                {"parent_bonfire_id": bonfire_id},
+            ).sort("created_at", 1).limit(limit)
+
+            # Yield sparks one by one (streaming, no to_list)
+            count = 0
+            async for doc in cursor:
+                count += 1
+                # MongoDB returns datetime as UTC but timezone-naive
+                created_at = doc["created_at"].replace(tzinfo=UTC)
+                decay_at = doc["decay_at"].replace(tzinfo=UTC)
+                vanish_at = doc["vanish_at"].replace(tzinfo=UTC)
+
+                # Parse level with fallback for legacy documents
+                level_str = doc.get("level", SparkLevel.SPARK.value)
+                level = SparkLevel(level_str)
+
+                yield Spark(
+                    id=doc["id"],
+                    content=doc["content"],
+                    user_hash=doc["user_hash"],
+                    fuel_count=doc.get("fuel_count", 0),
+                    level=level,
+                    parent_bonfire_id=doc.get("parent_bonfire_id"),
+                    created_at=created_at,
+                    decay_at=decay_at,
+                    vanish_at=vanish_at,
+                )
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Replies retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "bonfire_id": bonfire_id,
+                    "count": count,
+                },
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query replies: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "bonfire_id": bonfire_id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e

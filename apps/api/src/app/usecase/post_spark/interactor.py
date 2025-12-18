@@ -4,10 +4,12 @@ This module implements the business logic for posting a spark.
 """
 
 import uuid
+from datetime import datetime
 
 from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
 from app.domain.model.spark import Spark
+from app.domain.repository.bonfire_repository import IBonfireRepository
 from app.domain.repository.spark_repository import ISparkRepository
 from app.domain.service.identity_provider import IIdentityProvider
 from app.domain.service.rate_limiter import IRateLimiter
@@ -27,6 +29,7 @@ class PostSparkInteractor(IPostSparkUseCase):
         rate_limiter: IRateLimiter,
         logger: ILogger,
         pubsub_gateway: IPubSubGateway,
+        bonfire_repository: IBonfireRepository,
         max_length: int,
         rate_limit_count: int,
         rate_limit_window_seconds: int,
@@ -43,6 +46,7 @@ class PostSparkInteractor(IPostSparkUseCase):
             rate_limiter: Rate limiter for preventing spam
             logger: Logger for structured logging
             pubsub_gateway: Gateway for pub/sub messaging
+            bonfire_repository: Repository for bonfire operations
             max_length: Maximum character length for content
             rate_limit_count: Maximum posts per window
             rate_limit_window_seconds: Rate limit window in seconds
@@ -57,6 +61,7 @@ class PostSparkInteractor(IPostSparkUseCase):
         self.rate_limiter = rate_limiter
         self.logger = logger
         self.pubsub_gateway = pubsub_gateway
+        self.bonfire_repository = bonfire_repository
         self.max_length = max_length
         self.rate_limit_count = rate_limit_count
         self.rate_limit_window_seconds = rate_limit_window_seconds
@@ -131,6 +136,21 @@ class PostSparkInteractor(IPostSparkUseCase):
             )
             raise AppError(internal_code=1004)
 
+        # Handle reply case: check parent bonfire and get its decay_at
+        parent_bonfire_id = input_data.parent_bonfire_id
+        decay_at: datetime | None = None
+
+        if parent_bonfire_id:
+            bonfire = await self.bonfire_repository.find_by_id(parent_bonfire_id)
+            if bonfire is None:
+                self.logger.warning(
+                    LOG_EVENTS.BONFIRE_NOT_FOUND,
+                    "Parent bonfire not found for reply",
+                    context={"bonfire_id": parent_bonfire_id},
+                )
+                raise AppError(internal_code=1005)
+            decay_at = bonfire.decay_at
+
         # Create spark entity
         spark = Spark.create(
             spark_id=str(uuid.uuid4()),
@@ -138,6 +158,8 @@ class PostSparkInteractor(IPostSparkUseCase):
             user_hash=user_hash,
             decay_after_seconds=self.decay_after_seconds,
             vanish_after_days=self.vanish_after_days,
+            parent_bonfire_id=parent_bonfire_id,
+            decay_at=decay_at,
         )
 
         # Save to repository
@@ -147,17 +169,27 @@ class PostSparkInteractor(IPostSparkUseCase):
         spark_output = SparkOutput(
             id=saved_spark.id,
             content=saved_spark.content,
+            parent_bonfire_id=saved_spark.parent_bonfire_id,
             created_at=saved_spark.created_at,
             decay_at=saved_spark.decay_at,
         )
 
+        # Determine publish channel: bonfire-specific for replies, global for sparks
+        if parent_bonfire_id:
+            channel = f"bonfire:{parent_bonfire_id}"
+        else:
+            channel = self.pubsub_channel
+
         # Publish to Redis pub/sub for real-time streaming
-        await self.pubsub_gateway.publish(self.pubsub_channel, spark_output)
+        await self.pubsub_gateway.publish(channel, spark_output)
 
         self.logger.info(
             LOG_EVENTS.SPARK_POST_SUCCESS,
             "Spark posted successfully",
-            context={"spark_id": saved_spark.id},
+            context={
+                "spark_id": saved_spark.id,
+                "is_reply": parent_bonfire_id is not None,
+            },
         )
 
         return spark_output

@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogContent,
   DialogOverlay,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { SparkInput } from "@/components/molecules/SparkInput";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,11 @@ interface SparkPostModalProps {
   isPosting: boolean;
   maxLength: number;
   error?: Error | null;
+  /**
+   * Custom label for the submit button
+   * @default "種火を投げる"
+   */
+  submitLabel?: string;
 }
 
 export const SparkPostModal = ({
@@ -33,6 +39,7 @@ export const SparkPostModal = ({
   isPosting,
   maxLength,
   error,
+  submitLabel = "種火を投げる",
 }: SparkPostModalProps) => {
   const trimmedContent = content.trim();
   const isEmpty = trimmedContent.length === 0;
@@ -43,6 +50,8 @@ export const SparkPostModal = ({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogOverlay />
       <DialogContent className="max-w-2xl">
+        {/* Visually hidden title for screen reader accessibility */}
+        <DialogTitle className="sr-only">{submitLabel}</DialogTitle>
         <SparkInput
           value={content}
           onChange={onContentChange}
@@ -53,10 +62,10 @@ export const SparkPostModal = ({
 
         {error && (
           <div
-            className="mt-3 rounded-card border border-ember-500/20 bg-ember-500/5 p-3 backdrop-blur-sm"
+            className="rounded-card border-ember-500/20 bg-ember-500/5 mt-3 border p-3 backdrop-blur-sm"
             data-testid="spark-error"
           >
-            <p className="text-sm font-light text-ember-500">
+            <p className="text-ember-500 text-sm font-light">
               エラー: {error.message}
             </p>
           </div>
@@ -68,7 +77,7 @@ export const SparkPostModal = ({
             disabled={isSubmitDisabled}
             data-testid="spark-submit-button"
           >
-            {isPosting ? "投稿中..." : "種火を投げる"}
+            {isPosting ? "投稿中..." : submitLabel}
           </Button>
         </div>
       </DialogContent>

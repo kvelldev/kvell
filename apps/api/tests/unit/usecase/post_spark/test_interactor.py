@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.domain.exception import AppError
+from app.domain.model.bonfire import Bonfire
 from app.domain.model.spark import Spark
 from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
 from app.usecase.post_spark.interactor import PostSparkInteractor
@@ -45,6 +46,11 @@ class TestPostSparkInteractor:
         return AsyncMock()
 
     @pytest.fixture
+    def mock_bonfire_repository(self) -> AsyncMock:
+        """Create mock bonfire repository."""
+        return AsyncMock()
+
+    @pytest.fixture
     def interactor(
         self,
         mock_spark_repository: AsyncMock,
@@ -52,6 +58,7 @@ class TestPostSparkInteractor:
         mock_rate_limiter: AsyncMock,
         mock_logger: Mock,
         mock_pubsub_gateway: AsyncMock,
+        mock_bonfire_repository: AsyncMock,
     ) -> PostSparkInteractor:
         """Create PostSparkInteractor instance."""
         return PostSparkInteractor(
@@ -60,6 +67,7 @@ class TestPostSparkInteractor:
             rate_limiter=mock_rate_limiter,
             logger=mock_logger,
             pubsub_gateway=mock_pubsub_gateway,
+            bonfire_repository=mock_bonfire_repository,
             max_length=500,
             rate_limit_count=10,
             rate_limit_window_seconds=60,
@@ -309,3 +317,229 @@ class TestPostSparkInteractor:
 
         # Assert
         assert call_order == ["save", "publish"]
+
+
+class TestPostSparkInteractorReply:
+    """Test suite for PostSparkInteractor reply functionality."""
+
+    @pytest.fixture
+    def mock_spark_repository(self) -> AsyncMock:
+        """Create mock spark repository."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_identity_provider(self) -> Mock:
+        """Create mock identity provider."""
+        mock = Mock()
+        mock.get_user_hash.return_value = "test-user-hash"
+        return mock
+
+    @pytest.fixture
+    def mock_rate_limiter(self) -> AsyncMock:
+        """Create mock rate limiter."""
+        mock = AsyncMock()
+        mock.check_and_increment.return_value = True
+        return mock
+
+    @pytest.fixture
+    def mock_logger(self) -> Mock:
+        """Create mock logger."""
+        return Mock()
+
+    @pytest.fixture
+    def mock_pubsub_gateway(self) -> AsyncMock:
+        """Create mock pub/sub gateway."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_bonfire_repository(self) -> AsyncMock:
+        """Create mock bonfire repository."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def interactor(
+        self,
+        mock_spark_repository: AsyncMock,
+        mock_identity_provider: Mock,
+        mock_rate_limiter: AsyncMock,
+        mock_logger: Mock,
+        mock_pubsub_gateway: AsyncMock,
+        mock_bonfire_repository: AsyncMock,
+    ) -> PostSparkInteractor:
+        """Create PostSparkInteractor instance."""
+        return PostSparkInteractor(
+            spark_repository=mock_spark_repository,
+            identity_provider=mock_identity_provider,
+            rate_limiter=mock_rate_limiter,
+            logger=mock_logger,
+            pubsub_gateway=mock_pubsub_gateway,
+            bonfire_repository=mock_bonfire_repository,
+            max_length=500,
+            rate_limit_count=10,
+            rate_limit_window_seconds=60,
+            decay_after_seconds=600,
+            vanish_after_days=30,
+            ng_words=["forbidden_word"],
+            pubsub_channel="sparks:events",
+        )
+
+    @pytest.fixture
+    def mock_bonfire(self) -> Bonfire:
+        """Create mock bonfire for testing."""
+        return Bonfire.create(
+            spark_id="bonfire-001",
+            content="Parent bonfire content",
+            unique_user_count=10,
+            heat_score=100,
+            initial_decay_hours=3,
+        )
+
+    async def test_execute_whenReplyToBonfire_checksBonfireExists(
+        self,
+        interactor: PostSparkInteractor,
+        mock_bonfire_repository: AsyncMock,
+        mock_bonfire: Bonfire,
+    ) -> None:
+        """Test reply checks if parent bonfire exists."""
+        # Arrange
+        input_data = PostSparkInput(
+            content="Reply content",
+            parent_bonfire_id="bonfire-001",
+        )
+        ip_address = "192.168.1.1"
+        mock_bonfire_repository.find_by_id.return_value = mock_bonfire
+
+        # Act
+        with pytest.raises(Exception):
+            # Will fail because spark_repository.save is not mocked
+            await interactor.execute(input_data, ip_address)
+
+        # Assert
+        mock_bonfire_repository.find_by_id.assert_called_once_with("bonfire-001")
+
+    async def test_execute_whenReplyToBonfireNotFound_raisesAppError(
+        self,
+        interactor: PostSparkInteractor,
+        mock_bonfire_repository: AsyncMock,
+    ) -> None:
+        """Test reply to non-existent bonfire raises AppError with code 1005."""
+        # Arrange
+        input_data = PostSparkInput(
+            content="Reply content",
+            parent_bonfire_id="nonexistent-bonfire",
+        )
+        ip_address = "192.168.1.1"
+        mock_bonfire_repository.find_by_id.return_value = None
+
+        # Act & Assert
+        with pytest.raises(AppError) as exc_info:
+            await interactor.execute(input_data, ip_address)
+
+        assert exc_info.value.internal_code == 1005
+
+    async def test_execute_whenReplyToBonfire_usesParentDecayAt(
+        self,
+        interactor: PostSparkInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_bonfire_repository: AsyncMock,
+        mock_bonfire: Bonfire,
+    ) -> None:
+        """Test reply uses parent bonfire's decay_at."""
+        # Arrange
+        input_data = PostSparkInput(
+            content="Reply content",
+            parent_bonfire_id="bonfire-001",
+        )
+        ip_address = "192.168.1.1"
+        mock_bonfire_repository.find_by_id.return_value = mock_bonfire
+
+        mock_spark = Spark.create(
+            spark_id="reply-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            decay_after_seconds=600,
+            vanish_after_days=30,
+            parent_bonfire_id="bonfire-001",
+            decay_at=mock_bonfire.decay_at,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Act
+        await interactor.execute(input_data, ip_address)
+
+        # Assert
+        saved_spark = mock_spark_repository.save.call_args[0][0]
+        assert saved_spark.parent_bonfire_id == "bonfire-001"
+        assert saved_spark.decay_at == mock_bonfire.decay_at
+
+    async def test_execute_whenReplyToBonfire_publishesToBonfireChannel(
+        self,
+        interactor: PostSparkInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_pubsub_gateway: AsyncMock,
+        mock_bonfire_repository: AsyncMock,
+        mock_bonfire: Bonfire,
+    ) -> None:
+        """Test reply publishes to bonfire-specific channel."""
+        # Arrange
+        input_data = PostSparkInput(
+            content="Reply content",
+            parent_bonfire_id="bonfire-001",
+        )
+        ip_address = "192.168.1.1"
+        mock_bonfire_repository.find_by_id.return_value = mock_bonfire
+
+        mock_spark = Spark.create(
+            spark_id="reply-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            decay_after_seconds=600,
+            vanish_after_days=30,
+            parent_bonfire_id="bonfire-001",
+            decay_at=mock_bonfire.decay_at,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Act
+        await interactor.execute(input_data, ip_address)
+
+        # Assert
+        mock_pubsub_gateway.publish.assert_called_once()
+        call_args = mock_pubsub_gateway.publish.call_args
+        assert call_args[0][0] == "bonfire:bonfire-001"  # bonfire-specific channel
+        published_message = call_args[0][1]
+        assert isinstance(published_message, SparkOutput)
+        assert published_message.parent_bonfire_id == "bonfire-001"
+
+    async def test_execute_whenReplyToBonfire_outputIncludesParentBonfireId(
+        self,
+        interactor: PostSparkInteractor,
+        mock_spark_repository: AsyncMock,
+        mock_bonfire_repository: AsyncMock,
+        mock_bonfire: Bonfire,
+    ) -> None:
+        """Test reply output includes parent_bonfire_id."""
+        # Arrange
+        input_data = PostSparkInput(
+            content="Reply content",
+            parent_bonfire_id="bonfire-001",
+        )
+        ip_address = "192.168.1.1"
+        mock_bonfire_repository.find_by_id.return_value = mock_bonfire
+
+        mock_spark = Spark.create(
+            spark_id="reply-id",
+            content=input_data.content,
+            user_hash="test-user-hash",
+            decay_after_seconds=600,
+            vanish_after_days=30,
+            parent_bonfire_id="bonfire-001",
+            decay_at=mock_bonfire.decay_at,
+        )
+        mock_spark_repository.save.return_value = mock_spark
+
+        # Act
+        result = await interactor.execute(input_data, ip_address)
+
+        # Assert
+        assert result.parent_bonfire_id == "bonfire-001"

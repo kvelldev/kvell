@@ -10,6 +10,11 @@ interface SparkCardProps {
    * Callback when fuel button is clicked
    */
   onAddFuel?: (sparkId: string) => void;
+  /**
+   * Hide the fuel button (used for bonfire replies which cannot be promoted)
+   * @default false
+   */
+  hideFuelButton?: boolean;
 }
 
 const formatTime = (totalSeconds: number): string => {
@@ -34,7 +39,11 @@ const formatTime = (totalSeconds: number): string => {
  * - Only re-renders if spark.id, spark.content, spark.temperature, or spark.remainingTimeInSeconds changes
  * @returns Rendered spark card element
  */
-const SparkCardComponent = ({ spark, onAddFuel }: SparkCardProps) => {
+const SparkCardComponent = ({
+  spark,
+  onAddFuel,
+  hideFuelButton = false,
+}: SparkCardProps) => {
   const isHot = spark.temperature === "hot";
   const [showEffect, setShowEffect] = useState(false);
 
@@ -60,7 +69,7 @@ const SparkCardComponent = ({ spark, onAddFuel }: SparkCardProps) => {
     <div
       className={clsx(
         // Glassmorphism: translucent background with backdrop blur
-        "rounded-card bg-night-800/40 backdrop-blur-md text-ash-500 p-4 transition-all duration-1000 ease-in-out",
+        "rounded-card bg-night-800/40 text-ash-500 p-4 backdrop-blur-md transition-all duration-1000 ease-in-out",
         shadowClass,
         borderClass,
       )}
@@ -71,22 +80,29 @@ const SparkCardComponent = ({ spark, onAddFuel }: SparkCardProps) => {
         {spark.content}
       </p>
       <div className="mt-2 flex items-center justify-between">
-        {/* Add Fuel Button */}
-        <button
-          onClick={handleAddFuel}
-          className={clsx(
-            "relative flex items-center gap-1.5 rounded-button px-3 py-1.5 text-xs font-medium transition-all",
-            "border border-ember-500/30 bg-ember-500/10 text-ember-500",
-            "hover:border-ember-500/50 hover:bg-ember-500/20",
-            "focus:outline-none focus:ring-2 focus:ring-ember-500/50",
-          )}
-          data-testid="add-fuel-button"
-          aria-label="Add fuel to spark"
-        >
-          <Flame className="h-3.5 w-3.5" />
-          <span>薪をくべる</span>
-          <IgniteEffect trigger={showEffect} onComplete={handleEffectComplete} />
-        </button>
+        {/* Add Fuel Button - hidden for bonfire replies */}
+        {!hideFuelButton && (
+          <button
+            onClick={handleAddFuel}
+            className={clsx(
+              "rounded-button relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all",
+              "border-ember-500/30 bg-ember-500/10 text-ember-500 border",
+              "hover:border-ember-500/50 hover:bg-ember-500/20",
+              "focus:ring-ember-500/50 focus:ring-2 focus:outline-none",
+            )}
+            data-testid="add-fuel-button"
+            aria-label="Add fuel to spark"
+          >
+            <Flame className="h-3.5 w-3.5" />
+            <span>薪をくべる</span>
+            <IgniteEffect
+              trigger={showEffect}
+              onComplete={handleEffectComplete}
+            />
+          </button>
+        )}
+        {/* Spacer when fuel button is hidden */}
+        {hideFuelButton && <div />}
 
         {/* TTL Timer */}
         <span

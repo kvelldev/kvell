@@ -14,6 +14,10 @@ class PostSparkInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     content: str = Field(..., description="Spark content text", min_length=1)
+    parent_bonfire_id: str | None = Field(
+        default=None,
+        description="Parent bonfire ID if this is a reply",
+    )
 
 
 class SparkOutput(BaseModel):
@@ -23,6 +27,10 @@ class SparkOutput(BaseModel):
 
     id: str = Field(..., description="Spark ID")
     content: str = Field(..., description="Spark content")
+    parent_bonfire_id: str | None = Field(
+        default=None,
+        description="Parent bonfire ID if this is a reply",
+    )
     created_at: datetime = Field(..., description="Creation timestamp (UTC)")
     decay_at: datetime = Field(
         ..., description="Timestamp when the spark decays (becomes invisible)"
