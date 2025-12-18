@@ -3,6 +3,8 @@ import clsx from "clsx";
 import { Flame } from "lucide-react";
 import type { SparkViewModel } from "@/domain/model/spark";
 import { IgniteEffect } from "@/components/atoms/IgniteEffect";
+import Linkify from "linkify-react";
+import { SparkImageThumbnail } from "./SparkImageThumbnail";
 
 interface SparkCardProps {
   spark: SparkViewModel;
@@ -76,9 +78,28 @@ const SparkCardComponent = ({
       data-testid="spark-item"
       data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
     >
-      <p className="font-base line-clamp-3 text-sm leading-relaxed">
-        {spark.content}
+      <p className="font-base line-clamp-3 text-sm leading-relaxed break-words whitespace-pre-wrap">
+        <Linkify
+          options={{
+            target: "_blank",
+            rel: "noopener noreferrer",
+            className:
+              "text-ember-500/70 hover:underline text-ember-400 font-medium",
+            nl2br: true, // preserve line breaks logic if needed, but 'whitespace-pre-wrap' does it usually. Linkify handles simple strings.
+          }}
+        >
+          {spark.content}
+        </Linkify>
       </p>
+
+      {/* Image Thumbnail */}
+      {spark.imageUrl && (
+        <SparkImageThumbnail
+          key={spark.imageUrl.primaryUrl}
+          image={spark.imageUrl}
+        />
+      )}
+
       <div className="mt-2 flex items-center justify-between">
         {/* Add Fuel Button - hidden for bonfire replies */}
         {!hideFuelButton && (

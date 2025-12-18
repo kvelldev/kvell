@@ -7,6 +7,7 @@
 
 import type { Spark, SparkViewModel } from "@/domain/model/spark";
 import { COOLING_THRESHOLD_RATIO } from "@/domain/constants";
+import { detectSparkImage } from "@/domain/service/sparkUrlService";
 
 /**
  * Spark temperature types representing heat expression state
@@ -68,5 +69,6 @@ export const computeSparkViewModel = (spark: Spark): SparkViewModel => {
     ...spark,
     temperature: getSparkTemperature(spark),
     remainingTimeInSeconds: calculateRemainingTimeInSeconds(spark.decayAt),
+    imageUrl: detectSparkImage(spark.content),
   };
 };

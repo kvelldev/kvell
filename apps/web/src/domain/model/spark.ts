@@ -53,6 +53,15 @@ export interface SparkViewModel extends Spark {
    * Used for countdown timer display (mm:ss format)
    */
   remainingTimeInSeconds: number;
+
+  /**
+   * Optional URL of an image detected in the content
+   * If present, the UI should render a thumbnail
+   */
+  imageUrl?: {
+    primaryUrl: string;
+    fallbackUrl?: string;
+  } | null;
 }
 
 /**

@@ -9,10 +9,7 @@
 import { useEffect, useState } from "react";
 import type { Spark, SparkViewModel } from "@/domain/model/spark";
 import type { ITimelineRepository } from "@/domain/repository/timelineRepository";
-import {
-  getSparkTemperature,
-  calculateRemainingTimeInSeconds,
-} from "@/domain/service/sparkService";
+import { computeSparkViewModel } from "@/domain/service/sparkService";
 
 /**
  * Update interval for temperature recalculation and TTL cleanup
@@ -26,11 +23,7 @@ const UPDATE_INTERVAL_MS = 1000;
  * @returns Spark ViewModels with computed temperature and countdown timer
  */
 const computeViewModels = (sparks: Spark[]): SparkViewModel[] => {
-  return sparks.map((spark) => ({
-    ...spark,
-    temperature: getSparkTemperature(spark),
-    remainingTimeInSeconds: calculateRemainingTimeInSeconds(spark.decayAt),
-  }));
+  return sparks.map(computeSparkViewModel);
 };
 
 /**

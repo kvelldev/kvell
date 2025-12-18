@@ -1,0 +1,505 @@
+import{
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ExternalLink } from "lucide-react";
+import { useState } from "react";
+import clsx from "clsx";
+
+interface LightboxModalProps {
+  /**
+   * Source URL of the image
+   */
+  src: string;
+  /**
+   * Children to act as trigger (Thumbnail)
+   */
+  children: React.ReactNode;
+}
+
+/**
+ * Lightbox Modal
+ *
+ * Expands the image to full screen (within modal)
+ * Uses shadcn/ui Dialog
+ * @returns Lightbox Modal Component
+ */
+export const LightboxModal = ({ src, children }: LightboxModalProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent
+        className="max-w-5xl border-none bg-transparent p-0 shadow-none sm:max-w-5xl"
+        // Hide default close button to use custom overlay click or custom button if needed
+        // but shadcn DialogContent has close button by default.
+        // We want a clean look.
+      >
+        <DialogTitle className="sr-only">Image Preview</DialogTitle>
+        <div className="relative flex min-h-[50vh] flex-col items-center justify-center p-4">
+          {/* Image Container */}
+          <div className="relative">
+            <img
+              src={src}
+              alt="Expanded preview"
+              className={clsx(
+                "max-h-[85vh] w-auto max-w-full rounded-md object-contain shadow-2xl",
+                "animate-in fade-in zoom-in-95 duration-300",
+              )}
+              referrerPolicy="no-referrer"
+            />
+            {/* Source Link Icon (floating bottom right of image) */}
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={clsx(
+                "absolute right-4 bottom-4 flex items-center gap-1.5 rounded-full",
+                "bg-black/60 px-3 py-1.5 text-xs text-white/90 backdrop-blur-sm",
+                "transition-colors hover:bg-black/80 hover:text-white",
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              <span>Original</span>
+            </a>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+import { memo, useState, useCallback } from "react";
+import clsx from "clsx";
+import { Flame } from "lucide-react";
+import type { SparkViewModel } from "@/domain/model/spark";
+import { IgniteEffect } from "@/components/atoms/IgniteEffect";
+import { SparkImageThumbnail } from "./SparkImageThumbnail";
+
+interface SparkCardProps {
+  spark: SparkViewModel;
+  /**
+   * Callback when fuel button is clicked
+   */
+  onAddFuel?: (sparkId: string) => void;
+  /**
+   * Hide the fuel button (used for bonfire replies which cannot be promoted)
+   * @default false
+   */
+  hideFuelButton?: boolean;
+}
+
+const formatTime = (totalSeconds: number): string => {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+};
+
+/**
+ * SparkCard Component (Memoized)
+ *
+ * Renders a single spark with:
+ * - Fade-in animation on mount
+ * - Color temperature based heat expression (white→ash transition)
+ * - Dynamic glow: Visible when hot, disappears when cooled (Ash)
+ * - TTL countdown timer in bottom-right corner
+ * - Text truncation for long content
+ * - Add fuel button with ignite effect
+ *
+ * Performance:
+ * - Memoized to prevent re-renders when temperature state doesn't change
+ * - Only re-renders if spark.id, spark.content, spark.temperature, or spark.remainingTimeInSeconds changes
+ * @returns Rendered spark card element
+ */
+const SparkCardComponent = ({
+  spark,
+  onAddFuel,
+  hideFuelButton = false,
+}: SparkCardProps) => {
+  const isHot = spark.temperature === "hot";
+  const [showEffect, setShowEffect] = useState(false);
+
+  const shadowClass = isHot ? "shadow-glow-sm" : "shadow-none";
+  // Glassmorphism: soft borders with glow (not hard lines)
+  const borderClass = isHot
+    ? "border border-ember-500/50 ring-1 ring-ember-500/20"
+    : "border border-white/10";
+
+  const handleAddFuel = () => {
+    // Trigger ignite effect
+    setShowEffect(true);
+    // Call parent callback
+    onAddFuel?.(spark.id);
+  };
+
+  // Memoize onComplete to prevent IgniteEffect useEffect from re-firing on every render
+  const handleEffectComplete = useCallback(() => {
+    setShowEffect(false);
+  }, []);
+
+  return (
+    <div
+      className={clsx(
+        // Glassmorphism: translucent background with backdrop blur
+        "rounded-card bg-night-800/40 text-ash-500 p-4 backdrop-blur-md transition-all duration-1000 ease-in-out",
+        shadowClass,
+        borderClass,
+      )}
+      data-testid="spark-item"
+      data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
+    >
+      <p className="font-base line-clamp-3 text-sm leading-relaxed">
+        {spark.content}
+      </p>
+
+      {/* Image Thumbnail */}
+      {spark.imageUrl && <SparkImageThumbnail url={spark.imageUrl} />}
+
+      <div className="mt-2 flex items-center justify-between">
+        {/* Add Fuel Button - hidden for bonfire replies */}
+        {!hideFuelButton && (
+          <button
+            onClick={handleAddFuel}
+            className={clsx(
+              "rounded-button relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all",
+              "border-ember-500/30 bg-ember-500/10 text-ember-500 border",
+              "hover:border-ember-500/50 hover:bg-ember-500/20",
+              "focus:ring-ember-500/50 focus:ring-2 focus:outline-none",
+            )}
+            data-testid="add-fuel-button"
+            aria-label="Add fuel to spark"
+          >
+            <Flame className="h-3.5 w-3.5" />
+            <span>薪をくべる</span>
+            <IgniteEffect
+              trigger={showEffect}
+              onComplete={handleEffectComplete}
+            />
+          </button>
+        )}
+        {/* Spacer when fuel button is hidden */}
+        {hideFuelButton && <div />}
+
+        {/* TTL Timer */}
+        <span
+          className={clsx("font-mono text-xs transition-colors duration-1000")}
+          data-testid="spark-timer"
+        >
+          {formatTime(spark.remainingTimeInSeconds)}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+export const SparkCard = memo(SparkCardComponent);
+import { useState } from "react";
+import clsx from "clsx";
+import placeholderError from "@/assets/placeholder_error.png";
+import { LightboxModal } from "./LightboxModal";
+
+interface SparkImageThumbnailProps {
+  /**
+   * Image URL detected from spark content
+   */
+  url: string;
+}
+
+/**
+ * Spark Image Thumbnail
+ *
+ * Renders a thumbnail of the detected image.
+ * Handles loading errors by showing a fallback asset.
+ * Wraps content in LightboxModal for expansion.
+ * @returns Thumbnail Component
+ */
+export const SparkImageThumbnail = ({ url }: SparkImageThumbnailProps) => {
+  const [hasError, setHasError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // If error, show fallback (non-clickable for lightbox, or maybe clickable? user might want to see full error image?)
+  // Generally fallback indicates broken link, so lightbox might not work.
+  // But let's disable lightbox if error.
+
+  if (hasError) {
+    return (
+      <div className="mt-3 w-full overflow-hidden rounded-md border border-white/10 bg-black/20">
+        <img
+          src={placeholderError}
+          alt="Image load failed"
+          className="h-auto max-h-[300px] w-full object-contain opacity-70"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <LightboxModal src={url}>
+      <div
+        className={clsx(
+          "group relative mt-3 w-full cursor-zoom-in overflow-hidden rounded-md",
+          "border border-white/10 bg-black/20 transition-colors hover:border-white/20",
+          isLoading ? "min-h-[150px] animate-pulse bg-white/5" : "",
+        )}
+      >
+        <img
+          src={url}
+          alt="Spark attachment"
+          className={clsx(
+            "h-auto max-h-[300px] w-full object-contain transition-opacity duration-300",
+            isLoading ? "opacity-0" : "opacity-100",
+          )}
+          referrerPolicy="no-referrer"
+          onLoad={() => {
+            setIsLoading(false);
+          }}
+          onError={() => {
+            setIsLoading(false);
+            setHasError(true);
+          }}
+        />
+      </div>
+    </LightboxModal>
+  );
+};
+/**
+ * Spark Domain Model
+ *
+ * Represents a single spark (種火) - the core unit of all topics in Kvell.
+ */
+
+import type { SparkTemperature } from "@/domain/service/sparkService";
+
+/**
+ * Spark interface
+ */
+export interface Spark {
+  /**
+   * Unique identifier for the spark
+   */
+  id: string;
+
+  /**
+   * Spark content text
+   */
+  content: string;
+
+  /**
+   * ISO timestamp when the spark was created
+   */
+  createdAt: string;
+
+  /**
+   * ISO timestamp when the spark decays (becomes invisible)
+   */
+  decayAt: string;
+
+  /**
+   * Parent bonfire ID if this spark is a reply to a bonfire
+   * Undefined for standalone sparks
+   */
+  parentBonfireId?: string;
+}
+
+/**
+ * Spark ViewModel with computed temperature state and remaining time
+ * Used for UI rendering to avoid recalculation on every render
+ */
+export interface SparkViewModel extends Spark {
+  /**
+   * Computed temperature state ('hot' or 'ash')
+   * Determines visual representation (color, border glow)
+   */
+  temperature: SparkTemperature;
+
+  /**
+   * Remaining time until expiration in seconds
+   * Used for countdown timer display (mm:ss format)
+   */
+  remainingTimeInSeconds: number;
+
+  /**
+   * Optional URL of an image detected in the content
+   * If present, the UI should render a thumbnail
+   */
+  imageUrl?: string | null;
+}
+
+/**
+ * Request payload for posting a new spark
+ */
+export interface PostSparkRequest {
+  /**
+   * Spark content text to post
+   */
+  content: string;
+}
+
+/**
+ * Request payload for adding fuel to a spark
+ */
+export interface AddFuelRequest {
+  /**
+   * Target spark ID to add fuel
+   */
+  sparkId: string;
+}
+/**
+ * Spark Domain Service
+ *
+ * Pure business logic for spark-related calculations.
+ * No dependencies on UI or infrastructure.
+ */
+
+import type { Spark, SparkViewModel } from "@/domain/model/spark";
+import { COOLING_THRESHOLD_RATIO } from "@/domain/constants";
+import { detectSparkImage } from "@/domain/service/sparkUrlService";
+
+/**
+ * Spark temperature types representing heat expression state
+ */
+export type SparkTemperature = "hot" | "ash";
+
+/**
+ * Calculate remaining lifetime in milliseconds
+ * @param decayAt - ISO timestamp when spark decays (becomes invisible)
+ * @returns Remaining time in milliseconds
+ */
+const calculateRemainingTime = (decayAt: string): number => {
+  const now = Date.now();
+  const expirationTime = new Date(decayAt).getTime();
+  return Math.max(0, expirationTime - now);
+};
+
+/**
+ * Calculate remaining lifetime in seconds
+ * @param decayAt - ISO timestamp when spark decays (becomes invisible)
+ * @returns Remaining time in seconds (for countdown timer)
+ */
+export const calculateRemainingTimeInSeconds = (decayAt: string): number => {
+  const remainingMs = calculateRemainingTime(decayAt);
+  return Math.floor(remainingMs / 1000);
+};
+
+/**
+ * Get spark temperature based on remaining lifetime
+ *
+ * Business Rule (derived from BDD specification):
+ * - Hot: Spark has >= 30% of total lifetime remaining (displays as white with ember glow)
+ * - Ash: Spark has < 30% of total lifetime remaining (displays as gray, cooling state)
+ *
+ * The cooling threshold is calculated dynamically based on each spark's total lifetime
+ * (decayAt - createdAt), allowing the system to work correctly regardless of the
+ * configured decay time setting.
+ * @param spark - Spark to evaluate
+ * @returns Temperature state ('hot' or 'ash')
+ */
+export const getSparkTemperature = (spark: Spark): SparkTemperature => {
+  const remainingTime = calculateRemainingTime(spark.decayAt);
+  const totalLifetime =
+    new Date(spark.decayAt).getTime() - new Date(spark.createdAt).getTime();
+  const coolingThreshold = totalLifetime * COOLING_THRESHOLD_RATIO;
+  return remainingTime >= coolingThreshold ? "hot" : "ash";
+};
+
+/**
+ * Compute SparkViewModel from Spark domain model
+ *
+ * Transforms a Spark entity into a view model with computed properties
+ * for UI rendering (temperature state and remaining time).
+ * @param spark - Spark domain model
+ * @returns SparkViewModel with computed temperature and remaining time
+ */
+export const computeSparkViewModel = (spark: Spark): SparkViewModel => {
+  return {
+    ...spark,
+    temperature: getSparkTemperature(spark),
+    remainingTimeInSeconds: calculateRemainingTimeInSeconds(spark.decayAt),
+    imageUrl: detectSparkImage(spark.content),
+  };
+};
+/**
+ * Spark URL Service
+ *
+ * Handles logic for detecting and acting upon URLs within spark content.
+ * Enforces the strict "Allowlist Policy" for image rendering.
+ */
+
+/**
+ * Regex patterns for allowlisted domains and extensions.
+ *
+ * Rules:
+ * 1. Must start with http:// or https://
+ * 2. Must match specific domains OR specific extensions
+ */
+const ALLOWLIST_PATTERNS = [
+  // Official Domains (Sakurazaka, Nogizaka, BokuAo)
+  /^https?:\/\/(?:Basic\.)?sakurazaka46\.com\/.*(?:\.jpg|\.jpeg|\.png|\.gif|\.webp)/i,
+  /^https?:\/\/(?:Basic\.)?nogizaka46\.com\/.*(?:\.jpg|\.jpeg|\.png|\.gif|\.webp)/i,
+  /^https?:\/\/(?:Basic\.)?bokuao\.com\/.*(?:\.jpg|\.jpeg|\.png|\.gif|\.webp)/i,
+
+  // Twitter/X Images (pbs.twimg.com)
+  // Example: https://pbs.twimg.com/media/XXXXX.jpg
+  // Note: Matches URL with or without query params, but strictly checks domain
+  /^https?:\/\/pbs\.twimg\.com\/media\/[a-zA-Z0-9_-]+(?:\?format=[a-z]+|\.[a-z]+)/i,
+
+  // Instagram CDN (cdninstagram.com, fbcdn.net)
+  /^https?:\/\/[a-z0-9-]+\.cdninstagram\.com\/.*(?:\.jpg|\.jpeg|\.png|\.gif|\.webp)/i,
+  /^https?:\/\/[a-z0-9-]+\.fbcdn\.net\/.*(?:\.jpg|\.jpeg|\.png|\.gif|\.webp)/i,
+
+  // General Direct Image Links (Must end with extension, simple check)
+  // REMOVED: Allowlist policy only permits specific domains.
+  // /^https?:\/\/.*\.(?:jpg|jpeg|png|gif|webp)(?:\?.*)?$/i,
+];
+
+// YouTube Video ID Extraction (Special case)
+const YOUTUBE_PATTERNS = [
+  /youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
+  /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+];
+
+/**
+ * Detects if the spark content contains a renderable image URL.
+ * Returns the first matching URL found, or null if none.
+ *
+ * Strategy:
+ * 1. Extract all URL-like strings from content.
+ * 2. Check each URL against the allowlist patterns.
+ * 3. Return the first match.
+ *
+ * @param content - Spark content text
+ * @returns The image URL string or null
+ */
+export const detectSparkImage = (content: string): string | null => {
+  if (!content) return null;
+
+  // 1. naive URL extraction (find strings starting with http/https)
+  // traversing words to find URLs
+  const words = content.split(/\s+/);
+  const urls = words.filter((w) => w.startsWith("http"));
+
+  for (const url of urls) {
+    // Check against all patterns
+    for (const pattern of ALLOWLIST_PATTERNS) {
+      if (pattern.test(url)) {
+        return url;
+      }
+    }
+
+    // Special case: YouTube
+    // If it's a YouTube link, we generate the thumbnail URL
+    for (const ytPattern of YOUTUBE_PATTERNS) {
+      const match = url.match(ytPattern);
+      if (match && match[1]) {
+        return `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg`;
+      }
+    }
+  }
+
+  return null;
+};

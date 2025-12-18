@@ -28,6 +28,8 @@
     "clsx": "^2.1.1",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.23.25",
+    "linkify-react": "^4.3.2",
+    "linkifyjs": "^4.3.2",
     "lucide-react": "^0.555.0",
     "prettier-plugin-tailwindcss": "^0.7.2",
     "react": "^18.3.1",
