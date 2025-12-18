@@ -5,8 +5,15 @@
  * Handles API communication for spark operations using apiClient.
  */
 
-import type { AddFuelRequest, PostSparkRequest, Spark } from "@/domain/model/spark";
-import type { ISparkRepository } from "@/domain/repository/sparkRepository";
+import type {
+  AddFuelRequest,
+  PostSparkRequest,
+  Spark,
+} from "@/domain/model/spark";
+import type {
+  ISparkRepository,
+  PostReplyRequest,
+} from "@/domain/repository/sparkRepository";
 import { apiClient } from "@/adapter/apiClient";
 
 /**
@@ -17,6 +24,7 @@ interface SparkApiResponse {
   content: string;
   created_at: string;
   decay_at: string;
+  parent_bonfire_id?: string;
 }
 
 /**
@@ -35,6 +43,25 @@ class SparkRepositoryImpl implements ISparkRepository {
       content: data.content,
       createdAt: data.created_at,
       decayAt: data.decay_at,
+    };
+  }
+
+  async postReply(request: PostReplyRequest): Promise<Spark> {
+    const data = await apiClient<SparkApiResponse>("/api/sparks", {
+      method: "POST",
+      body: JSON.stringify({
+        content: request.content,
+        parent_bonfire_id: request.parentBonfireId,
+      }),
+    });
+
+    // Transform snake_case API response to camelCase domain model
+    return {
+      id: data.id,
+      content: data.content,
+      createdAt: data.created_at,
+      decayAt: data.decay_at,
+      parentBonfireId: data.parent_bonfire_id,
     };
   }
 

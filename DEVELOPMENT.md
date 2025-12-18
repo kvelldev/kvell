@@ -16,7 +16,7 @@ FastAPI
 
 PBIを取得
 ```shell
-gh issue view 15 --json title,body,url > PBI.json
+gh issue view 11 --json title,body,url > PBI.json
 ```
 
 diffを取得
@@ -26,7 +26,7 @@ git diff ${対象ディレクトリ} > diff.txt
 
 変更されたファイルの中身をすべて取得
 ```shell
-{ git diff HEAD --name-only --diff-filter=d infra/ ; git ls-files --others --exclude-standard apps/web/src; } | sort | uniq | xargs -I{} cat "{}" > diff.txt
+{ git diff HEAD --name-only --diff-filter=d apps/web/src ; git ls-files --others --exclude-standard apps/web/src; } | sort | uniq | xargs -I{} cat "{}" > diff.txt
 ```
 
 対象ディレクトリの実装ファイルをすべて取得

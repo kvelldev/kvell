@@ -30,6 +30,10 @@ class Spark(BaseModel):
         default=SparkLevel.SPARK,
         description="Current promotion level",
     )
+    parent_bonfire_id: str | None = Field(
+        default=None,
+        description="Parent bonfire ID if this is a reply, None for root sparks",
+    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         description="Creation timestamp (UTC)",
@@ -50,6 +54,8 @@ class Spark(BaseModel):
         user_hash: str,
         decay_after_seconds: int,
         vanish_after_days: int,
+        parent_bonfire_id: str | None = None,
+        decay_at: datetime | None = None,
     ) -> "Spark":
         """Create a new Spark entity with calculated timestamps.
 
@@ -59,6 +65,8 @@ class Spark(BaseModel):
             user_hash: Anonymized user identifier
             decay_after_seconds: Duration in seconds until spark decays
             vanish_after_days: Days until spark vanishes (physical deletion)
+            parent_bonfire_id: Parent bonfire ID if this is a reply
+            decay_at: Explicit decay_at (used for replies to inherit from bonfire)
 
         Returns:
             New Spark instance
@@ -70,7 +78,8 @@ class Spark(BaseModel):
             content=content,
             user_hash=user_hash,
             fuel_count=0,
+            parent_bonfire_id=parent_bonfire_id,
             created_at=now,
-            decay_at=now + timedelta(seconds=decay_after_seconds),
+            decay_at=decay_at if decay_at else now + timedelta(seconds=decay_after_seconds),
             vanish_at=now + timedelta(days=vanish_after_days),
         )

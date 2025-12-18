@@ -24,7 +24,7 @@ import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
 import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
 import { SparkPostModal } from "@/components/organisms/SparkPostModal";
 import { BonfireCarousel } from "@/components/organisms/BonfireCarousel";
-import { BonfireDetailOverlay } from "@/components/pages/BonfireDetailOverlay";
+import { BonfireDetailPage } from "@/components/pages/BonfireDetailPage";
 import { useLogger } from "@/components/useLogger";
 import { settings } from "@/adapter/infra/settings";
 import { LOG_EVENTS } from "@/domain/constants";
@@ -155,7 +155,7 @@ export const TimelinePage = () => {
         error={error}
       />
 
-      <BonfireDetailOverlay
+      <BonfireDetailPage
         bonfire={selectedBonfire}
         isOpen={selectedBonfire !== null}
         onClose={handleBonfireClose}

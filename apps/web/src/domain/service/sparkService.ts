@@ -5,7 +5,7 @@
  * No dependencies on UI or infrastructure.
  */
 
-import type { Spark } from "@/domain/model/spark";
+import type { Spark, SparkViewModel } from "@/domain/model/spark";
 import { COOLING_THRESHOLD_RATIO } from "@/domain/constants";
 
 /**
@@ -53,4 +53,20 @@ export const getSparkTemperature = (spark: Spark): SparkTemperature => {
     new Date(spark.decayAt).getTime() - new Date(spark.createdAt).getTime();
   const coolingThreshold = totalLifetime * COOLING_THRESHOLD_RATIO;
   return remainingTime >= coolingThreshold ? "hot" : "ash";
+};
+
+/**
+ * Compute SparkViewModel from Spark domain model
+ *
+ * Transforms a Spark entity into a view model with computed properties
+ * for UI rendering (temperature state and remaining time).
+ * @param spark - Spark domain model
+ * @returns SparkViewModel with computed temperature and remaining time
+ */
+export const computeSparkViewModel = (spark: Spark): SparkViewModel => {
+  return {
+    ...spark,
+    temperature: getSparkTemperature(spark),
+    remainingTimeInSeconds: calculateRemainingTimeInSeconds(spark.decayAt),
+  };
 };

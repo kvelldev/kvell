@@ -46,3 +46,18 @@ class IPubSubGateway(ABC):
         if False:  # pragma: no cover
             yield  # type: ignore[misc,unreachable]
         raise NotImplementedError
+
+    @abstractmethod
+    async def subscribe_raw(self, channel: str) -> AsyncIterator[PubSubMessage]:
+        """Subscribe to a channel and yield raw messages as they arrive.
+
+        Args:
+            channel: The channel name to subscribe to
+
+        Yields:
+            Raw dict messages from the channel
+
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError

@@ -29,6 +29,12 @@ export interface Spark {
    * ISO timestamp when the spark decays (becomes invisible)
    */
   decayAt: string;
+
+  /**
+   * Parent bonfire ID if this spark is a reply to a bonfire
+   * Undefined for standalone sparks
+   */
+  parentBonfireId?: string;
 }
 
 /**
