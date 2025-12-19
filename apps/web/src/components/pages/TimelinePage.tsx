@@ -137,7 +137,7 @@ export const TimelinePage = () => {
           setIsModalOpen(true);
         }}
         icon={<Flame size={24} />}
-        label="種火を投げる"
+        label="種火をともす"
         testId="spark-post-fab"
       />
 

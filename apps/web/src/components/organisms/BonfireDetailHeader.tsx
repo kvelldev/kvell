@@ -6,39 +6,20 @@
  * Props-driven, no business logic.
  */
 
-import { useState } from "react";
+import { X, Flame, Share2 } from "lucide-react";
 import clsx from "clsx";
 import Linkify from "linkify-react";
-import { motion } from "framer-motion";
-import { X, Flame, Share2 } from "lucide-react";
 import type { BonfireViewModel } from "@/domain/model/bonfire";
-import defaultImage from "@/assets/bonfire_default.png";
+import { BonfireHeroImage } from "@/components/molecules/BonfireHeroImage";
 
-interface BonfireDetailHeaderProps {
-  /**
-   * The bonfire data to display
-   */
+/**
+ * Props for BonfireDetailHeader
+ */
+export interface BonfireDetailHeaderProps {
   bonfire: BonfireViewModel;
-
-  /**
-   * Whether the bonfire has decayed (鎮火)
-   * When true, action buttons are disabled
-   */
   isDecayed: boolean;
-
-  /**
-   * Callback when close button is clicked
-   */
   onClose: () => void;
-
-  /**
-   * Callback when add fuel button is clicked
-   */
   onAddFuel: () => void;
-
-  /**
-   * Callback when share button is clicked
-   */
   onShare: () => void;
 }
 
@@ -49,44 +30,20 @@ export const BonfireDetailHeader = ({
   onAddFuel,
   onShare,
 }: BonfireDetailHeaderProps) => {
-  const hasCustomImage = !!bonfire.imageUrl?.primaryUrl;
-  const imageUrl = bonfire.imageUrl?.primaryUrl;
-  const [imgError, setImgError] = useState(false);
+  // Determine what to show: Custom Image or Default
+  // const showCustomImage = !!currentSrc && !hasError; // Moved to BonfireHeroImage
 
   return (
     <div className="relative h-64 w-full shrink-0 md:h-80">
       {/* Background Image with layoutId for Hero Animation */}
-      <motion.div
-        className="absolute inset-0 overflow-hidden bg-black/40"
-        layoutId={`bonfire-image-${bonfire.id}`}
-      >
-        {hasCustomImage && !imgError ? (
-          <>
-            {/* Background: Blur & Cover */}
-            <img
-              src={imageUrl}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover opacity-50 blur"
-            />
-            {/* Foreground: Contain & Clear */}
-            <img
-              src={imageUrl}
-              alt="Bonfire"
-              className="relative h-full w-full object-contain"
-              onError={() => setImgError(true)}
-            />
-          </>
-        ) : (
-          <img
-            src={defaultImage}
-            alt="Bonfire"
-            className="h-full w-full object-cover"
-          />
-        )}
-      </motion.div>
+      <BonfireHeroImage
+        bonfireId={bonfire.id}
+        image={bonfire.imageUrl ?? undefined}
+        key={bonfire.imageUrl?.primaryUrl} // Reset state when URL changes
+      />
 
       {/* Gradient Overlay - top 70% to bottom 95% transparency */}
-      <div className="from-night-900 via-night-900/50 absolute inset-0 bg-linear-to-t to-transparent" />
+      <div className="from-night-900 via-night-900/50 pointer-events-none absolute inset-0 bg-linear-to-t to-transparent" />
 
       {/* Close Button */}
       <button

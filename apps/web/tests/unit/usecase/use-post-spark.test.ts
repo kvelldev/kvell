@@ -39,6 +39,7 @@ describe("usePostSpark", () => {
     const mockSpark: Spark = {
       id: "spark-123",
       content: "Test spark content",
+      userHash: "abc12345",
       createdAt: now.toISOString(),
       decayAt: visibleUntil.toISOString(),
     };
@@ -126,6 +127,7 @@ describe("usePostSpark", () => {
     const mockSpark: Spark = {
       id: "spark-456",
       content: "Test content",
+      userHash: "def67890",
       createdAt: now.toISOString(),
       decayAt: visibleUntil.toISOString(),
     };

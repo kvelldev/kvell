@@ -203,7 +203,7 @@ Given('ユーザーAの現在の {string} がある値である', async ({}, ide
  * When: User actions
  */
 When('{string}を実行する', async ({ page }, action: string) => {
-  if (action === "種火を投げる") {
+  if (action === "種火をともす") {
     const submitButton = page.getByTestId("spark-submit-button");
 
     // Check if button is enabled before attempting to click
@@ -307,7 +307,7 @@ Then('文字数カウントが超過を示す警告色で表示される', async
 });
 
 Then('{string} ボタンが無効化されている', async ({ page }, buttonText: string) => {
-  if (buttonText === "種火を投げる") {
+  if (buttonText === "種火をともす") {
     const submitButton = page.getByTestId("spark-submit-button");
     await expect(submitButton).toBeDisabled();
   }

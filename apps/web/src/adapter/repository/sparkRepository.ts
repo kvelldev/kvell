@@ -22,6 +22,7 @@ import { apiClient } from "@/adapter/apiClient";
 interface SparkApiResponse {
   id: string;
   content: string;
+  user_hash: string;
   created_at: string;
   decay_at: string;
   parent_bonfire_id?: string;
@@ -41,6 +42,7 @@ class SparkRepositoryImpl implements ISparkRepository {
     return {
       id: data.id,
       content: data.content,
+      userHash: data.user_hash,
       createdAt: data.created_at,
       decayAt: data.decay_at,
     };
@@ -59,6 +61,7 @@ class SparkRepositoryImpl implements ISparkRepository {
     return {
       id: data.id,
       content: data.content,
+      userHash: data.user_hash,
       createdAt: data.created_at,
       decayAt: data.decay_at,
       parentBonfireId: data.parent_bonfire_id,

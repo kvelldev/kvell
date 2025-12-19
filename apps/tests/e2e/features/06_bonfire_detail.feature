@@ -4,10 +4,10 @@ Feature: 焚き火詳細ビューとレス機能 (Bonfire Detail & Response)
     So that メインTLのノイズから離れ、好きな話題で盛り上がることができる
 
     Background: System Configuration
-        Given システムの "文字数制限" は "500文字" に設定されている
+        Given システムの "画像読み込み許可ドメインリスト" が用意されている
         And 焚き火:"bonbonfire-001"が存在している
 
-    Rule: 遷移と表示 (Navigation & Display)
+    Rule: 遷移と表示
         Example: 焚き火詳細への遷移
             Given ユーザーはメインタイムラインを表示している
             When ユーザーが "bonfire-001" のカードをタップする
@@ -16,6 +16,43 @@ Feature: 焚き火詳細ビューとレス機能 (Bonfire Detail & Response)
             And "bonfire-001" に紐づくレス一覧が "古い順 (Oldest First)" で表示される
             And レスタイムラインは最も古いものの位置にスクロールされている
         # wsのRoom参加は裏側の挙動なのでGherkinには書かないが、実装時には必須
+
+    Rule: ヘッダー画像の表示
+        Background:
+            Given ユーザーは"bonfire-001" の詳細ビューを表示している
+
+        Example: 正常な画像のレンダリング（演出付き）
+            Given "bonfire-001" に画像URLが含まれている
+            And URLは"画像読み込み許可ドメインリスト"とマッチする
+            And そのURLの画像ロードに "成功" した
+            When ヘッダーが表示される
+            Then 画像はヘッダー領域の中央に "アスペクト比を維持" して表示される
+            And 背景には "メイン画像を加工した演出背景" が表示される
+            And 文字要素の可読性のために "オーバーレイ" が表示される
+            # Lightboxは共通仕様
+            And ヘッダー画像をタップすると、Spark画像と同様の "Lightboxモーダル" が起動する
+
+        Example: 画像なしの場合
+            Given "bonfire-001" に画像URLが含まれていない、またはURLは"画像読み込み許可ドメインリスト"とマッチしない
+            When ヘッダーが表示される
+            Then ヘッダー背景には "デフォルトの焚き火画像" が表示される
+            And ブラー処理やLightbox機能は無効化される
+
+
+        Example: 画像読み込み失敗の場合
+            # 世界観を壊さないため、エラーアイコンではなくデフォルト画像を使用する
+            Given "bonfire-001" に画像URLが含まれている
+            And URLは"画像読み込み許可ドメインリスト"とマッチする
+            But そのURLの画像ロードに "失敗" した
+            When ヘッダーが表示される
+            Then ヘッダー背景には "デフォルトの焚き火画像" が表示される
+            And ブラー処理やLightbox機能は無効化される
+
+    Rule: ヘッダーURLの表示
+        Example: URLのレンダリング
+            Given "bonfire-001" にURLが含まれている
+            When ヘッダーが表示される
+            Then URLはsparkと同様の仕様で表示される
 
     Rule: シェア機能 (Sharing)
         Example: 外部SNSへの拡散
@@ -60,7 +97,7 @@ Feature: 焚き火詳細ビューとレス機能 (Bonfire Detail & Response)
             Given ユーザーは "bonfire-001" の詳細ビューを表示している
 
         Example: 焚き火へのレス
-            When ユーザーがFABをタップし、"文字数制限" 以内のテキストを入力して投稿する
+            When ユーザーがFABをタップし、テキストを入力して投稿する
             Then 入力画面が閉じられる
             And 詳細ビューの最下部に自分の投稿が追加される
             And 追加された投稿には "薪くべボタン" は表示されない

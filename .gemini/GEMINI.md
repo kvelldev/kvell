@@ -2,6 +2,7 @@
 # instruction to Agentic AI
 
 ultrathink.
+思考は英語で構いませんが、ユーザーへの報告等は日本語でお願いします。
 
 ## Context
 

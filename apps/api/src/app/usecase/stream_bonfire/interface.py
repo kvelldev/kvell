@@ -48,6 +48,7 @@ class RawSparkMessage(BaseModel):
     type: Literal["spark"] = "spark"
     id: str
     content: str
+    user_hash: str
     parent_bonfire_id: str | None = None
     created_at: datetime
     decay_at: datetime

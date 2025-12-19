@@ -12,6 +12,7 @@ const spark: SparkViewModel = {
   id: "mock-spark-001",
   content:
     "ここに投稿内容が入ります。これは24時間で消えるSparkのテスト投稿です。",
+  userHash: "a1b2c3d4",
   createdAt: createdAt.toISOString(),
   decayAt: decayAt.toISOString(),
   temperature: "ash",

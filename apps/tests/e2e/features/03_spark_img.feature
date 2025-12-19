@@ -3,28 +3,28 @@ Feature: 画像の表示
     表示不能な場合でもUIの整合性を保つための「読み込み失敗画像」を表示する。
 
     Background: システム設定
-        Given システムの "許可ドメインリスト" は "Official, Twitter(Img), Insta(CDN)" を含む
+        Given システムの "画像読み込み許可ドメインリスト" が用意されている
         And システムには "読み込み失敗時の代替画像 (placeholder_error.png)" がアセットとして用意されている
-        And 画像表示の "最大高さ" は "300px" (object-fit: contain) である
+        And 画像表示の "最大高さ" は "200px" である
 
     # サムネ
-    Rule: 柔軟な画像URL検出 (Smart Regex)
-        単純な拡張子判定だけでなく、クエリパラメータやCDN特有の形式を含むURLも画像として認識する。
-
-        Example: クエリパラメータ付きの画像URL (Twitter等)
+    Rule: URLの画像レンダリング
+        Example: 許可ドメイン
             Given ユーザーは "https://pbs.twimg.com/media/E4jX...?format=jpg&name=large" という種火を入力した
+            And そのURLは"画像読み込み許可ドメインリスト"とマッチする
             When その種火が表示される
             Then URLは画像として認識され、サムネイルが展開される
-            And URLテキスト自体も表示される
-            And imgタグのsrcは入力されたURLそのものである
+            And URLテキスト自体もリンクとして表示される
+            And URLが"30文字"以上の場合、省略表示される
         # NOTE: "referrerPolicy='no-referrer'"を使用する
+        # IMPORTANT: 同一性保持権を侵害しないため、画像のトリミングは行わない (object-fit: containを使用する)
 
-        Example: 標準的な拡張子の画像URL
-            Given ユーザーは "http://sakurazaka46.com/blog/photo.JPG" という種火を入力した
+        Example: その他のドメイン
+            Given ユーザーは "https://not-allowed-domain.com/media/xxx.JPG" という種火を入力した
+            And そのURLは"画像読み込み許可ドメインリスト"とマッチしない
             When その種火が表示される
-            Then URLは画像として認識され、サムネイルが展開される
-            And URLテキスト自体も表示される
-        # 大文字小文字 (JPG/jpg) は区別しない
+            Then URLテキストはリンクとして表示される
+            But 画像はレンダリングされない
 
     Rule: エラー時の代替画像表示 (Visual Fallback)
         画像のリンク切れやアクセス拒否 (403/404) が発生した場合、テキストリンクに戻すのではなく、
@@ -32,18 +32,16 @@ Feature: 画像の表示
 
         Example: 画像ロードエラー発生時
             Given タイムラインに "https://broken-link.com/image.png" のサムネイル枠が表示された
-            When ブラウザが画像の読み込みに失敗する (onErrorイベント発生)
+            When ブラウザが画像の読み込みに失敗する(リンク切れ等)
             Then 表示されている画像が "読み込み失敗時の代替画像" に差し替わる
-            And URLテキスト自体も表示される
+            And URLテキスト自体はリンクとして表示される
 
-    Rule: ライトボックスと表示崩れ防止
+    Rule: 表示崩れ防止
         成功・失敗に関わらず、レイアウト（高さ制限）と拡大機能は維持される。
 
         Example: 代替画像の表示レイアウト
             Given 画像の読み込みに失敗し、代替画像が表示されている
-            Then 代替画像も "最大高さ (300px)" の制約を守って表示される
-            And トリミングは行われず、object-fit: contain で表示される
-        # IMPORTANT: 同一性保持権を侵害しないため、画像のトリミングは行わない
+            Then 代替画像も "最大高さ" の制約を守って表示される
 
 
         # 拡大

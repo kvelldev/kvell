@@ -165,10 +165,11 @@ class PostSparkInteractor(IPostSparkUseCase):
         # Save to repository
         saved_spark = await self.spark_repository.save(spark)
 
-        # Map to output DTO
+        # Map to output DTO (user_hash is truncated to 8 characters for display)
         spark_output = SparkOutput(
             id=saved_spark.id,
             content=saved_spark.content,
+            user_hash=saved_spark.user_hash[:8],
             parent_bonfire_id=saved_spark.parent_bonfire_id,
             created_at=saved_spark.created_at,
             decay_at=saved_spark.decay_at,

@@ -92,6 +92,7 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
                 yield SparkOutput(
                     id=spark.id,
                     content=spark.content,
+                    user_hash=spark.user_hash[:8],
                     created_at=spark.created_at,
                     decay_at=spark.decay_at,
                 )

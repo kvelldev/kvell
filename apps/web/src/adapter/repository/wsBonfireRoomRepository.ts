@@ -20,6 +20,7 @@ interface SparkWebSocketMessage {
   type: "spark";
   id: string;
   content: string;
+  user_hash: string;
   created_at: string;
   decay_at: string;
   parent_bonfire_id?: string;
@@ -68,6 +69,7 @@ class WsBonfireRoomRepositoryImpl implements IBonfireRoomRepository {
           const spark: Spark = {
             id: rawData.id,
             content: rawData.content,
+            userHash: rawData.user_hash,
             createdAt: rawData.created_at,
             decayAt: rawData.decay_at,
             parentBonfireId: rawData.parent_bonfire_id,

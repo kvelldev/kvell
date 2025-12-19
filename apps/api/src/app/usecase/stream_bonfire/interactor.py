@@ -117,6 +117,7 @@ class StreamBonfireInteractor(IStreamBonfireUseCase):
             yield SparkOutput(
                 id=spark.id,
                 content=spark.content,
+                user_hash=spark.user_hash[:8],
                 parent_bonfire_id=spark.parent_bonfire_id,
                 created_at=spark.created_at,
                 decay_at=spark.decay_at,
@@ -177,6 +178,7 @@ class StreamBonfireInteractor(IStreamBonfireUseCase):
             return SparkOutput(
                 id=parsed.id,
                 content=parsed.content,
+                user_hash=parsed.user_hash,
                 parent_bonfire_id=parsed.parent_bonfire_id,
                 created_at=parsed.created_at,
                 decay_at=parsed.decay_at,

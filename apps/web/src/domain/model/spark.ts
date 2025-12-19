@@ -21,6 +21,12 @@ export interface Spark {
   content: string;
 
   /**
+   * Anonymized user identifier (first 8 characters of hash)
+   * Rotates daily for privacy
+   */
+  userHash: string;
+
+  /**
    * ISO timestamp when the spark was created
    */
   createdAt: string;

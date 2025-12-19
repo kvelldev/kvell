@@ -25,7 +25,7 @@ interface SparkPostModalProps {
   error?: Error | null;
   /**
    * Custom label for the submit button
-   * @default "種火を投げる"
+   * @default "種火をともす"
    */
   submitLabel?: string;
 }
@@ -39,7 +39,7 @@ export const SparkPostModal = ({
   isPosting,
   maxLength,
   error,
-  submitLabel = "種火を投げる",
+  submitLabel = "種火をともす",
 }: SparkPostModalProps) => {
   const trimmedContent = content.trim();
   const isEmpty = trimmedContent.length === 0;

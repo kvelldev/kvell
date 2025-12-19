@@ -3,14 +3,6 @@ import clsx from "clsx";
 import placeholderError from "@/assets/placeholder_error.png";
 import { LightboxModal } from "./LightboxModal";
 
-// Interface removed, using inline for simplicity or define new one
-// But for now, since I replaced the component body, I just need to remove the old interface if it became unused or redefine it.
-// The previous replace replaced the component definition.
-// I need to check where the interface was.
-// It was lines 6-11.
-// I'll leave it for now or delete it if I can targeting it.
-// Actually, I can just update the props in usage in SparkCard.
-
 /**
  * Spark Image Thumbnail
  *
@@ -27,18 +19,6 @@ export const SparkImageThumbnail = ({
   const [currentSrc, setCurrentSrc] = useState(image.primaryUrl);
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-
-  // If the image prop changes, reset state
-  if (
-    currentSrc !== image.primaryUrl &&
-    currentSrc !== image.fallbackUrl &&
-    !hasError
-  ) {
-    // This simplistic check might be buggy if parent re-renders passing new object reference check
-    // Better to use useEffect or key
-  }
-  // Actually, using a key on the component in parent is safer if URL changes.
-  // OR use useEffect to sync.
 
   if (hasError) {
     return (

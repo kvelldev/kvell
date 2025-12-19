@@ -14,6 +14,7 @@ import type { ITimelineRepository } from "@/domain/repository/timelineRepository
 interface SparkWebSocketMessage {
   id: string;
   content: string;
+  user_hash: string;
   created_at: string;
   decay_at: string;
 }
@@ -47,6 +48,7 @@ class WsTimelineRepositoryImpl implements ITimelineRepository {
         const spark: Spark = {
           id: rawData.id,
           content: rawData.content,
+          userHash: rawData.user_hash,
           createdAt: rawData.created_at,
           decayAt: rawData.decay_at,
         };

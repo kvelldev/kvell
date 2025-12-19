@@ -126,8 +126,14 @@ const SparkCardComponent = ({
         )}
         {/* Spacer when fuel button is hidden */}
         {hideFuelButton && <div />}
-
-        {/* TTL Timer */}
+        {/* User Hash */}
+        <span
+          className="text-ash-400 mb-1 block font-mono text-xs"
+          data-testid="spark-user-hash"
+        >
+          @{spark.userHash}
+        </span>
+        TTL Timer
         <span
           className={clsx("font-mono text-xs transition-colors duration-1000")}
           data-testid="spark-timer"

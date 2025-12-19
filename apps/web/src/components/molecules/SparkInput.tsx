@@ -41,7 +41,7 @@ export const SparkInput = ({
         onChange={(e) => {
           onChange(e.target.value);
         }}
-        placeholder="夜空に種火を投げる..."
+        placeholder="種火をともす..."
         disabled={disabled}
         data-testid={testId}
         className="caret-ember-500 text-smoke-100 placeholder:text-ash-500 min-h-[240px] border-none bg-transparent focus:ring-0 focus:outline-none"

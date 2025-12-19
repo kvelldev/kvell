@@ -43,10 +43,10 @@ export const TimelineStream = ({ sparks, onAddFuel }: TimelineStreamProps) => {
         data-testid="timeline-stream"
       >
         <p
-          className="font-base text-sm text-ash-500"
+          className="font-base text-ash-500 text-sm"
           data-testid="timeline-empty-state"
         >
-          静かな夜空です。
+          静かな夜です。
         </p>
       </div>
     );
@@ -61,7 +61,7 @@ export const TimelineStream = ({ sparks, onAddFuel }: TimelineStreamProps) => {
         followOutput="smooth"
         computeItemKey={(_, spark) => spark.id}
         itemContent={(_index, spark) => (
-          <div className="pb-4 pr-2">
+          <div className="pr-2 pb-4">
             <SparkCard spark={spark} onAddFuel={onAddFuel} />
           </div>
         )}

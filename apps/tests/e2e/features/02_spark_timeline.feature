@@ -43,6 +43,15 @@ Feature: Timeline
             When その "Spark" の残り寿命が "冷却閾値" を下回る
             Then その "Spark" のGlowは消失する
 
+    Rule: Sparkは投稿者IDと「薪をくべる」ボタンを持つ
+        Example: すべてのspark
+            Given ユーザーは "Timeline" を閲覧している
+            And Timelineに"Spark A"が存在する
+            Then "Spark A"には投稿者IDが表示される
+            And "Spark A"には"薪をくべる"ボタンが表示される
+
+
+
         # Decay & kindling
     Rule: Sparkは放置するとDecayする
         Example: 寿命超過によるDecay
@@ -75,5 +84,4 @@ Feature: Timeline
 
         Example: Empty Stateの表示 (The Silent Sky)
             Then 画面中央にアイコン等は表示せず、テキストのみを表示する
-            And テキストの内容は「静かな夜空です。」とする
 

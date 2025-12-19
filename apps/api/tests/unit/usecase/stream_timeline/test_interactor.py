@@ -86,12 +86,14 @@ class TestStreamTimelineInteractor:
             SparkOutput(
                 id="stream-1",
                 content="Stream spark 1",
+                user_hash="abc12345",
                 created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
                 decay_at=datetime(2025, 1, 1, 0, 10, 0, tzinfo=UTC),
             ),
             SparkOutput(
                 id="stream-2",
                 content="Stream spark 2",
+                user_hash="def67890",
                 created_at=datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC),
                 decay_at=datetime(2025, 1, 1, 0, 11, 0, tzinfo=UTC),
             ),
@@ -148,6 +150,7 @@ class TestStreamTimelineInteractor:
             SparkOutput(
                 id="stream-1",
                 content="Stream spark 1",
+                user_hash="stream01",
                 created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
                 decay_at=datetime(2025, 1, 1, 0, 10, 0, tzinfo=UTC),
             ),

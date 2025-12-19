@@ -27,6 +27,9 @@ class SparkOutput(BaseModel):
 
     id: str = Field(..., description="Spark ID")
     content: str = Field(..., description="Spark content")
+    user_hash: str = Field(
+        ..., description="Anonymized user identifier (first 8 characters)"
+    )
     parent_bonfire_id: str | None = Field(
         default=None,
         description="Parent bonfire ID if this is a reply",
