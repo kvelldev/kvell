@@ -165,9 +165,10 @@ async def websocket_timeline(
 
     try:
         # Stream timeline updates (Snapshot + Stream)
-        async for spark_output in usecase.execute():
-            # Send spark as JSON to client
-            await websocket.send_json(spark_output.model_dump())
+        async for timeline_event in usecase.execute():
+            # Send event as JSON to client
+            # model_dump(mode='json') ensures datetime serialization uses string format
+            await websocket.send_json(timeline_event.model_dump(mode="json"))
 
     except WebSocketDisconnect:
         logger.info(

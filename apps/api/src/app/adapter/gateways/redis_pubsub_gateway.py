@@ -70,25 +70,29 @@ class RedisPubSubGateway(IPubSubGateway):
             )
             raise
 
-    async def subscribe(self, channel: str) -> AsyncIterator[SparkOutput]:
+    async def subscribe(
+        self,
+        channel: str | list[str],
+    ) -> AsyncIterator[SparkOutput]:
         """Subscribe to a channel and yield messages as they arrive.
 
         Args:
-            channel: The channel name to subscribe to
+            channel: The channel name(s) to subscribe to
 
         Yields:
             SparkOutput messages from the channel
 
         """
         pubsub = self.redis.pubsub()  # type: ignore[misc]
+        channels = [channel] if isinstance(channel, str) else channel
 
         try:
-            await pubsub.subscribe(channel)  # type: ignore[misc]
+            await pubsub.subscribe(*channels)  # type: ignore[misc]
 
             self.logger.info(
                 LOG_EVENTS.PUBSUB_SUBSCRIBE_SUCCESS,
-                "Subscribed to Redis channel",
-                context={"channel": channel},
+                "Subscribed to Redis channel(s)",
+                context={"channels": channels},
             )
 
             # Iterate over messages from the channel
@@ -110,7 +114,9 @@ class RedisPubSubGateway(IPubSubGateway):
                         LOG_EVENTS.PUBSUB_MESSAGE_RECEIVED,
                         "Received message from Redis channel",
                         context={
-                            "channel": channel,
+                            "channel": message["channel"].decode("utf-8")
+                            if isinstance(message["channel"], bytes)
+                            else message["channel"],
                             "spark_id": spark_output.id,
                         },
                     )
@@ -123,7 +129,7 @@ class RedisPubSubGateway(IPubSubGateway):
                         "Failed to deserialize message from Redis channel",
                         error=e,
                         context={
-                            "channel": channel,
+                            "channel": message.get("channel"),
                             "raw_data": str(message.get("data", "")),  # type: ignore[call-overload]
                         },
                     )
@@ -135,40 +141,45 @@ class RedisPubSubGateway(IPubSubGateway):
                 LOG_EVENTS.PUBSUB_SUBSCRIBE_ERROR,
                 "Error during Redis subscription",
                 error=e,
-                context={"channel": channel},
+                context={"channels": channels},
             )
+            # Re-raise to let caller handle connection issues
             raise
 
         finally:
             # Clean up subscription
-            await pubsub.unsubscribe(channel)  # type: ignore[misc]
+            await pubsub.unsubscribe()  # type: ignore[misc]
             await pubsub.aclose()
 
             self.logger.info(
                 LOG_EVENTS.PUBSUB_UNSUBSCRIBE_SUCCESS,
-                "Unsubscribed from Redis channel",
-                context={"channel": channel},
+                "Unsubscribed from Redis channel(s)",
+                context={"channels": channels},
             )
 
-    async def subscribe_raw(self, channel: str) -> AsyncIterator[PubSubMessage]:
+    async def subscribe_raw(
+        self,
+        channel: str | list[str],
+    ) -> AsyncIterator[PubSubMessage]:
         """Subscribe to a channel and yield raw messages as they arrive.
 
         Args:
-            channel: The channel name to subscribe to
+            channel: The channel name(s) to subscribe to
 
         Yields:
             Raw dict messages from the channel
 
         """
         pubsub = self.redis.pubsub()  # type: ignore[misc]
+        channels = [channel] if isinstance(channel, str) else channel
 
         try:
-            await pubsub.subscribe(channel)  # type: ignore[misc]
+            await pubsub.subscribe(*channels)  # type: ignore[misc]
 
             self.logger.info(
                 LOG_EVENTS.PUBSUB_SUBSCRIBE_SUCCESS,
                 "Subscribed to Redis channel (raw)",
-                context={"channel": channel},
+                context={"channels": channels},
             )
 
             # Iterate over messages from the channel
@@ -189,7 +200,9 @@ class RedisPubSubGateway(IPubSubGateway):
                         LOG_EVENTS.PUBSUB_MESSAGE_RECEIVED,
                         "Received raw message from Redis channel",
                         context={
-                            "channel": channel,
+                            "channel": message["channel"].decode("utf-8")
+                            if isinstance(message["channel"], bytes)
+                            else message["channel"],
                             "message_type": raw_dict.get("type", "unknown"),
                         },
                     )
@@ -202,7 +215,7 @@ class RedisPubSubGateway(IPubSubGateway):
                         "Failed to deserialize raw message from Redis channel",
                         error=e,
                         context={
-                            "channel": channel,
+                            "channel": message.get("channel"),
                             "raw_data": str(message.get("data", "")),  # type: ignore[call-overload]
                         },
                     )
@@ -214,17 +227,17 @@ class RedisPubSubGateway(IPubSubGateway):
                 LOG_EVENTS.PUBSUB_SUBSCRIBE_ERROR,
                 "Error during Redis raw subscription",
                 error=e,
-                context={"channel": channel},
+                context={"channels": channels},
             )
             raise
 
         finally:
             # Clean up subscription
-            await pubsub.unsubscribe(channel)  # type: ignore[misc]
+            await pubsub.unsubscribe()  # type: ignore[misc]
             await pubsub.aclose()
 
             self.logger.info(
                 LOG_EVENTS.PUBSUB_UNSUBSCRIBE_SUCCESS,
                 "Unsubscribed from Redis channel (raw)",
-                context={"channel": channel},
+                context={"channels": channels},
             )

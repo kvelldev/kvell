@@ -5,19 +5,22 @@
  * Manages WebSocket connection lifecycle and spark streaming.
  */
 
-import type { Spark } from "@/domain/model/spark";
+import type { TimelineEvent } from "@/domain/model/timelineEvent";
 
 /**
  * Timeline Repository Interface
  *
- * Provides real-time streaming of sparks via WebSocket connection.
+ * Provides real-time streaming of timeline events via WebSocket connection.
  */
 export interface ITimelineRepository {
   /**
-   * Establish WebSocket connection and start receiving spark messages.
-   * @param onMessage - Callback invoked when a new spark is received
+   * Establish WebSocket connection and start receiving timeline events.
+   * @param onMessage - Callback invoked when a new event is received
    * @param onError - Callback invoked when connection fails or closes unexpectedly
    * @returns Cleanup function to disconnect and close the WebSocket
    */
-  connect(onMessage: (spark: Spark) => void, onError: () => void): () => void;
+  connect(
+    onMessage: (event: TimelineEvent) => void,
+    onError: () => void,
+  ): () => void;
 }

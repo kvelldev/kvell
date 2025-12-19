@@ -7,6 +7,12 @@
 import type { SparkTemperature } from "@/domain/service/sparkService";
 
 /**
+ * Spark Level Enum
+ * Matches backend SparkLevel
+ */
+export type SparkLevel = "spark" | "kindling" | "bonfire";
+
+/**
  * Spark interface
  */
 export interface Spark {

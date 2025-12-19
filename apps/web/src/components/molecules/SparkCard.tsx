@@ -133,7 +133,7 @@ const SparkCardComponent = ({
         >
           @{spark.userHash}
         </span>
-        TTL Timer
+        {/* TTL Timer */}
         <span
           className={clsx("font-mono text-xs transition-colors duration-1000")}
           data-testid="spark-timer"

@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from app.domain.constants import LOG_EVENTS
 from app.domain.repository.spark_repository import ISparkRepository
 from app.usecase.dto.spark_dto import SparkOutput
+from app.usecase.dto.timeline_event import SparkPostedEvent, SparkUpdatedEvent, TimelineEvent
 from app.usecase.ports.logger import ILogger
 from app.usecase.ports.pubsub import IPubSubGateway
 from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
@@ -24,7 +25,7 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
         pubsub_gateway: IPubSubGateway,
         logger: ILogger,
         active_spark_seconds: int,
-        pubsub_channel: str,
+        pubsub_channels: list[str],
     ) -> None:
         """Initialize the interactor.
 
@@ -33,30 +34,30 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
             pubsub_gateway: Gateway for pub/sub messaging
             logger: Logger for structured logging
             active_spark_seconds: Seconds to look back for active sparks
-            pubsub_channel: Redis pub/sub channel name
+            pubsub_channels: Redis pub/sub channel names
 
         """
         self.spark_repository = spark_repository
         self.pubsub_gateway = pubsub_gateway
         self.logger = logger
         self.active_spark_seconds = active_spark_seconds
-        self.pubsub_channel = pubsub_channel
+        self.pubsub_channels = pubsub_channels
 
-    async def execute(self) -> AsyncIterator[SparkOutput]:
+    async def execute(self) -> AsyncIterator[TimelineEvent]:
         """Stream timeline updates (Snapshot + Stream).
 
         Prevents race conditions by:
         1. Starting PubSub subscription first (buffering new messages)
         2. Fetching DB snapshot
-        3. Yielding snapshot data
-        4. Yielding buffered + real-time stream (with deduplication)
+        3. Yielding snapshot data as SparkPostedEvents
+        4. Yielding buffered + real-time stream (with processing)
 
         Yields:
-            SparkOutput messages from both snapshot and stream
+            TimelineEvent messages from both snapshot and stream
 
         """
         # Queue for buffering PubSub messages during DB fetch
-        buffer: asyncio.Queue[SparkOutput] = asyncio.Queue()
+        buffer: asyncio.Queue[TimelineEvent] = asyncio.Queue()
 
         # Background task to subscribe to PubSub
         async def pubsub_listener() -> None:
@@ -64,17 +65,59 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
             self.logger.info(
                 LOG_EVENTS.TIMELINE_STREAM_STARTED,
                 "Starting timeline stream subscription",
-                context={"channel": self.pubsub_channel},
+                context={"channels": self.pubsub_channels},
             )
-            async for spark_output in self.pubsub_gateway.subscribe(
-                self.pubsub_channel
+
+            # Using subscribe_raw to handle multiple message types (posted/updated)
+            async for raw_msg in self.pubsub_gateway.subscribe_raw(
+                self.pubsub_channels
             ):
+                msg_type = raw_msg.get("type")
+
+                # DEBUG Log
                 self.logger.info(
-                    LOG_EVENTS.TIMELINE_STREAM_MESSAGE,
-                    "Received message from pub/sub",
-                    context={"spark_id": spark_output.id},
+                    "DEBUG_TIMELINE_STREAM",
+                    "Received raw message",
+                    context={"msg_type": msg_type, "keys": list(raw_msg.keys())}
                 )
-                await buffer.put(spark_output)
+
+                try:
+                    event: TimelineEvent | None = None
+
+                    if msg_type == "spark_updated":
+                        event = SparkUpdatedEvent(**raw_msg)
+                    elif msg_type == "spark_posted":
+                        if "data" in raw_msg:
+                             # Expected format: { "type": "spark_posted", "data": { ... } }
+                             spark_output = SparkOutput(**raw_msg["data"])
+                             event = SparkPostedEvent(data=spark_output)
+                        else:
+                             # Maybe the message IS the SparkOutput data but with a type field?
+                             # Let's assume standard format first.
+                             pass
+                    else:
+                        # Fallback for legacy messages or implicit types
+                        # If the message looks like a SparkOutput (has id, content)
+                        if "id" in raw_msg and "content" in raw_msg:
+                             spark_output = SparkOutput(**raw_msg)
+                             event = SparkPostedEvent(data=spark_output)
+
+                    if event:
+                        await buffer.put(event)
+                    else:
+                        self.logger.warning(
+                            LOG_EVENTS.PUBSUB_DESERIALIZATION_ERROR,
+                            "Unknown message type received",
+                            context={"raw_msg": raw_msg},
+                        )
+
+                except Exception as e:
+                     self.logger.error(
+                        LOG_EVENTS.PUBSUB_DESERIALIZATION_ERROR,
+                        "Failed to parse timeline event",
+                        error=e,
+                        context={"raw_msg": raw_msg},
+                     )
 
         # Phase 1: Start PubSub subscription in background
         pubsub_task = asyncio.create_task(pubsub_listener())
@@ -89,13 +132,16 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
             ):
                 snapshot_ids.add(spark.id)
                 snapshot_count += 1
-                yield SparkOutput(
+
+                # Convert domain Spark to SparkOutput -> SparkPostedEvent
+                spark_output = SparkOutput(
                     id=spark.id,
                     content=spark.content,
                     user_hash=spark.user_hash[:8],
                     created_at=spark.created_at,
                     decay_at=spark.decay_at,
                 )
+                yield SparkPostedEvent(data=spark_output)
 
             self.logger.info(
                 LOG_EVENTS.TIMELINE_SNAPSHOT_LOADED,
@@ -103,20 +149,28 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
                 context={"count": snapshot_count},
             )
 
-            # Phase 3: Yield buffered messages (deduplicated)
-            # Drain the buffer and yield non-duplicate messages
+            # Phase 3: Yield buffered messages (deduplicated for Posted events)
             while not buffer.empty():
-                buffered_spark = await buffer.get()
-                if buffered_spark.id not in snapshot_ids:
-                    snapshot_ids.add(buffered_spark.id)
-                    yield buffered_spark
+                event = await buffer.get()
 
-            # Phase 4: Continue yielding real-time stream (deduplicated)
+                if isinstance(event, SparkPostedEvent):
+                    if event.data.id not in snapshot_ids:
+                        snapshot_ids.add(event.data.id)
+                        yield event
+                else:
+                    # Always yield updates
+                    yield event
+
+            # Phase 4: Continue yielding real-time stream
             while True:
-                stream_spark = await buffer.get()
-                if stream_spark.id not in snapshot_ids:
-                    snapshot_ids.add(stream_spark.id)
-                    yield stream_spark
+                event = await buffer.get()
+
+                if isinstance(event, SparkPostedEvent):
+                    if event.data.id not in snapshot_ids:
+                        snapshot_ids.add(event.data.id)
+                        yield event
+                else:
+                    yield event
 
         finally:
             # Clean up: cancel the background task

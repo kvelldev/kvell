@@ -262,17 +262,8 @@ class AddFuelInteractor(IAddFuelUseCase):
                 },
             )
 
-            # Broadcast extension event
-            await self.pubsub.publish(
-                "bonfire_events",
-                {
-                    "type": "bonfire_extended",
-                    "bonfire_id": bonfire.id,
-                    "spark_id": spark_id,
-                    "new_decay_at": extended_bonfire.decay_at.isoformat(),
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
-            )
+            # Broadcast removed to reduce traffic as per plan.
+            # Frontend will maintain bonfire visibility until reload.
 
         return AddFuelOutput(success=True)
 

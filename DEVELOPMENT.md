@@ -26,7 +26,7 @@ git diff ${対象ディレクトリ} > diff.txt
 
 変更されたファイルの中身をすべて取得
 ```shell
-{ git diff HEAD --name-only --diff-filter=d apps/web/tests; git ls-files --others --exclude-standard apps/web/tests; } | sort | uniq | xargs -I{} cat "{}" > diff_test.txt
+{ git diff HEAD --name-only --diff-filter=d apps; git ls-files --others --exclude-standard apps; } | sort | uniq | xargs -I{} cat "{}" > diff.txt
 ```
 
 対象ディレクトリの実装ファイルをすべて取得
@@ -40,10 +40,18 @@ find ${対象ディレクトリ} -type f \( -name "*.ts" -o -name "*.js" -o -nam
 添付のアーキテクチャ指示書等を参考にコードレビューをお願いします。
 ```
 
+他人として投稿(焚き火化動作確認)
+```shell
+curl -s -X POST http://localhost:8000/api/sparks -H "Content-Type: application/json" -H "X-Forwarded-For: 10.0.0.6" -d '{"content": "ユーザーH: おやすみなさい https://sakurazaka46.com/images/14/0ca/76962b5f60d141f0a28b8e62f7abf-02.jpg"}'
+```
+
 
 ## TODO
 
-- spark IDの表示
+- 勢い表示の実装(B/Eで計算して返す必要がある) -> 当面は消しといても良いかも。MVPじゃなさそう。
+- 未読数の実装
+- B/E側でのspark->bonfire昇格時に、元のsparkをws配信しないロジックが入ってなさそう。sparkに薪くべ->昇格時に、一旦F/E側でそのsparkが消えはするんだけど、リロードするともう一度timelineに入ってくる。
+- headerのshareボタン効いてなさそう
 - 焚き火化閾値の調整
 
 

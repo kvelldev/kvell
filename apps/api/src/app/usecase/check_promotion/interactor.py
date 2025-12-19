@@ -252,12 +252,22 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
             bonfire_created: Whether a bonfire was created
 
         """
+        # Calculate new specific decay_at based on level
+        # Note: Ideally we should pass the actual new decay_at from the modification methods
+        # but for now we'll fetch or estimate it.
+        # Since we just updated it in step 6 (update_level), we might need to fetch it again
+        # or pass it from _promote_to_kindling/_promote_to_bonfire.
+        # However, to keep it simple and consistent with the plan, let's fetch the updated spark.
+        spark = await self.spark_repository.find_by_id(spark_id)
+        if not spark:
+            return
+
         event_data = {
-            "type": "spark_promoted",
+            "type": "spark_updated",
             "spark_id": spark_id,
-            "new_level": new_level.value,
-            "bonfire_created": bonfire_created,
-            "timestamp": datetime.now(UTC).isoformat(),
+            "level": new_level.value,
+            "decay_at": spark.decay_at.isoformat().replace("+00:00", "Z"),
+            "bonfire_id": spark.id if bonfire_created else None,
         }
 
-        await self.pubsub.publish("spark_events", event_data)
+        await self.pubsub.publish("sparks:updated", event_data)

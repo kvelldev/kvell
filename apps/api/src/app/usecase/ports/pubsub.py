@@ -31,14 +31,17 @@ class IPubSubGateway(ABC):
         """
 
     @abstractmethod
-    async def subscribe(self, channel: str) -> AsyncIterator[SparkOutput]:
-        """Subscribe to a channel and yield messages as they arrive.
+    async def subscribe(
+        self,
+        channel: str | list[str],
+    ) -> AsyncIterator[SparkOutput]:
+        """Subscribe to a channel (or channels) and yield messages as they arrive.
 
         Args:
-            channel: The channel name to subscribe to
+            channel: The channel name(s) to subscribe to
 
         Yields:
-            SparkOutput messages from the channel
+            SparkOutput messages from the channel(s)
 
         """
         # This is an async generator method
@@ -48,14 +51,17 @@ class IPubSubGateway(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def subscribe_raw(self, channel: str) -> AsyncIterator[PubSubMessage]:
-        """Subscribe to a channel and yield raw messages as they arrive.
+    async def subscribe_raw(
+        self,
+        channel: str | list[str],
+    ) -> AsyncIterator[PubSubMessage]:
+        """Subscribe to a channel (or channels) and yield raw messages.
 
         Args:
-            channel: The channel name to subscribe to
+            channel: The channel name(s) to subscribe to
 
         Yields:
-            Raw dict messages from the channel
+            Raw dict messages from the channel(s)
 
         """
         if False:  # pragma: no cover

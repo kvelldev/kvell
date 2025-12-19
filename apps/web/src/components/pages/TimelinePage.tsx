@@ -29,7 +29,6 @@ import { useLogger } from "@/components/useLogger";
 import { settings } from "@/adapter/infra/settings";
 import { LOG_EVENTS } from "@/domain/constants";
 import type { BonfireViewModel } from "@/domain/model/bonfire";
-import type { Bonfire } from "@/domain/model/bonfire";
 
 /**
  * Timeline Page Component
@@ -52,11 +51,17 @@ export const TimelinePage = () => {
   // Dependency Injection: Logger
   const logger = useLogger();
 
-  // UseCase: Connect to WebSocket and receive sparks
-  const { sparks, hasError } = useTimelineStream(wsTimelineRepository);
-
   // UseCase: Fetch bonfires
-  const { bonfires } = useBonfire(bonfireRepository);
+  const { bonfires, refetch: refetchBonfires } = useBonfire(bonfireRepository);
+
+  // UseCase: Connect to WebSocket and receive sparks
+  const { sparks, hasError } = useTimelineStream({
+    repository: wsTimelineRepository,
+    onBonfirePromoted: () => {
+      // Refresh bonfire list when a spark receives promotion event
+      void refetchBonfires();
+    },
+  });
 
   // UseCase: Post spark
   const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
