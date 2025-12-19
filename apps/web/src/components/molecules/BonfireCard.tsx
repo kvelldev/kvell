@@ -12,17 +12,17 @@
  * Uses shadcn/ui Card as base component.
  */
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import clsx from "clsx";
 import { Flame } from "lucide-react";
 import { motion } from "framer-motion";
-import type { Bonfire } from "@/domain/model/bonfire";
+import type { BonfireViewModel } from "@/domain/model/bonfire";
 import { Card, CardContent } from "@/components/ui/card";
 import defaultImage from "@/assets/bonfire_default.png";
 
 interface BonfireCardProps {
-  bonfire: Bonfire;
-  onClick?: (bonfire: Bonfire) => void;
+  bonfire: BonfireViewModel;
+  onClick?: (bonfire: BonfireViewModel) => void;
 }
 
 /**
@@ -36,6 +36,13 @@ const BonfireCardComponent = ({ bonfire, onClick }: BonfireCardProps) => {
   const handleClick = () => {
     onClick?.(bonfire);
   };
+
+  const hasCustomImage = !!bonfire.imageUrl?.primaryUrl;
+  const imageUrl = bonfire.imageUrl?.primaryUrl;
+  const [imgError, setImgError] = useState(false);
+
+  // Fallback to default image if error or no custom image
+  const displayImage = hasCustomImage && !imgError ? imageUrl : defaultImage;
 
   return (
     <Card
@@ -63,14 +70,33 @@ const BonfireCardComponent = ({ bonfire, onClick }: BonfireCardProps) => {
     >
       {/* Image Section with layoutId for Shared Element Transition */}
       <motion.div
-        className="relative h-28 w-full overflow-hidden md:h-40"
+        className="relative h-28 w-full overflow-hidden bg-black/40 md:h-40"
         layoutId={`bonfire-image-${bonfire.id}`}
       >
-        <img
-          src={defaultImage}
-          alt="Bonfire"
-          className="h-full w-full object-cover transition-transform duration-500 hover:scale-110"
-        />
+        {hasCustomImage && !imgError ? (
+          <>
+            {/* Background: Blur & Cover */}
+            <img
+              src={imageUrl}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover opacity-50 blur-xl"
+            />
+            {/* Foreground: Contain & Clear */}
+            <img
+              src={imageUrl}
+              alt="Bonfire"
+              className="relative h-full w-full object-contain transition-transform duration-500 hover:scale-105"
+              onError={() => setImgError(true)}
+            />
+          </>
+        ) : (
+          /* Default Image */
+          <img
+            src={defaultImage}
+            alt="Bonfire"
+            className="h-full w-full object-cover transition-transform duration-500 hover:scale-110"
+          />
+        )}
         {/* Gradient overlay for text readability */}
         <div className="from-night-900/80 absolute inset-0 bg-linear-to-t to-transparent" />
 

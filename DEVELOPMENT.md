@@ -43,6 +43,10 @@ find ${対象ディレクトリ} -type f \( -name "*.ts" -o -name "*.js" -o -nam
 
 ## TODO
 
+- bonfireのheaderへの画像適用&フォールバック
+- spark IDの表示
+- 焚き火化閾値の調整
+
 
 
 ## React

@@ -65,7 +65,7 @@ async def seed_bonfires() -> JSONResponse:
         ),
         Bonfire.create(
             spark_id=str(uuid4()),
-            content="Default image check. The flame icon should be visible.",
+            content="Check for image rendering. https://pbs.twimg.com/media/G7ncp7BawAAj7Gh?format=jpg&name=large",
             unique_user_count=50,
             heat_score=500,
             initial_decay_hours=12,

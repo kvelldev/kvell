@@ -51,3 +51,13 @@ export interface BonfireList {
   bonfires: Bonfire[];
   count: number;
 }
+
+/**
+ * Bonfire ViewModel with optional image URL
+ */
+export interface BonfireViewModel extends Bonfire {
+  imageUrl?: {
+    primaryUrl: string;
+    fallbackUrl?: string;
+  } | null;
+}

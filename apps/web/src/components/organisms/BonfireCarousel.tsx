@@ -12,7 +12,7 @@
  * Uses shadcn/ui Carousel (Embla) as base component.
  */
 
-import type { Bonfire } from "@/domain/model/bonfire";
+import type { BonfireViewModel } from "@/domain/model/bonfire";
 import { BonfireCard } from "@/components/molecules/BonfireCard";
 import {
   Carousel,
@@ -29,11 +29,11 @@ interface BonfireCarouselProps {
   /**
    * Array of bonfires to display
    */
-  bonfires: Bonfire[];
+  bonfires: BonfireViewModel[];
   /**
    * Callback when a bonfire card is clicked
    */
-  onBonfireClick?: (bonfire: Bonfire) => void;
+  onBonfireClick?: (bonfire: BonfireViewModel) => void;
 }
 
 /**

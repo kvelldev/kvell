@@ -17,7 +17,7 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { Flame } from "lucide-react";
-import type { Bonfire } from "@/domain/model/bonfire";
+import type { BonfireViewModel } from "@/domain/model/bonfire";
 import type { SparkViewModel } from "@/domain/model/spark";
 import { computeSparkViewModel } from "@/domain/service/sparkService";
 
@@ -51,7 +51,7 @@ interface BonfireDetailPageProps {
   /**
    * The bonfire to display (null when not open)
    */
-  bonfire: Bonfire | null;
+  bonfire: BonfireViewModel | null;
 
   /**
    * Whether the page is open
@@ -74,7 +74,7 @@ const BonfireDetailPageInner = ({
   isOpen,
   onClose,
 }: {
-  bonfire: Bonfire;
+  bonfire: BonfireViewModel;
   isOpen: boolean;
   onClose: () => void;
 }) => {

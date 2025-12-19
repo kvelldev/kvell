@@ -78,7 +78,7 @@ const SparkCardComponent = ({
       data-testid="spark-item"
       data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
     >
-      <p className="font-base line-clamp-3 text-sm leading-relaxed break-words whitespace-pre-wrap">
+      <p className="font-base text-sm leading-relaxed break-words whitespace-pre-wrap">
         <Linkify
           options={{
             target: "_blank",
@@ -86,6 +86,8 @@ const SparkCardComponent = ({
             className:
               "text-ember-500/70 hover:underline text-ember-400 font-medium",
             nl2br: true, // preserve line breaks logic if needed, but 'whitespace-pre-wrap' does it usually. Linkify handles simple strings.
+            format: (value: string) =>
+              value.length > 30 ? value.slice(0, 30) + "..." : value,
           }}
         >
           {spark.content}

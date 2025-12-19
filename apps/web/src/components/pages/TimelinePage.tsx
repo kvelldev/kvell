@@ -28,6 +28,7 @@ import { BonfireDetailPage } from "@/components/pages/BonfireDetailPage";
 import { useLogger } from "@/components/useLogger";
 import { settings } from "@/adapter/infra/settings";
 import { LOG_EVENTS } from "@/domain/constants";
+import type { BonfireViewModel } from "@/domain/model/bonfire";
 import type { Bonfire } from "@/domain/model/bonfire";
 
 /**
@@ -100,7 +101,7 @@ export const TimelinePage = () => {
   };
 
   // Event Handler: Open bonfire detail overlay (navigate to bonfire detail URL)
-  const handleBonfireClick = (bonfire: Bonfire) => {
+  const handleBonfireClick = (bonfire: BonfireViewModel) => {
     void navigate(`/timeline/bonfire/${bonfire.id}`);
   };
 
