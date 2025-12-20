@@ -52,6 +52,16 @@ curl -s -X POST http://localhost:8000/api/sparks -H "Content-Type: application/j
 - 未読数の実装
 - B/E側でのspark->bonfire昇格時に、元のsparkをws配信しないロジックが入ってなさそう。sparkに薪くべ->昇格時に、一旦F/E側でそのsparkが消えはするんだけど、リロードするともう一度timelineに入ってくる。
 - headerのshareボタン効いてなさそう
+- ws仕様まとめ。
+  - チャネルはsparks:postedとsparks:update
+  - updateは昇格時(spark->kingling, spark->bonfire)のみブロードキャスト
+  - bonfireへの薪くべはws配信しない。
+  - sparkはF/E側でdecayAtになったらDOMからクリーンナップ。
+  - bonfireはdecayAtになってもリロードするまで消えない。
+    - bonfireは薪くべ&レスによる延命があるため、このイベントをws配信してるとトラフィックが死ぬため。
+    - そもそもUX的にもbonfire生成はある程度リアルタイムがいいけど、消滅はいつでもいい
+    - decay直前にRESTで最新のdecayAtを取りに行くとかも考えたが、通信失敗時のフォールバックが大変なので採用せず。
+    - bonfire詳細に入ったら更新される(RESTで取るため。けどこれfastapiのdocsにエンドポイント見当たらないな。)んだよね...?ここは要確認。
 - 焚き火化閾値の調整
 
 
