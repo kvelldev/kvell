@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import useWebSocket, { ReadyState } from "react-use-websocket";
-import type { ITimelineRepository } from "@/domain/repository/timelineRepository";
 
+/**
+ *
+ */
 export type ConnectionStatus =
   | { type: "connected" }
   | { type: "disconnected" }
@@ -15,12 +17,13 @@ export type ConnectionStatus =
 
 const MAX_RETRIES = 3;
 const BASE_DELAY = 1000;
-const MAX_DELAY = 10000;
+const MAX_DELAY = 10_000;
 const CONNECTION_TIMEOUT_MS = 1000;
 
-export const useResilientConnection = (
-  repository: ITimelineRepository,
-  onMessage: (event: any) => void,
+export const useResilientWebSocket = <T>(
+  url: string,
+  parseMessage: (data: unknown) => T | null,
+  onMessage: (event: T) => void,
 ) => {
   // ★重要: ロジック制御用のカウントは Ref で管理（即時反映させるため）
   const retryCountRef = useRef(0);
@@ -28,14 +31,55 @@ export const useResilientConnection = (
   const [retryCount, setRetryCount] = useState(0);
   const [nextDelay, setNextDelay] = useState(0);
 
+  // 強制再接続用のキー（Long Sleep復帰時に更新してSocketを作り直す）
+  const [connectKey, setConnectKey] = useState(0);
+  const hiddenAtRef = useRef<number | null>(null);
+
+  // URL変更時（Room切り替え等）に状態をリセット
+  useEffect(() => {
+    retryCountRef.current = 0;
+    setRetryCount(0);
+    setNextDelay(0);
+    setConnectKey(0);
+    hiddenAtRef.current = null;
+  }, [url]);
+
+  // Visibility Handling (Background Tab Logic)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        hiddenAtRef.current = Date.now();
+      } else {
+        if (hiddenAtRef.current) {
+          const duration = Date.now() - hiddenAtRef.current;
+          // 60秒以上のバックグラウンド滞在で強制再接続
+          // Long Sleep: Force Reconnection (Zombie対策)
+          if (duration > 60_000) {
+            setConnectKey((previous) => previous + 1);
+          }
+          hiddenAtRef.current = null;
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   const calculateBackoff = useCallback((attempt: number) => {
     const delay = Math.min(BASE_DELAY * Math.pow(2, attempt), MAX_DELAY);
     const jitter = delay * (0.1 + Math.random() * 0.2);
     return delay + jitter;
   }, []);
 
+  // URLにキーを付与して変更を検知させる
+  // url がクエリパラメータを含んでいる可能性も考慮
+  const connectionUrl = `${url}${url.includes("?") ? "&" : "?"}_r=${String(connectKey)}`;
+
   const { lastMessage, readyState, getWebSocket } = useWebSocket(
-    repository.connectionUrl,
+    connectionUrl,
     {
       shouldReconnect: () => {
         // ★修正点1: Refの最新値を参照する
@@ -44,7 +88,7 @@ export const useResilientConnection = (
         // count=4 (3回目のリトライ失敗) になったら false で止める。
         return retryCountRef.current <= MAX_RETRIES;
       },
-      reconnectInterval: (attemptNumber) => {
+      reconnectInterval: (attemptNumber: number) => {
         const delay = calculateBackoff(attemptNumber);
         setNextDelay(delay);
         return delay;
@@ -67,18 +111,21 @@ export const useResilientConnection = (
 
   // 接続タイムアウト（5秒で諦めて次へ）
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
     if (readyState === ReadyState.CONNECTING) {
       timeoutId = setTimeout(() => {
         const socket = getWebSocket();
-        if (socket) {
+        // ★修正: まだ繋がっていない(CONNECTING)場合のみ切断する
+        if (socket?.readyState === 0) {
+          // 0 is WebSocket.CONNECTING
           socket.close(); // onClose を発火させる
         }
       }, CONNECTION_TIMEOUT_MS);
     }
 
     return () => {
+      // safe cleanup
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [readyState, getWebSocket]);
@@ -86,12 +133,12 @@ export const useResilientConnection = (
   // メッセージ受信
   useEffect(() => {
     if (lastMessage) {
-      const event = repository.parseMessage(lastMessage.data);
+      const event = parseMessage(lastMessage.data);
       if (event) {
         onMessage(event);
       }
     }
-  }, [lastMessage, repository, onMessage]);
+  }, [lastMessage, parseMessage, onMessage]);
 
   // ステータス変換
   const getConnectionStatus = (): ConnectionStatus => {

@@ -5,10 +5,16 @@
  * Handles real-time spark (reply) streaming and bonfire lifecycle events.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Spark } from "@/domain/model/spark";
-import type { BonfireEvent } from "@/domain/model/bonfireEvent";
-import type { IBonfireRoomRepository } from "@/domain/repository/bonfireRoomRepository";
+import type {
+  IBonfireRoomRepository,
+  ParsedBonfireMessage,
+} from "@/domain/repository/bonfireRoomRepository";
+import {
+  useResilientWebSocket,
+  type ConnectionStatus,
+} from "./useResilientConnection";
 
 /**
  * Return type for useBonfireRoom hook
@@ -25,9 +31,9 @@ interface UseBonfireRoomResult {
   isDecayed: boolean;
 
   /**
-   * Whether an error occurred with the WebSocket connection
+   * Connection status for UI feedback (Toast)
    */
-  hasError: boolean;
+  status: ConnectionStatus;
 
   /**
    * Add a spark to the local list (for optimistic updates)
@@ -47,14 +53,38 @@ export const useBonfireRoom = (
 ): UseBonfireRoomResult => {
   const [sparks, setSparks] = useState<Spark[]>([]);
   const [isDecayed, setIsDecayed] = useState(false);
-  const [hasError, setHasError] = useState(false);
 
-  // Use ref to avoid stale closure in callbacks
-  const sparksRef = useRef(sparks);
-  sparksRef.current = sparks;
+  // Reset state when bonfireId changes
+  useEffect(() => {
+    setSparks([]);
+    setIsDecayed(false);
+  }, [bonfireId]);
 
-  // Add a spark to the local list (for optimistic updates after posting)
-  // Includes duplicate check to handle race conditions with WebSocket
+  // Handle incoming messages
+  const handleMessage = useCallback((event: ParsedBonfireMessage) => {
+    if (event.type === "spark") {
+      const spark = event.data;
+      setSparks((previous) => {
+        const exists = previous.some((s) => s.id === spark.id);
+        if (exists) return previous;
+        return [...previous, spark];
+      });
+    } else {
+      // event.type === "bonfire_event"
+      if (event.data.eventType === "decayed") {
+        setIsDecayed(true);
+      }
+    }
+  }, []);
+
+  // Use the resilient WebSocket hook
+  const status = useResilientWebSocket(
+    repository.getConnectionUrl(bonfireId),
+    (message) => repository.parseMessage(message),
+    handleMessage,
+  );
+
+  // Add a spark to the local list (for optimistic updates)
   const addLocalSpark = useCallback((spark: Spark) => {
     setSparks((previous) => {
       const exists = previous.some((s) => s.id === spark.id);
@@ -63,45 +93,10 @@ export const useBonfireRoom = (
     });
   }, []);
 
-  useEffect(() => {
-    // Reset state when connecting to a new bonfire
-    setSparks([]);
-    setIsDecayed(false);
-    setHasError(false);
-
-    const handleSpark = (spark: Spark) => {
-      // Add spark if it doesn't already exist (avoid duplicates from optimistic updates)
-      setSparks((previous) => {
-        const exists = previous.some((s) => s.id === spark.id);
-        if (exists) return previous;
-        return [...previous, spark];
-      });
-    };
-
-    const handleBonfireEvent = (event: BonfireEvent) => {
-      if (event.eventType === "decayed") {
-        setIsDecayed(true);
-      }
-      // 'extended' event doesn't require UI state change for now
-    };
-
-    const handleError = () => {
-      setHasError(true);
-    };
-
-    const disconnect = repository.connect(bonfireId, {
-      onSpark: handleSpark,
-      onBonfireEvent: handleBonfireEvent,
-      onError: handleError,
-    });
-
-    return disconnect;
-  }, [bonfireId, repository]);
-
   return {
     sparks,
     isDecayed,
-    hasError,
+    status,
     addLocalSpark,
   };
 };

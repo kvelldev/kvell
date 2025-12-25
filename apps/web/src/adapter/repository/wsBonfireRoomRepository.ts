@@ -10,7 +10,7 @@ import type { Spark } from "@/domain/model/spark";
 import type { BonfireEvent } from "@/domain/model/bonfireEvent";
 import type {
   IBonfireRoomRepository,
-  BonfireRoomCallbacks,
+  ParsedBonfireMessage,
 } from "@/domain/repository/bonfireRoomRepository";
 
 /**
@@ -54,70 +54,39 @@ class WsBonfireRoomRepositoryImpl implements IBonfireRoomRepository {
     this.baseWsUrl = baseUrl.replace(/^http/, "ws");
   }
 
-  connect(bonfireId: string, callbacks: BonfireRoomCallbacks): () => void {
-    const wsUrl = `${this.baseWsUrl}/api/bonfires/${bonfireId}/ws`;
-    const ws = new WebSocket(wsUrl);
-    let isDisposed = false;
+  getConnectionUrl(bonfireId: string): string {
+    return `${this.baseWsUrl}/api/bonfires/${bonfireId}/ws`;
+  }
 
-    ws.addEventListener("message", (event) => {
-      if (isDisposed) return;
-      try {
-        const rawData = JSON.parse(event.data as string) as WebSocketMessage;
+  parseMessage(message: unknown): ParsedBonfireMessage | null {
+    try {
+      const rawData = JSON.parse(message as string) as WebSocketMessage;
 
-        if (rawData.type === "spark") {
-          // Transform snake_case to camelCase domain model
-          const spark: Spark = {
-            id: rawData.id,
-            content: rawData.content,
-            userHash: rawData.user_hash,
-            createdAt: rawData.created_at,
-            decayAt: rawData.decay_at,
-            parentBonfireId: rawData.parent_bonfire_id,
-          };
-          callbacks.onSpark(spark);
-        } else {
-          // BonfireEvent: decayed or extended
-          const bonfireEvent: BonfireEvent = {
-            eventType: rawData.type,
-            bonfireId: rawData.bonfire_id,
-            message: rawData.message,
-          };
-          callbacks.onBonfireEvent(bonfireEvent);
-        }
-      } catch (error) {
-        console.error("Failed to parse bonfire WebSocket message:", error);
+      if (rawData.type === "spark") {
+        // Transform snake_case to camelCase domain model
+        const spark: Spark = {
+          id: rawData.id,
+          content: rawData.content,
+          userHash: rawData.user_hash,
+          createdAt: rawData.created_at,
+          decayAt: rawData.decay_at,
+          parentBonfireId: rawData.parent_bonfire_id,
+        };
+        // Return wrapped message
+        return { type: "spark", data: spark };
+      } else {
+        // BonfireEvent: decayed or extended
+        const bonfireEvent: BonfireEvent = {
+          eventType: rawData.type,
+          bonfireId: rawData.bonfire_id,
+          message: rawData.message,
+        };
+        return { type: "bonfire_event", data: bonfireEvent };
       }
-    });
-
-    ws.addEventListener("error", (event) => {
-      if (isDisposed) return;
-      console.error("Bonfire WebSocket error:", event);
-      callbacks.onError();
-    });
-
-    ws.addEventListener("close", (event) => {
-      if (isDisposed) return;
-      // Only trigger error callback on abnormal closures
-      if (!event.wasClean) {
-        console.error(
-          "Bonfire WebSocket closed unexpectedly:",
-          event.code,
-          event.reason,
-        );
-        callbacks.onError();
-      }
-    });
-
-    // Cleanup function to close WebSocket
-    return () => {
-      isDisposed = true;
-      if (
-        ws.readyState === WebSocket.OPEN ||
-        ws.readyState === WebSocket.CONNECTING
-      ) {
-        ws.close();
-      }
-    };
+    } catch (error) {
+      console.error("Failed to parse bonfire WebSocket message:", error);
+      return null;
+    }
   }
 }
 

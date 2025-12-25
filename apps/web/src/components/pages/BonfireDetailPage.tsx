@@ -31,6 +31,7 @@ import { useBonfireRoom } from "@/usecase/useBonfireRoom";
 import { useReadMarker } from "@/usecase/useReadMarker";
 import { usePostReply } from "@/usecase/usePostReply";
 import { useAddFuel } from "@/usecase/useAddFuel";
+import { useConnectionToast } from "@/usecase/useConnectionToast";
 
 // UI Components
 import { BonfireDetailTemplate } from "@/components/templates/BonfireDetailTemplate";
@@ -85,10 +86,13 @@ const BonfireDetailPageInner = ({
   const [postContent, setPostContent] = useState("");
 
   // UseCases with dependency injection
-  const { sparks, isDecayed, addLocalSpark } = useBonfireRoom(
+  const { sparks, isDecayed, addLocalSpark, status } = useBonfireRoom(
     bonfire.id,
     wsBonfireRoomRepository,
   );
+
+  // Connection Toast
+  useConnectionToast(status);
 
   // Ref to track the display marker spark ID for persisted index lookup
   const displayMarkerSparkIdRef = useRef<string | null>(null);
