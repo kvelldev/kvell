@@ -5,6 +5,9 @@ import type { ConnectionStatus } from "./useTimelineStream";
 
 export const useConnectionToast = (status: ConnectionStatus) => {
   const toastIdRef = useRef<string | number>("connection-status");
+  // Toastを表示したかどうかを追跡するためのRef（UX改善用）
+  // 再接続中やオフラインなどの「警告」を出した場合のみ、復帰時に「成功」Toastを出す。
+  const hasActiveWarningRef = useRef(false);
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   // Reconnecting状態のDebounce用
@@ -53,6 +56,7 @@ export const useConnectionToast = (status: ConnectionStatus) => {
         description: "再接続を待機しています...",
         duration: Infinity,
       });
+      hasActiveWarningRef.current = true;
       return;
     }
 
@@ -66,6 +70,7 @@ export const useConnectionToast = (status: ConnectionStatus) => {
           icon: <WifiOff className="h-4 w-4" />,
           duration: Infinity,
         });
+        hasActiveWarningRef.current = true;
 
         break;
       }
@@ -80,17 +85,25 @@ export const useConnectionToast = (status: ConnectionStatus) => {
               duration: Infinity,
             },
           );
+          hasActiveWarningRef.current = true;
         }
 
         break;
       }
       case "connected": {
-        toast.success("接続しました", {
-          id: toastIdRef.current,
-          description: "",
-          icon: <Wifi className="h-4 w-4" />,
-          duration: 2000,
-        });
+        // 以前に警告が出ていた場合のみ「成功」を表示する（ノイズ削減）
+        if (hasActiveWarningRef.current) {
+          toast.success("接続しました", {
+            id: toastIdRef.current,
+            description: "",
+            icon: <Wifi className="h-4 w-4" />,
+            duration: 2000,
+          });
+          hasActiveWarningRef.current = false;
+        } else {
+          // 警告が出ていなければ、何も表示しない（または既存のローディングを念のため消す）
+          toast.dismiss(toastIdRef.current);
+        }
 
         break;
       }
