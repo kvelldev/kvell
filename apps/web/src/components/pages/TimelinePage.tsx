@@ -18,6 +18,7 @@ import { useTimelineStream } from "@/usecase/useTimelineStream";
 import { usePostSpark } from "@/usecase/usePostSpark";
 import { useAddFuel } from "@/usecase/useAddFuel";
 import { useBonfire } from "@/usecase/useBonfire";
+import { useConnectionToast } from "@/usecase/useConnectionToast";
 import { TimelineStream } from "@/components/organisms/TimelineStream";
 import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
 import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
@@ -55,13 +56,16 @@ export const TimelinePage = () => {
   const { bonfires, refetch: refetchBonfires } = useBonfire(bonfireRepository);
 
   // UseCase: Connect to WebSocket and receive sparks
-  const { sparks, hasError } = useTimelineStream({
+  const { sparks, status } = useTimelineStream({
     repository: wsTimelineRepository,
     onBonfirePromoted: () => {
       // Refresh bonfire list when a spark receives promotion event
       void refetchBonfires();
     },
   });
+
+  // UI: Handle connection status with Toast (Custom Hook)
+  useConnectionToast(status);
 
   // UseCase: Post spark
   const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
@@ -125,7 +129,8 @@ export const TimelinePage = () => {
           />
         }
         sparkArea={
-          hasError ? (
+          // Show ErrorStateMessage ONLY if there are no sparks (initial load failure)
+          status.type === "error" && sparks.length === 0 ? (
             <ErrorStateMessage
               title="サーバーに接続できません"
               description="ネットワーク接続を確認してページを再読み込みしてください"

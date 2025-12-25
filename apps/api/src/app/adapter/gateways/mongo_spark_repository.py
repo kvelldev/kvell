@@ -285,9 +285,12 @@ class MongoSparkRepository(ISparkRepository):
                 },
             )
 
-            # Query for sparks created after cutoff_time, sorted by created_at ascending
+            # Query for active sparks (not BONFIRE) created after cutoff_time
             cursor = self.collection.find(
-                {"created_at": {"$gte": cutoff_time}},
+                {
+                    "created_at": {"$gte": cutoff_time},
+                    "level": {"$ne": SparkLevel.BONFIRE.value},
+                },
             ).sort("created_at", 1).limit(limit)
 
             # Yield sparks one by one (streaming, no to_list)

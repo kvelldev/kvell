@@ -1,0 +1,904 @@
+/**
+ * App Component
+ *
+ * Root application component with routing and DI providers.
+ */
+
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
+import { TimelinePage } from "@/components/pages/TimelinePage";
+import { LoggerProvider } from "@/components/LoggerContext";
+import { sentryLogger } from "@/adapter/infra/sentryLogger";
+import { DebugPage } from "./components/pages/debugPage";
+import { AtmosphereBackground } from "./components/atoms/AtmosphereBackground";
+import { Toaster } from "@/components/ui/sonner";
+
+function App() {
+  return (
+    <LoggerProvider logger={sentryLogger}>
+      <AtmosphereBackground />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Navigate to="/timeline" replace />} />
+          <Route path="/timeline" element={<TimelinePage />} />
+          <Route
+            path="/timeline/bonfire/:bonfireId"
+            element={<TimelinePage />}
+          />
+          <Route path="/health" element={<HealthCheckPage />} />
+          <Route path="/debug" element={<DebugPage />} />
+        </Routes>
+      </BrowserRouter>
+      <Toaster position="bottom-center" />
+    </LoggerProvider>
+  );
+}
+
+export default App;
+/**
+ * BonfirePlaceholderCard Component (Molecule)
+ *
+ * Displays a placeholder card when no bonfires exist.
+ * Shares visual style with BonfireCard (Glassmorphism, same dimensions).
+ *
+ * Uses subtle Info icon instead of bonfire image to indicate empty state.
+ */
+
+import clsx from "clsx";
+import { Info } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+
+interface BonfirePlaceholderCardProps {
+  message: string;
+}
+
+export const BonfirePlaceholderCard = ({
+  message,
+}: BonfirePlaceholderCardProps) => {
+  return (
+    <Card
+      className={clsx(
+        // Layout & Responsive dimensions (same as BonfireCard)
+        "h-52 w-52 md:h-72 md:w-72",
+        "flex-none overflow-hidden",
+
+        // Base Style (Glassmorphism)
+        "bg-night-900/40 backdrop-blur-md",
+        "border border-white/10",
+      )}
+      data-testid="bonfire-placeholder"
+    >
+      {/* Icon Section (replaces image) */}
+      <div
+        className={clsx(
+          "relative h-28 w-full md:h-40",
+          "flex items-center justify-center",
+          "bg-earthshadow-base/20",
+        )}
+      >
+        <Info className="text-ash-500 size-8 md:size-10" strokeWidth={1} />
+      </div>
+
+      {/* Content Section */}
+      <CardContent className="h-16 p-3 md:h-20 md:p-4">
+        <p className="font-base text-ash-500 text-center text-sm leading-relaxed">
+          {message}
+        </p>
+      </CardContent>
+    </Card>
+  );
+};
+import { memo, useState, useCallback } from "react";
+import clsx from "clsx";
+import { Flame } from "lucide-react";
+import type { SparkViewModel } from "@/domain/model/spark";
+import { IgniteEffect } from "@/components/atoms/IgniteEffect";
+import Linkify from "linkify-react";
+import { SparkImageThumbnail } from "./SparkImageThumbnail";
+
+interface SparkCardProps {
+  spark: SparkViewModel;
+  /**
+   * Callback when fuel button is clicked
+   */
+  onAddFuel?: (sparkId: string) => void;
+  /**
+   * Hide the fuel button (used for bonfire replies which cannot be promoted)
+   * @default false
+   */
+  hideFuelButton?: boolean;
+}
+
+const formatTime = (totalSeconds: number): string => {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+};
+
+/**
+ * SparkCard Component (Memoized)
+ *
+ * Renders a single spark with:
+ * - Fade-in animation on mount
+ * - Color temperature based heat expression (white→ash transition)
+ * - Dynamic glow: Visible when hot, disappears when cooled (Ash)
+ * - TTL countdown timer in bottom-right corner
+ * - Text truncation for long content
+ * - Add fuel button with ignite effect
+ *
+ * Performance:
+ * - Memoized to prevent re-renders when temperature state doesn't change
+ * - Only re-renders if spark.id, spark.content, spark.temperature, or spark.remainingTimeInSeconds changes
+ * @returns Rendered spark card element
+ */
+const SparkCardComponent = ({
+  spark,
+  onAddFuel,
+  hideFuelButton = false,
+}: SparkCardProps) => {
+  const isHot = spark.temperature === "hot";
+  const [showEffect, setShowEffect] = useState(false);
+
+  const shadowClass = isHot ? "shadow-glow-sm" : "shadow-none";
+  // Glassmorphism: soft borders with glow (not hard lines)
+  const borderClass = isHot
+    ? "border border-ember-500/50 ring-1 ring-ember-500/20"
+    : "border border-white/10";
+
+  const handleAddFuel = () => {
+    // Trigger ignite effect
+    setShowEffect(true);
+    // Call parent callback
+    onAddFuel?.(spark.id);
+  };
+
+  // Memoize onComplete to prevent IgniteEffect useEffect from re-firing on every render
+  const handleEffectComplete = useCallback(() => {
+    setShowEffect(false);
+  }, []);
+
+  return (
+    <div
+      className={clsx(
+        // Glassmorphism: translucent background with backdrop blur
+        "rounded-card bg-night-800/40 text-ash-500 p-4 backdrop-blur-md transition-all duration-1000 ease-in-out",
+        shadowClass,
+        borderClass,
+      )}
+      data-testid="spark-item"
+      data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
+    >
+      <p className="font-base text-sm leading-relaxed break-words whitespace-pre-wrap">
+        <Linkify
+          options={{
+            target: "_blank",
+            rel: "noopener noreferrer",
+            className:
+              "text-ember-500/70 hover:underline text-ember-400 font-medium",
+            nl2br: true, // preserve line breaks logic if needed, but 'whitespace-pre-wrap' does it usually. Linkify handles simple strings.
+            format: (value: string) =>
+              value.length > 30 ? value.slice(0, 30) + "..." : value,
+          }}
+        >
+          {spark.content}
+        </Linkify>
+      </p>
+
+      {/* Image Thumbnail */}
+      {spark.imageUrl && (
+        <SparkImageThumbnail
+          key={spark.imageUrl.primaryUrl}
+          image={spark.imageUrl}
+        />
+      )}
+
+      <div className="mt-2 flex items-center justify-between">
+        {/* Add Fuel Button - hidden for bonfire replies */}
+        {!hideFuelButton && (
+          <button
+            onClick={handleAddFuel}
+            className={clsx(
+              "rounded-button relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all",
+              "border-ember-500/30 bg-ember-500/10 text-ember-500 border",
+              "hover:border-ember-500/50 hover:bg-ember-500/20",
+              "focus:ring-ember-500/50 focus:ring-2 focus:outline-none",
+            )}
+            data-testid="add-fuel-button"
+            aria-label="Add fuel to spark"
+          >
+            <Flame className="h-3.5 w-3.5" />
+            <span>薪をくべる</span>
+            <IgniteEffect
+              trigger={showEffect}
+              onComplete={handleEffectComplete}
+            />
+          </button>
+        )}
+        {/* Spacer when fuel button is hidden */}
+        {hideFuelButton && <div />}
+        {/* User Hash */}
+        <span
+          className="text-ash-400 mb-1 block font-mono text-xs"
+          data-testid="spark-user-hash"
+        >
+          @{spark.userHash}
+        </span>
+        {/* TTL Timer */}
+        {/* <span
+          className={clsx("font-mono text-xs transition-colors duration-1000")}
+          data-testid="spark-timer"
+        >
+          {formatTime(spark.remainingTimeInSeconds)}
+        </span> */}
+      </div>
+    </div>
+  );
+};
+
+export const SparkCard = memo(SparkCardComponent);
+/**
+ * BonfireCarousel Organism Component (Dumb)
+ *
+ * Horizontally scrolling container for bonfires using shadcn Carousel.
+ * Pure presentational component - receives all data via props.
+ *
+ * UX Design:
+ * - Mobile: Swipe/drag only (buttons hidden)
+ * - Desktop: Swipe/drag + hover-visible buttons
+ *
+ * Visual style follows Design Token guidelines.
+ * Uses shadcn/ui Carousel (Embla) as base component.
+ */
+
+import type { BonfireViewModel } from "@/domain/model/bonfire";
+import { BonfireCard } from "@/components/molecules/BonfireCard";
+import { BonfirePlaceholderCard } from "@/components/molecules/BonfirePlaceholderCard";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselPrevious,
+  CarouselNext,
+} from "@/components/ui/carousel";
+
+/**
+ * Props for BonfireCarousel component
+ */
+interface BonfireCarouselProps {
+  /**
+   * Array of bonfires to display
+   */
+  bonfires: BonfireViewModel[];
+  /**
+   * Callback when a bonfire card is clicked
+   */
+  onBonfireClick?: (bonfire: BonfireViewModel) => void;
+}
+
+/**
+ * BonfireCarousel Component
+ *
+ * Features:
+ * - Horizontal carousel with Embla (via shadcn)
+ * - Responsive navigation: hidden on mobile, hover-visible on desktop
+ * - Drag/swipe support on all devices
+ * - Empty state shows placeholder card with guidance message
+ * @returns Rendered carousel element or placeholder if empty
+ */
+export const BonfireCarousel = ({
+  bonfires,
+  onBonfireClick,
+}: BonfireCarouselProps) => {
+  // Empty State: Show placeholder card in carousel
+  if (bonfires.length === 0) {
+    return (
+      <section
+        className="group relative w-full px-4 py-4 md:px-12"
+        data-testid="bonfire-carousel"
+        aria-label="焚き火エリア"
+      >
+        <Carousel
+          opts={{
+            align: "center",
+            loop: false,
+            dragFree: false,
+          }}
+          className="w-full"
+        >
+          <CarouselContent className="-ml-4 overflow-visible">
+            <CarouselItem className="basis-auto py-4 pl-4">
+              <BonfirePlaceholderCard message="たくさんの薪がくべられると焚き火になります" />
+            </CarouselItem>
+          </CarouselContent>
+        </Carousel>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className="group relative w-full px-4 py-4 md:px-12"
+      data-testid="bonfire-carousel"
+      aria-label="焚き火エリア"
+    >
+      <Carousel
+        opts={{
+          align: "center",
+          loop: false,
+          dragFree: false,
+        }}
+        className="w-full"
+      >
+        <CarouselContent className="-ml-4 overflow-visible">
+          {bonfires.map((bonfire) => (
+            <CarouselItem key={bonfire.id} className="basis-auto py-4 pl-4">
+              <BonfireCard bonfire={bonfire} onClick={onBonfireClick} />
+            </CarouselItem>
+          ))}
+        </CarouselContent>
+
+        {/* Navigation buttons: hidden on mobile, hover-visible on desktop */}
+        <CarouselPrevious className="left-2 hidden h-12 w-12 opacity-0 transition-opacity duration-300 group-hover:opacity-100 md:flex" />
+        <CarouselNext className="right-2 hidden h-12 w-12 opacity-0 transition-opacity duration-300 group-hover:opacity-100 md:flex" />
+      </Carousel>
+    </section>
+  );
+};
+/**
+ * Timeline Page (Smart Component)
+ *
+ * Entry point for the Timeline feature.
+ * Handles dependency injection and wiring of UseCase to UI components.
+ * Includes spark posting functionality with FAB and modal.
+ */
+
+import { useState, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { Flame } from "lucide-react";
+import { LayoutGroup } from "framer-motion";
+import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
+import { bonfireRepository } from "@/adapter/repository/bonfireRepository";
+import { sparkRepository } from "@/adapter/repository/sparkRepository";
+import { triggerHapticFeedback } from "@/adapter/infra/haptic";
+import { useTimelineStream } from "@/usecase/useTimelineStream";
+import { usePostSpark } from "@/usecase/usePostSpark";
+import { useAddFuel } from "@/usecase/useAddFuel";
+import { useBonfire } from "@/usecase/useBonfire";
+import { useConnectionToast } from "@/usecase/useConnectionToast";
+import { TimelineStream } from "@/components/organisms/TimelineStream";
+import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
+import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
+import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
+import { SparkPostModal } from "@/components/organisms/SparkPostModal";
+import { BonfireCarousel } from "@/components/organisms/BonfireCarousel";
+import { BonfireDetailPage } from "@/components/pages/BonfireDetailPage";
+import { useLogger } from "@/components/useLogger";
+import { settings } from "@/adapter/infra/settings";
+import { LOG_EVENTS } from "@/domain/constants";
+import type { BonfireViewModel } from "@/domain/model/bonfire";
+
+/**
+ * Timeline Page Component
+ *
+ * Responsibilities:
+ * - Display real-time timeline of sparks
+ * - Provide FAB button to open spark posting modal
+ * - Handle spark posting with error display
+ * @returns Rendered timeline page with posting capability
+ */
+export const TimelinePage = () => {
+  // Routing: Get bonfireId from URL params for deep linking support
+  const { bonfireId } = useParams<{ bonfireId: string }>();
+  const navigate = useNavigate();
+
+  // Local UI state for posting
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [content, setContent] = useState("");
+
+  // Dependency Injection: Logger
+  const logger = useLogger();
+
+  // UseCase: Fetch bonfires
+  const { bonfires, refetch: refetchBonfires } = useBonfire(bonfireRepository);
+
+  // UseCase: Connect to WebSocket and receive sparks
+  const { sparks, status } = useTimelineStream({
+    repository: wsTimelineRepository,
+    onBonfirePromoted: () => {
+      // Refresh bonfire list when a spark receives promotion event
+      void refetchBonfires();
+    },
+  });
+
+  // UI: Handle connection status with Toast (Custom Hook)
+  useConnectionToast(status);
+
+  // UseCase: Post spark
+  const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
+
+  // UseCase: Add fuel to spark
+  const { addFuel } = useAddFuel(sparkRepository, logger);
+
+  // Derive selected bonfire from URL params (for deep linking & browser back support)
+  const selectedBonfire = useMemo(() => {
+    if (!bonfireId) return null;
+    return bonfires.find((b) => b.id === bonfireId) ?? null;
+  }, [bonfireId, bonfires]);
+
+  // Event Handler: Submit spark
+  const handleSubmit = async () => {
+    const trimmedContent = content.trim();
+    if (!trimmedContent) return;
+
+    try {
+      await postSpark({ content: trimmedContent });
+      // On success: Clear input and close modal
+      setContent("");
+      setIsModalOpen(false);
+    } catch {
+      // Error is already logged by UseCase and stored in error state
+      // UI will display error via SparkPostModal
+    }
+  };
+
+  // Event Handler: Add fuel to spark
+  const handleAddFuel = (sparkId: string) => {
+    // Trigger haptic feedback (UI layer responsibility)
+    const hapticTriggered = triggerHapticFeedback();
+    if (!hapticTriggered) {
+      logger.info("Haptic feedback not supported", {
+        event: LOG_EVENTS.ADD_FUEL.HAPTIC_NOT_SUPPORTED,
+      });
+    }
+
+    // Execute UseCase
+    void addFuel({ sparkId });
+  };
+
+  // Event Handler: Open bonfire detail overlay (navigate to bonfire detail URL)
+  const handleBonfireClick = (bonfire: BonfireViewModel) => {
+    void navigate(`/timeline/bonfire/${bonfire.id}`);
+  };
+
+  // Event Handler: Close bonfire detail overlay (navigate back)
+  const handleBonfireClose = () => {
+    void navigate("/timeline");
+  };
+
+  return (
+    <LayoutGroup>
+      <TimelineTemplate
+        bonfireArea={
+          <BonfireCarousel
+            bonfires={bonfires}
+            onBonfireClick={handleBonfireClick}
+          />
+        }
+        sparkArea={
+          // Show ErrorStateMessage ONLY if there are no sparks (initial load failure)
+          status.type === "error" && sparks.length === 0 ? (
+            <ErrorStateMessage
+              title="サーバーに接続できません"
+              description="ネットワーク接続を確認してページを再読み込みしてください"
+              testId="timeline-error-message"
+            />
+          ) : (
+            <TimelineStream sparks={sparks} onAddFuel={handleAddFuel} />
+          )
+        }
+      />
+
+      <FloatingActionButton
+        onClick={() => {
+          setIsModalOpen(true);
+        }}
+        icon={<Flame size={24} />}
+        label="種火をともす"
+        testId="spark-post-fab"
+      />
+
+      <SparkPostModal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+        }}
+        content={content}
+        onContentChange={setContent}
+        onSubmit={() => {
+          void handleSubmit();
+        }}
+        isPosting={isPosting}
+        maxLength={settings.sparkMaxLength}
+        error={error}
+      />
+
+      <BonfireDetailPage
+        bonfire={selectedBonfire}
+        isOpen={selectedBonfire !== null}
+        onClose={handleBonfireClose}
+      />
+    </LayoutGroup>
+  );
+};
+import {
+  CircleCheck,
+  Info,
+  LoaderCircle,
+  OctagonX,
+  TriangleAlert,
+} from "lucide-react"
+import { useTheme } from "next-themes"
+import { Toaster as Sonner } from "sonner"
+
+type ToasterProps = React.ComponentProps<typeof Sonner>
+
+const Toaster = ({ ...props }: ToasterProps) => {
+  const { theme = "system" } = useTheme()
+
+  return (
+    <Sonner
+      theme={theme as ToasterProps["theme"]}
+      className="toaster group"
+      icons={{
+        success: <CircleCheck className="h-4 w-4" />,
+        info: <Info className="h-4 w-4" />,
+        warning: <TriangleAlert className="h-4 w-4" />,
+        error: <OctagonX className="h-4 w-4" />,
+        loading: <LoaderCircle className="h-4 w-4 animate-spin" />,
+      }}
+      toastOptions={{
+        classNames: {
+          toast:
+            "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
+          description: "group-[.toast]:text-muted-foreground",
+          actionButton:
+            "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
+          cancelButton:
+            "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+        },
+      }}
+      {...props}
+    />
+  )
+}
+
+export { Toaster }
+import { useEffect, useRef } from "react";
+import { toast } from "sonner";
+import { Wifi, WifiOff } from "lucide-react";
+import type { ConnectionStatus } from "./useTimelineStream";
+
+/**
+ * Custom Hook to handle Connection Status Toast notification
+ * Manages the side effect of showing/updating/dismissing toasts based on connection state.
+ */
+export const useConnectionToast = (status: ConnectionStatus) => {
+  const toastIdRef = useRef<string | number>("connection-status");
+
+  // Extract primitives for dependency array
+  const { type } = status;
+  const attempt = status.type === "reconnecting" ? status.attempt : 0;
+  const maxAttempts = status.type === "reconnecting" ? status.maxAttempts : 0;
+
+  useEffect(() => {
+    if (type === "reconnecting") {
+      toast.loading(`再接続を試みています... (${attempt}/${maxAttempts})`, {
+        id: toastIdRef.current,
+        duration: Infinity,
+      });
+    } else if (type === "connected") {
+      // Show Success and Dismiss
+      toast.success("接続しました", {
+        id: toastIdRef.current,
+        icon: <Wifi className="h-4 w-4" />,
+        duration: 2000,
+      });
+    } else if (type === "error") {
+      // Show Failure
+      toast.error("接続できませんでした", {
+        id: toastIdRef.current,
+        description: "ページを再読み込みしてください",
+        icon: <WifiOff className="h-4 w-4" />,
+        duration: Infinity,
+      });
+    }
+  }, [type, attempt, maxAttempts]);
+};
+/**
+ * Timeline Stream UseCase
+ *
+ * Business logic for real-time timeline spark streaming.
+ * Manages WebSocket connection, spark accumulation, deduplication, TTL cleanup,
+ * and temperature calculation for UI rendering.
+ *
+ * Implements batching for incoming events to reduce render frequency.
+ */
+
+import { useEffect, useRef, useState } from "react";
+import type { Spark, SparkViewModel } from "@/domain/model/spark";
+import type { ITimelineRepository } from "@/domain/repository/timelineRepository";
+import type { TimelineEvent } from "@/domain/model/timelineEvent";
+import { computeSparkViewModel } from "@/domain/service/sparkService";
+
+/**
+ * Update interval for temperature recalculation and TTL cleanup
+ * Run every second for immediate removal of expired sparks and temperature updates
+ */
+const UPDATE_INTERVAL_MS = 1000;
+
+/**
+ * Batch processing interval in milliseconds.
+ * Incoming WebSocket events are buffered and processed in chunks to prevent UI jank.
+ */
+const BATCH_INTERVAL_MS = 200;
+
+/**
+ * Compute ViewModels from raw sparks by adding temperature state and remaining time
+ * @param sparks - Raw spark data from repository
+ * @returns Spark ViewModels with computed temperature and countdown timer
+ */
+const computeViewModels = (sparks: Spark[]): SparkViewModel[] => {
+  return sparks.map(computeSparkViewModel);
+};
+
+export type ConnectionStatus =
+  | { type: "connected" }
+  | { type: "disconnected" }
+  | {
+      type: "reconnecting";
+      attempt: number;
+      maxAttempts: number;
+      nextRetryDelayMs: number;
+    }
+  | { type: "error"; reason: string };
+
+interface UseTimelineStreamProps {
+  repository: ITimelineRepository;
+  onBonfirePromoted?: () => void;
+}
+
+/**
+ * Timeline Stream Custom Hook
+ * @param repository - Timeline repository implementation (DIP)
+ * @param onBonfirePromoted - Callback triggers when a spark is promoted to Bonfire
+ * @returns Object containing current spark ViewModels and connection error state
+ */
+export const useTimelineStream = ({
+  repository,
+  onBonfirePromoted,
+}: UseTimelineStreamProps) => {
+  const [sparks, setSparks] = useState<Spark[]>([]);
+  const [viewModels, setViewModels] = useState<SparkViewModel[]>([]);
+
+  // Buffer for incoming events to be processed in batch
+  const eventBuffer = useRef<TimelineEvent[]>([]);
+
+  // Connection State Machine
+  const [status, setStatus] = useState<ConnectionStatus>({
+    type: "disconnected",
+  });
+
+  // Reconnection Constants
+  const MAX_RETRIES = 3;
+  const BASE_DELAY = 1000;
+  const MAX_DELAY = 10000;
+
+  const calculateBackoff = (attempt: number) => {
+    // 2^0=1000, 2^1=2000, 2^2=4000
+    const delay = Math.min(BASE_DELAY * Math.pow(2, attempt), MAX_DELAY);
+    const jitter = delay * (0.1 + Math.random() * 0.2);
+    return delay + jitter;
+  };
+
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Force reconnection trigger (used by triggerReconnection to re-run the main effect)
+  const [connectTrigger, setConnectTrigger] = useState(0);
+
+  // Trigger Reconnection (Pure State Update)
+  const triggerReconnection = (currentAttempt: number) => {
+    if (currentAttempt >= MAX_RETRIES) {
+      setStatus({ type: "error", reason: "Max retries exceeded" });
+      return;
+    }
+
+    const nextRetryDelay = calculateBackoff(currentAttempt);
+    setStatus({
+      type: "reconnecting",
+      attempt: currentAttempt + 1,
+      maxAttempts: MAX_RETRIES,
+      nextRetryDelayMs: nextRetryDelay,
+    });
+  };
+
+  // Side Effect: Handle Reconnection Timer
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    if (status.type === "reconnecting") {
+      timeoutId = setTimeout(() => {
+        setConnectTrigger((prev) => prev + 1);
+      }, status.nextRetryDelayMs);
+    }
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [status]);
+
+  // Smart reconnection on window events (Focus / Online)
+  useEffect(() => {
+    const handleImmediateReconnect = () => {
+      // If we are waiting for a retry, cancel the wait and try immediately
+      if (
+        status.type === "reconnecting" ||
+        status.type === "error" ||
+        status.type === "disconnected"
+      ) {
+        if (reconnectTimeoutRef.current)
+          clearTimeout(reconnectTimeoutRef.current);
+        // Reset to first attempt for immediate manual/focus trigger?
+        // Or just trigger next attempt immediately?
+        // Let's treat explicit user action (focus/online) as a fresh start or immediate retry.
+        // Better to try immediately.
+        setConnectTrigger((prev) => prev + 1);
+        setStatus({
+          type: "reconnecting",
+          attempt: 1,
+          maxAttempts: MAX_RETRIES,
+          nextRetryDelayMs: 0,
+        });
+      }
+    };
+
+    window.addEventListener("focus", handleImmediateReconnect);
+    window.addEventListener("online", handleImmediateReconnect);
+
+    return () => {
+      window.removeEventListener("focus", handleImmediateReconnect);
+      window.removeEventListener("online", handleImmediateReconnect);
+    };
+  }, [status.type]);
+
+  useEffect(() => {
+    // 1. Establish WebSocket connection
+    const disconnect = repository.connect(
+      (event) => {
+        setStatus((prev) => {
+          if (prev.type === "connected") return prev;
+          return { type: "connected" };
+        });
+        // Push to buffer instead of updating state directly
+        eventBuffer.current.push(event);
+      },
+      () => {
+        // Error callback (Disconnected)
+        // Determine next step based on current status
+        setStatus((prev) => {
+          if (prev.type === "connected") {
+            // First disconnect
+            triggerReconnection(0); // Start with attempt 0
+            return {
+              type: "reconnecting",
+              attempt: 1,
+              maxAttempts: MAX_RETRIES,
+              nextRetryDelayMs: 0,
+            }; // Temporary state until triggerReconnection updates it properly with delay
+          } else if (prev.type === "reconnecting") {
+            triggerReconnection(prev.attempt);
+            return prev; // triggerReconnection will update state
+          }
+          // If already in error or disconnected state, just ensure hasError is true
+          return { type: "disconnected" }; // Or error, depending on previous state
+        });
+      },
+    );
+
+    // 2. Setup periodic temperature recalculation and TTL cleanup
+    const updateTimer = setInterval(() => {
+      const now = Date.now();
+
+      setSparks((previous) => {
+        // Filter out expired sparks
+        const aliveSparks = previous.filter((spark) => {
+          const expirationTime = new Date(spark.decayAt).getTime();
+          return now < expirationTime;
+        });
+
+        // Optimization: return same reference if nothing changed
+        if (aliveSparks.length === previous.length) {
+          return previous;
+        }
+
+        return aliveSparks;
+      });
+    }, UPDATE_INTERVAL_MS);
+
+    // 3. Cleanup on unmount or re-run
+    return () => {
+      disconnect();
+      clearInterval(updateTimer);
+      if (reconnectTimeoutRef.current)
+        clearTimeout(reconnectTimeoutRef.current);
+    };
+  }, [repository, connectTrigger]);
+
+  // Batch process incoming events
+  useEffect(() => {
+    const processBatch = () => {
+      if (eventBuffer.current.length === 0) return;
+
+      const events = [...eventBuffer.current];
+      eventBuffer.current = []; // Clear buffer
+
+      setSparks((currentSparks) => {
+        const updatedSparks = [...currentSparks];
+        let bonfirePromoted = false;
+
+        events.forEach((event) => {
+          if (event.type === "spark_posted") {
+            const newSpark = event.data;
+            // Deduplication
+            if (!updatedSparks.some((s) => s.id === newSpark.id)) {
+              updatedSparks.push(newSpark);
+            }
+          } else if (event.type === "spark_updated") {
+            const { spark_id, level, decay_at } = event;
+
+            // Find spark to update
+            const sparkIndex = updatedSparks.findIndex(
+              (s) => s.id === spark_id,
+            );
+            if (sparkIndex !== -1) {
+              if (level === "bonfire") {
+                // Remove from timeline if promoted to Bonfire
+                updatedSparks.splice(sparkIndex, 1);
+                bonfirePromoted = true;
+              } else {
+                // Update properties (e.g. extension to Kindling)
+                updatedSparks[sparkIndex] = {
+                  ...updatedSparks[sparkIndex],
+                  decayAt: decay_at,
+                };
+              }
+            }
+          }
+        });
+
+        if (bonfirePromoted && onBonfirePromoted) {
+          // Trigger callback (outside check to avoid state update loops if possible,
+          // but here needs setTimeout to break render cycle potentially)
+          setTimeout(onBonfirePromoted, 0);
+        }
+
+        return updatedSparks;
+      });
+    };
+
+    const batchTimer = setInterval(processBatch, BATCH_INTERVAL_MS);
+    return () => {
+      clearInterval(batchTimer);
+    };
+  }, [onBonfirePromoted]);
+
+  // 4. Recompute ViewModels whenever sparks change or timer ticks
+  // Logic remains same: periodic update for countdown
+  useEffect(() => {
+    // Immediate update when sparks change
+    setViewModels(computeViewModels(sparks));
+
+    const timer = setInterval(() => {
+      setViewModels(() => {
+        // Recompute to update time remaining
+        // We use the same sparks state unless it changed
+        return computeViewModels(sparks);
+      });
+    }, UPDATE_INTERVAL_MS);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [sparks]);
+
+  return { sparks: viewModels, status };
+};

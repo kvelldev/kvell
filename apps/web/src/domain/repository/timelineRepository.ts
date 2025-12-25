@@ -19,8 +19,15 @@ export interface ITimelineRepository {
    * @param onError - Callback invoked when connection fails or closes unexpectedly
    * @returns Cleanup function to disconnect and close the WebSocket
    */
-  connect(
-    onMessage: (event: TimelineEvent) => void,
-    onError: () => void,
-  ): () => void;
+  /**
+   * The WebSocket URL to connect to.
+   */
+  readonly connectionUrl: string;
+
+  /**
+   * Parse a raw WebSocket message into a domain event.
+   * @param message - The raw message received from the WebSocket
+   * @returns The parsed TimelineEvent, or null if the message is invalid or irrelevant
+   */
+  parseMessage(message: unknown): TimelineEvent | null;
 }

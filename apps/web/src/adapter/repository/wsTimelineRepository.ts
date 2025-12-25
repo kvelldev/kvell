@@ -42,93 +42,81 @@ type WebSocketMessage =
  * WebSocket Timeline Repository Implementation
  */
 class WsTimelineRepositoryImpl implements ITimelineRepository {
-  private readonly wsUrl: string;
+  private readonly _connectionUrl: string;
+
+  get connectionUrl(): string {
+    return this._connectionUrl;
+  }
 
   constructor() {
     const baseUrl: string =
       (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
       "http://localhost:8000";
     // Convert http(s):// to ws(s)://
-    this.wsUrl = baseUrl.replace(/^http/, "ws") + "/api/sparks/ws";
+    this._connectionUrl = baseUrl.replace(/^http/, "ws") + "/api/sparks/ws";
   }
 
-  connect(
-    onMessage: (event: TimelineEvent) => void,
-    onError: () => void,
-  ): () => void {
-    const ws = new WebSocket(this.wsUrl);
-    let isDisposed = false;
+  parseMessage(message: unknown): TimelineEvent | null {
+    try {
+      // In react-use-websocket, message.data is the string content if configured,
+      // but let's assume raw message event or already parsed data depending on usage.
+      // Actually, useWebSocket's lastJsonMessage or manually parsing 'message' usually needed.
+      // If 'message' passed here is the raw MessageEvent.data string:
 
-    ws.addEventListener("message", (event) => {
-      if (isDisposed) return;
-      try {
-        const data = JSON.parse(event.data as string) as WebSocketMessage;
+      // However, let's look at how we'll call it.
+      // If we pass the parsed JSON object directly (from lastJsonMessage), 'message' is an object.
+      // If we pass the raw event data, it's a string.
+      // Let's handle both for robustness, or assume object if we use lastJsonMessage.
 
-        // Determine message type and map to domain models
-        if ("type" in data && data.type === "spark_updated") {
-          // Handle SparkUpdatedEvent
-          onMessage({
-            type: "spark_updated",
-            spark_id: data.spark_id,
-            level: data.level as any,
-            decay_at: data.decay_at,
-            bonfire_id: data.bonfire_id,
-          });
-        } else if (
-          ("type" in data && data.type === "spark_posted") ||
-          ("id" in data && "content" in data)
-        ) {
-          // Handle SparkPostedEvent (Explicit type OR Legacy flat object)
-          const rawSpark =
-            "type" in data && "data" in data
-              ? data.data
-              : (data as SparkWebSocketMessage);
+      // WsTimelineRepositoryImpl previously parsed JSON.
+      // Let's assume input is the raw string or parsed object.
+      // Safe implementation:
 
-          const spark: Spark = {
-            id: rawSpark.id,
-            content: rawSpark.content,
-            userHash: rawSpark.user_hash,
-            createdAt: rawSpark.created_at,
-            decayAt: rawSpark.decay_at,
-          };
+      let data: WebSocketMessage;
 
-          onMessage({
-            type: "spark_posted",
-            data: spark,
-          });
-        }
-      } catch (error) {
-        console.error("Failed to parse WebSocket message:", error);
+      if (typeof message === "string") {
+        data = JSON.parse(message) as WebSocketMessage;
+      } else {
+        data = message as WebSocketMessage;
       }
-    });
 
-    ws.addEventListener("error", (event) => {
-      if (isDisposed) return;
-      console.error("WebSocket error:", event);
-      onError();
-    });
-
-    ws.addEventListener("close", (event) => {
-      if (isDisposed) return;
-      if (!event.wasClean) {
-        console.error(
-          "WebSocket closed unexpectedly:",
-          event.code,
-          event.reason,
-        );
-        onError();
-      }
-    });
-
-    return () => {
-      isDisposed = true;
-      if (
-        ws.readyState === WebSocket.OPEN ||
-        ws.readyState === WebSocket.CONNECTING
+      // Determine message type and map to domain models
+      if ("type" in data && data.type === "spark_updated") {
+        // Handle SparkUpdatedEvent
+        return {
+          type: "spark_updated",
+          spark_id: data.spark_id,
+          level: data.level as any,
+          decay_at: data.decay_at,
+          bonfire_id: data.bonfire_id,
+        };
+      } else if (
+        ("type" in data && data.type === "spark_posted") ||
+        ("id" in data && "content" in data)
       ) {
-        ws.close();
+        // Handle SparkPostedEvent (Explicit type OR Legacy flat object)
+        const rawSpark =
+          "type" in data && "data" in data
+            ? data.data
+            : (data as SparkWebSocketMessage);
+
+        const spark: Spark = {
+          id: rawSpark.id,
+          content: rawSpark.content,
+          userHash: rawSpark.user_hash,
+          createdAt: rawSpark.created_at,
+          decayAt: rawSpark.decay_at,
+        };
+
+        return {
+          type: "spark_posted",
+          data: spark,
+        };
       }
-    };
+    } catch (error) {
+      console.error("Failed to parse WebSocket message:", error);
+    }
+    return null;
   }
 }
 

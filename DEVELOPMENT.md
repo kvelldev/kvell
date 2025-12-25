@@ -26,7 +26,7 @@ git diff ${対象ディレクトリ} > diff.txt
 
 変更されたファイルの中身をすべて取得
 ```shell
-{ git diff HEAD --name-only --diff-filter=d apps; git ls-files --others --exclude-standard apps; } | sort | uniq | xargs -I{} cat "{}" > diff.txt
+{ git diff HEAD --name-only --diff-filter=d apps/web/src; git ls-files --others --exclude-standard apps/web/src; } | sort | uniq | xargs -I{} cat "{}" > diff.txt
 ```
 
 対象ディレクトリの実装ファイルをすべて取得
@@ -50,8 +50,15 @@ curl -s -X POST http://localhost:8000/api/sparks -H "Content-Type: application/j
 
 - 勢い表示の実装(B/Eで計算して返す必要がある) -> 当面は消しといても良いかも。MVPじゃなさそう。
 - 未読数の実装
-- B/E側でのspark->bonfire昇格時に、元のsparkをws配信しないロジックが入ってなさそう。sparkに薪くべ->昇格時に、一旦F/E側でそのsparkが消えはするんだけど、リロードするともう一度timelineに入ってくる。
+- B/E側でのspark->bonfire昇格時に、元のsparkをws配信しないロジックが入ってなさそう。sparkに薪くべ->昇格時に、一旦F/E側でそのsparkが消えはするんだけど、リロードするともう一度timelineに入ってくる。: 実装済み
 - headerのshareボタン効いてなさそう
+- timelineのws、フォーカス外すと切れるので再接続ロジックを入れる: now
+  - 接続が切れるとすぐに「サーバーに接続できません」となるので、ローカルに持ってるsparkは表示し続ける。接続切れはトースト等工夫した方が良い
+- bonfireのサンプルカードはリストの末尾に常においておく
+- spark投稿の改善。
+  - 一定時間経過で消える旨記載
+  - モーダルじゃないほうが良いかも?モバイルで投稿しづらい
+  - Shift+Enterで送信?
 - ws仕様まとめ。
   - チャネルはsparks:postedとsparks:update
   - updateは昇格時(spark->kingling, spark->bonfire)のみブロードキャスト

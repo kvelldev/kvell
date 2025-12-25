@@ -11,6 +11,7 @@ import { LoggerProvider } from "@/components/LoggerContext";
 import { sentryLogger } from "@/adapter/infra/sentryLogger";
 import { DebugPage } from "./components/pages/debugPage";
 import { AtmosphereBackground } from "./components/atoms/AtmosphereBackground";
+import { Toaster } from "@/components/ui/sonner";
 
 function App() {
   return (
@@ -20,11 +21,15 @@ function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/timeline" replace />} />
           <Route path="/timeline" element={<TimelinePage />} />
-          <Route path="/timeline/bonfire/:bonfireId" element={<TimelinePage />} />
+          <Route
+            path="/timeline/bonfire/:bonfireId"
+            element={<TimelinePage />}
+          />
           <Route path="/health" element={<HealthCheckPage />} />
           <Route path="/debug" element={<DebugPage />} />
         </Routes>
       </BrowserRouter>
+      <Toaster position="bottom-center" />
     </LoggerProvider>
   );
 }

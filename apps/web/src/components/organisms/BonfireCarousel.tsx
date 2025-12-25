@@ -14,6 +14,7 @@
 
 import type { BonfireViewModel } from "@/domain/model/bonfire";
 import { BonfireCard } from "@/components/molecules/BonfireCard";
+import { BonfirePlaceholderCard } from "@/components/molecules/BonfirePlaceholderCard";
 import {
   Carousel,
   CarouselContent,
@@ -43,16 +44,37 @@ interface BonfireCarouselProps {
  * - Horizontal carousel with Embla (via shadcn)
  * - Responsive navigation: hidden on mobile, hover-visible on desktop
  * - Drag/swipe support on all devices
- * - Empty state returns null (no bonfires = no carousel)
- * @returns Rendered carousel element or null if empty
+ * - Empty state shows placeholder card with guidance message
+ * @returns Rendered carousel element or placeholder if empty
  */
 export const BonfireCarousel = ({
   bonfires,
   onBonfireClick,
 }: BonfireCarouselProps) => {
-  // Empty State: Return null when no bonfires are available
+  // Empty State: Show placeholder card in carousel
   if (bonfires.length === 0) {
-    return null;
+    return (
+      <section
+        className="group relative w-full px-4 py-4 md:px-12"
+        data-testid="bonfire-carousel"
+        aria-label="焚き火エリア"
+      >
+        <Carousel
+          opts={{
+            align: "center",
+            loop: false,
+            dragFree: false,
+          }}
+          className="w-full"
+        >
+          <CarouselContent className="-ml-4 overflow-visible">
+            <CarouselItem className="basis-auto py-4 pl-4">
+              <BonfirePlaceholderCard message="たくさんの薪がくべられると焚き火になります" />
+            </CarouselItem>
+          </CarouselContent>
+        </Carousel>
+      </section>
+    );
   }
 
   return (
