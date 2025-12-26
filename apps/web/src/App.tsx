@@ -7,6 +7,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
 import { TimelinePage } from "@/components/pages/TimelinePage";
+import { AboutPage } from "@/components/pages/AboutPage";
 import { LoggerProvider } from "@/components/LoggerContext";
 import { sentryLogger } from "@/adapter/infra/sentryLogger";
 import { DebugPage } from "./components/pages/debugPage";
@@ -35,6 +36,7 @@ function App() {
 
           <Route path="/health" element={<HealthCheckPage />} />
           <Route path="/debug" element={<DebugPage />} />
+          <Route path="/about" element={<AboutPage />} />
 
           {/* Catch-all redirect to root */}
           <Route path="*" element={<Navigate to="/" replace />} />

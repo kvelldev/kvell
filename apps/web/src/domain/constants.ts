@@ -70,19 +70,19 @@ export const FIELDS = [
   {
     id: "sakurazaka46",
     label: "櫻坂46",
-    description: "Buddiesが集う、櫻坂46の実況と感想のフィールド",
+    description: "",
     themeColor: "from-pink-400 to-red-400",
   },
   {
     id: "nhk",
     label: "NHK",
-    description: "NHK番組の実況、ニュースやドキュメンタリーの感想戦",
+    description: "",
     themeColor: "from-blue-400 to-indigo-400",
   },
   {
     id: "wbc",
     label: "WBC",
-    description: "WBC（ワールド・ベースボール・クラシック）熱狂のフィールド",
+    description: "",
     themeColor: "from-yellow-400 to-orange-400",
   },
 ] as const;

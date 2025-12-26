@@ -354,7 +354,7 @@ class MongoBonfireRepository(BaseRepository, IBonfireRepository):
         return Bonfire(
             id=document["id"],
             spark_id=document["spark_id"],
-            field_id=document.get("field_id", "sakurazaka46"),
+            field_id=document["field_id"],
             content=document["content"],
             unique_user_count=document["unique_user_count"],
             heat_score=document["heat_score"],

@@ -54,15 +54,22 @@ class Settings(BaseSettings):
         description="Rate limit window duration in seconds",
     )
     spark_decay_after_seconds: int = Field(
-        default=60,
+        default=3600,
         description="Duration in seconds until a spark decays (becomes invisible)",
     )
     spark_vanish_after_days: int = Field(
-        default=30,
+        default=180,
         description="Days until spark vanishes (physical deletion via MongoDB TTL)",
     )
     spark_ng_words: str = Field(
-        default="forbidden_word",
+        default=(
+            "殺す,殺害,刺す,爆破,放火,"
+            "消すぞ,覚悟しろ,"
+            "死ね,自殺,首吊り,"
+            "覚醒剤,大麻,コカイン,"
+            "児童ポルノ,"
+            "テロ,ISIS"
+        ),
         description="Comma-separated list of prohibited words",
     )
     identity_secret_key: str = Field(

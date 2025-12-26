@@ -8,9 +8,10 @@
 
 import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Flame } from "lucide-react";
+import { Flame, ArrowLeft } from "lucide-react";
 import { LayoutGroup } from "framer-motion";
 import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
+import { Button } from "@/components/ui/button";
 import { bonfireRepository } from "@/adapter/repository/bonfireRepository";
 import { sparkRepository } from "@/adapter/repository/sparkRepository";
 import { triggerHapticFeedback } from "@/adapter/infra/haptic";
@@ -144,6 +145,19 @@ export const TimelinePage = () => {
 
   return (
     <LayoutGroup>
+      {/* Back to Top Navigation */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="fixed top-4 left-4 z-50 rounded-full bg-black/20 text-white backdrop-blur-md transition-colors hover:bg-black/40"
+        onClick={() => {
+          void navigate("/");
+        }}
+        aria-label="Topへ戻る"
+      >
+        <ArrowLeft className="h-6 w-6" />
+      </Button>
+
       <TimelineTemplate
         bonfireArea={
           <BonfireCarousel

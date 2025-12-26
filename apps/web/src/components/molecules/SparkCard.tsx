@@ -1,10 +1,18 @@
 import { memo, useState, useCallback } from "react";
 import clsx from "clsx";
-import { Flame } from "lucide-react";
+import { Flame, MoreHorizontal, Copy } from "lucide-react";
+import { toast } from "sonner";
 import type { SparkViewModel } from "@/domain/model/spark";
 import { IgniteEffect } from "@/components/atoms/IgniteEffect";
 import Linkify from "linkify-react";
 import { SparkImageThumbnail } from "./SparkImageThumbnail";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { formatSparkDate } from "@/domain/shared/date";
 
 interface SparkCardProps {
   spark: SparkViewModel;
@@ -61,9 +69,18 @@ const SparkCardComponent = ({
     setShowEffect(false);
   }, []);
 
+  const handleCopyId = useCallback(() => {
+    void navigator.clipboard.writeText(spark.id);
+    toast.success("IDをコピーしました", {
+      description: `#${spark.id}`,
+    });
+  }, [spark.id]);
+
   return (
     <div
       className={clsx(
+        // Group for hover effects
+        "group relative",
         // Glassmorphism: translucent background with backdrop blur
         "rounded-card bg-night-800/40 text-ash-500 p-4 backdrop-blur-md transition-all duration-1000 ease-in-out",
         shadowClass,
@@ -72,7 +89,29 @@ const SparkCardComponent = ({
       data-testid="spark-item"
       data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
     >
-      <p className="font-base text-smoke-100 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap">
+      {/* Context Menu (Top Right) - Hidden by default, visible on hover */}
+      <div className="absolute top-2 right-2 z-10">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="opacity-0 transition-opacity duration-200 outline-none group-hover:opacity-100 focus:opacity-100"
+              aria-label="More options"
+            >
+              <MoreHorizontal className="text-ash-600 hover:text-ash-400 h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-32">
+            <DropdownMenuItem
+              onClick={handleCopyId}
+              className="cursor-pointer text-xs"
+            >
+              <Copy className="mr-2 h-3.5 w-3.5" />
+              IDをコピー
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <p className="font-base text-smoke-100 pr-4 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap">
         <Linkify
           options={{
             target: "_blank",
@@ -87,7 +126,6 @@ const SparkCardComponent = ({
           {spark.content}
         </Linkify>
       </p>
-
       {/* Image Thumbnail */}
       {spark.imageUrl && (
         <SparkImageThumbnail
@@ -120,20 +158,22 @@ const SparkCardComponent = ({
         )}
         {/* Spacer when fuel button is hidden */}
         {hideFuelButton && <div />}
-        {/* User Hash */}
-        <span
-          className="text-ash-400 mb-1 block font-mono text-xs"
-          data-testid="spark-user-hash"
-        >
-          @{spark.userHash}
-        </span>
-        {/* TTL Timer */}
-        {/* <span
-          className={clsx("font-mono text-xs transition-colors duration-1000")}
-          data-testid="spark-timer"
-        >
-          {formatTime(spark.remainingTimeInSeconds)}
-        </span> */}
+
+        {/* Metadata: User Hash & Timestamp */}
+        <div className="text-right">
+          <span
+            className="text-ash-400 mb-1 block font-mono text-xs"
+            data-testid="spark-user-hash"
+          >
+            @{spark.userHash}
+          </span>
+          <span
+            className="text-smoke-100 block font-mono text-xs"
+            data-testid="spark-timestamp"
+          >
+            {formatSparkDate(spark.createdAt)}
+          </span>
+        </div>
       </div>
     </div>
   );

@@ -7,7 +7,7 @@
 
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Flame } from "lucide-react";
+import { Flame, Info } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -26,6 +26,19 @@ export const FieldList = () => {
       {/* Background is handled by App.tsx wrapper, but here we can add overlay if needed */}
       <AtmosphereBackground />
 
+      {/* Header / Navigation */}
+      <div className="absolute top-4 right-4 z-50">
+        <button
+          onClick={() => {
+            void navigate("/about");
+          }}
+          className="group flex items-center gap-2 rounded-full bg-white/5 px-4 py-2 text-sm font-medium text-white/50 backdrop-blur-md transition-all hover:bg-white/10 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+        >
+          <Info size={16} />
+          <span>About</span>
+        </button>
+      </div>
+
       <div className="relative z-10 mx-auto max-w-4xl px-4 py-12 md:py-24">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -38,10 +51,10 @@ export const FieldList = () => {
               <Flame size={32} className="drop-shadow-glow text-white" />
             </div>
           </div>
-          <h1 className="bg-linear-to-br from-white/10 to-transparent bg-clip-text text-4xl font-bold tracking-tight text-transparent drop-shadow-sm md:text-5xl">
+          <h1 className="bg-linear-to-br from-white/10 to-transparent bg-clip-text text-4xl tracking-tight text-white drop-shadow-sm md:text-5xl">
             Kvell
           </h1>
-          <p className="mt-4 text-lg text-white/60">
+          <p className="md:text-md text-sm text-white/60">
             A BBS for silent majority.
           </p>
         </motion.div>
@@ -63,7 +76,7 @@ export const FieldList = () => {
                 <div className="from-ember-500 h-1 w-24 rounded-full bg-linear-to-r to-orange-500 opacity-0 transition-opacity duration-300 group-hover:opacity-10" />
 
                 <CardHeader>
-                  <CardTitle className="text-2xl font-bold text-white group-hover:text-white/90">
+                  <CardTitle className="text-xl text-white group-hover:text-white/90">
                     {field.label}
                   </CardTitle>
                 </CardHeader>
