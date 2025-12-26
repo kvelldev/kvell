@@ -9,8 +9,9 @@ from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import DESCENDING, IndexModel
-from pymongo.errors import PyMongoError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
+from app.adapter.gateways.base_repository import BaseRepository
 from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
 from app.domain.model.bonfire import Bonfire
@@ -18,7 +19,7 @@ from app.domain.repository.bonfire_repository import IBonfireRepository
 from app.usecase.ports.logger import ILogger
 
 
-class MongoBonfireRepository(IBonfireRepository):
+class MongoBonfireRepository(BaseRepository, IBonfireRepository):
     """MongoDB implementation of bonfire repository."""
 
     COLLECTION_NAME = "bonfires"
@@ -48,10 +49,10 @@ class MongoBonfireRepository(IBonfireRepository):
                     name="decay_at_ttl",
                     expireAfterSeconds=0,
                 ),
-                # Query index for active bonfires
+                # Query index for active bonfires (by field_id, decay_at descending)
                 IndexModel(
-                    [("created_at", DESCENDING)],
-                    name="created_at_desc",
+                    [("field_id", 1), ("decay_at", DESCENDING)],
+                    name="field_decay_at_desc",
                 ),
                 # Index for looking up bonfire by spark_id
                 IndexModel(
@@ -95,6 +96,7 @@ class MongoBonfireRepository(IBonfireRepository):
             document = {
                 "id": bonfire.id,
                 "spark_id": bonfire.spark_id,
+                "field_id": bonfire.field_id,
                 "content": bonfire.content,
                 "unique_user_count": bonfire.unique_user_count,
                 "heat_score": bonfire.heat_score,
@@ -109,6 +111,15 @@ class MongoBonfireRepository(IBonfireRepository):
                 "Bonfire saved successfully",
                 context={"bonfire_id": bonfire.id},
             )
+        except DuplicateKeyError:
+            # Race condition: Bonfire already created by another request.
+            # This is acceptable (idempotent).
+            self.logger.warning(
+                LOG_EVENTS.BONFIRE_CREATED,
+                "Bonfire persistence skipped (already exists)",
+                context={"bonfire_id": bonfire.id},
+            )
+            # Proceed as if success
         except PyMongoError as e:
             self.logger.exception(
                 LOG_EVENTS.DB_QUERY_ERROR,
@@ -194,7 +205,7 @@ class MongoBonfireRepository(IBonfireRepository):
 
             return self._document_to_bonfire(document)
 
-    async def find_active_bonfires(self) -> AsyncIterator[Bonfire]:
+    async def find_active_bonfires(self, field_id: str) -> AsyncIterator[Bonfire]:
         """Find all active (non-decayed) bonfires.
 
         Yields:
@@ -207,10 +218,13 @@ class MongoBonfireRepository(IBonfireRepository):
         try:
             now = datetime.now(UTC)
 
-            # Query for bonfires that haven't decayed yet
+            # Query for bonfires that haven't decayed yet in the specific field
             cursor = self.collection.find(
-                {"decay_at": {"$gt": now}},
-            ).sort("created_at", DESCENDING)
+                {
+                    "field_id": field_id,
+                    "decay_at": {"$gt": now},
+                },
+            ).sort("created_at", 1)
 
             async for doc in cursor:
                 yield self._document_to_bonfire(doc)
@@ -250,7 +264,7 @@ class MongoBonfireRepository(IBonfireRepository):
         try:
             result = await self.collection.update_one(
                 {"id": bonfire_id},
-                {"$set": {"decay_at": new_decay_at}},
+                {"$max": {"decay_at": new_decay_at}},
             )
 
             if result.matched_count == 0:
@@ -333,13 +347,14 @@ class MongoBonfireRepository(IBonfireRepository):
             Bonfire entity
 
         """
-        # MongoDB stores datetime as UTC but returns them as timezone-naive
-        created_at = document["created_at"].replace(tzinfo=UTC)
-        decay_at = document["decay_at"].replace(tzinfo=UTC)
+        # MongoDB returns datetime as UTC but timezone-naive
+        created_at = self._ensure_utc(document["created_at"])
+        decay_at = self._ensure_utc(document["decay_at"])
 
         return Bonfire(
             id=document["id"],
             spark_id=document["spark_id"],
+            field_id=document.get("field_id", "sakurazaka46"),
             content=document["content"],
             unique_user_count=document["unique_user_count"],
             heat_score=document["heat_score"],

@@ -24,6 +24,7 @@ class TestSpark:
             user_hash=user_hash,
             decay_after_seconds=decay_after_seconds,
             vanish_after_days=vanish_after_days,
+            field_id="sakurazaka46",
         )
 
         # Assert
@@ -48,6 +49,7 @@ class TestSpark:
             user_hash="hash",
             decay_after_seconds=decay_after_seconds,
             vanish_after_days=vanish_after_days,
+            field_id="sakurazaka46",
         )
         after = datetime.now(UTC)
 
@@ -70,6 +72,7 @@ class TestSpark:
             user_hash="hash",
             decay_after_seconds=decay_after_seconds,
             vanish_after_days=vanish_after_days,
+            field_id="sakurazaka46",
         )
         after = datetime.now(UTC)
 
@@ -89,6 +92,7 @@ class TestSpark:
             user_hash="hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         spark2 = Spark.create(
             spark_id="id2",
@@ -96,6 +100,7 @@ class TestSpark:
             user_hash="hash",
             decay_after_seconds=1200,
             vanish_after_days=60,
+            field_id="sakurazaka46",
         )
 
         # Assert

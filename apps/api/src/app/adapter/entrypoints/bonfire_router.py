@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/bonfires", tags=["bonfires"])
 
 @router.get("")
 async def get_active_bonfires(
+    field_id: str,
     usecase: IGetActiveBonfiresUseCase = Depends(get_get_bonfires_usecase),
 ) -> JSONResponse:
     """Get all active bonfires.
@@ -32,7 +33,7 @@ async def get_active_bonfires(
         List of active bonfires with their details
 
     """
-    output = await usecase.execute()
+    output = await usecase.execute(field_id)
 
     return JSONResponse(
         status_code=200,
@@ -41,6 +42,7 @@ async def get_active_bonfires(
                 {
                     "id": b.id,
                     "spark_id": b.spark_id,
+                    "field_id": b.field_id,
                     "content": b.content,
                     "unique_user_count": b.unique_user_count,
                     "heat_score": b.heat_score,

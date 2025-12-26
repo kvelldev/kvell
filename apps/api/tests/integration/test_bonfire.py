@@ -56,6 +56,7 @@ class TestBonfirePromotionIntegration:
         level: SparkLevel = SparkLevel.SPARK,
         fuel_count: int = 0,
         decay_seconds: int = 1800,
+        field_id: str = "sakurazaka46",
     ) -> Spark:
         """Helper to create a spark in the database."""
         spark = Spark.create(
@@ -64,6 +65,7 @@ class TestBonfirePromotionIntegration:
             user_hash=user_hash,
             decay_after_seconds=decay_seconds,
             vanish_after_days=30,
+            field_id=field_id,
         )
         await spark_collection.insert_one(
             {
@@ -72,6 +74,7 @@ class TestBonfirePromotionIntegration:
                 "user_hash": spark.user_hash,
                 "fuel_count": fuel_count,
                 "level": level.value,
+                "field_id": spark.field_id,
                 "created_at": spark.created_at,
                 "decay_at": spark.decay_at,
                 "vanish_at": spark.vanish_at,
@@ -206,6 +209,7 @@ class TestBonfirePromotionIntegration:
         bonfire_doc = await bonfire_collection.find_one({"spark_id": spark.id})
         assert bonfire_doc is not None
         assert bonfire_doc["content"] == "Test content for promotion"
+        assert bonfire_doc["field_id"] == "sakurazaka46"
 
     @pytest.mark.asyncio
     async def test_addFuel_whenAntiTroll_twoUsersCantPromoteToBonfire(
@@ -294,6 +298,7 @@ class TestBonfirePromotionIntegration:
             "content": spark.content,
             "unique_user_count": 10,
             "heat_score": 100,
+            "field_id": "sakurazaka46",
             "created_at": datetime.now(UTC),
             "decay_at": original_decay,
         })
@@ -337,6 +342,7 @@ class TestBonfirePromotionIntegration:
                 "content": "Bonfire 1",
                 "unique_user_count": 10,
                 "heat_score": 50,
+                "field_id": "sakurazaka46",
                 "created_at": now - timedelta(hours=1),
                 "decay_at": now + timedelta(hours=2),  # Active
             },
@@ -346,13 +352,16 @@ class TestBonfirePromotionIntegration:
                 "content": "Bonfire 2",
                 "unique_user_count": 15,
                 "heat_score": 75,
+                "field_id": "sakurazaka46",
                 "created_at": now - timedelta(minutes=30),
                 "decay_at": now + timedelta(hours=3),  # Active
             },
         ])
 
         # Act
-        response = await test_client.get("/api/bonfires")
+        response = await test_client.get(
+            "/api/bonfires", params={"field_id": "sakurazaka46"}
+        )
 
         # Assert
         assert response.status_code == status.HTTP_200_OK
@@ -385,6 +394,7 @@ class TestBonfirePromotionIntegration:
                 "content": "Active bonfire",
                 "unique_user_count": 10,
                 "heat_score": 50,
+                "field_id": "sakurazaka46",
                 "created_at": now - timedelta(hours=1),
                 "decay_at": now + timedelta(hours=1),  # Still active
             },
@@ -394,13 +404,16 @@ class TestBonfirePromotionIntegration:
                 "content": "Decayed bonfire",
                 "unique_user_count": 5,
                 "heat_score": 30,
+                "field_id": "sakurazaka46",
                 "created_at": now - timedelta(hours=5),
                 "decay_at": now - timedelta(hours=1),  # Already decayed
             },
         ])
 
         # Act
-        response = await test_client.get("/api/bonfires")
+        response = await test_client.get(
+            "/api/bonfires", params={"field_id": "sakurazaka46"}
+        )
 
         # Assert: Only active bonfire returned
         assert response.status_code == status.HTTP_200_OK
@@ -422,7 +435,9 @@ class TestBonfirePromotionIntegration:
         # Arrange: No bonfires (clean state from fixture)
 
         # Act
-        response = await test_client.get("/api/bonfires")
+        response = await test_client.get(
+            "/api/bonfires", params={"field_id": "sakurazaka46"}
+        )
 
         # Assert
         assert response.status_code == status.HTTP_200_OK

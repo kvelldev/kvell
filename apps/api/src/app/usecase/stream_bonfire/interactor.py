@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 
 from pydantic import ValidationError
 
-from app.domain.constants import LOG_EVENTS
+from app.domain.constants import LOG_EVENTS, PUBSUB_BUFFER_SIZE
 from app.domain.exception import AppError
 from app.domain.repository.bonfire_repository import IBonfireRepository
 from app.domain.repository.spark_repository import ISparkRepository
@@ -26,8 +26,7 @@ from app.usecase.stream_bonfire.interface import (
     RawSparkMessage,
 )
 
-# Buffer size for PubSub messages (prevents memory leak)
-BUFFER_MAX_SIZE = 1000
+
 
 
 class StreamBonfireInteractor(IStreamBonfireUseCase):
@@ -53,7 +52,7 @@ class StreamBonfireInteractor(IStreamBonfireUseCase):
             self._log_bonfire_not_found(bonfire_id)
             raise AppError(internal_code=1005)
 
-        buffer: asyncio.Queue[PubSubMessage] = asyncio.Queue(maxsize=BUFFER_MAX_SIZE)
+        buffer: asyncio.Queue[PubSubMessage] = asyncio.Queue(maxsize=PUBSUB_BUFFER_SIZE)
         channel = f"bonfire:{bonfire_id}"
         pubsub_task = asyncio.create_task(
             self._run_pubsub_listener(buffer, channel, bonfire_id)
@@ -101,7 +100,7 @@ class StreamBonfireInteractor(IStreamBonfireUseCase):
                 self.logger.warning(
                     LOG_EVENTS.PUBSUB_BUFFER_OVERFLOW,
                     "Stream buffer overflow, dropping message",
-                    context={"bonfire_id": bonfire_id, "buffer_size": BUFFER_MAX_SIZE},
+                    context={"bonfire_id": bonfire_id, "buffer_size": PUBSUB_BUFFER_SIZE},
                 )
 
     async def _yield_snapshot(
@@ -119,6 +118,7 @@ class StreamBonfireInteractor(IStreamBonfireUseCase):
                 content=spark.content,
                 user_hash=spark.user_hash[:8],
                 parent_bonfire_id=spark.parent_bonfire_id,
+                field_id=spark.field_id,
                 created_at=spark.created_at,
                 decay_at=spark.decay_at,
             )
@@ -180,6 +180,7 @@ class StreamBonfireInteractor(IStreamBonfireUseCase):
                 content=parsed.content,
                 user_hash=parsed.user_hash,
                 parent_bonfire_id=parsed.parent_bonfire_id,
+                field_id=parsed.field_id,
                 created_at=parsed.created_at,
                 decay_at=parsed.decay_at,
             )

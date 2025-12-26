@@ -84,6 +84,7 @@ class TestStreamBonfireInteractor:
             unique_user_count=10,
             heat_score=100,
             initial_decay_hours=3,
+            field_id="sakurazaka46",
         )
 
     async def test_execute_whenBonfireNotFound_raisesAppError(
@@ -128,6 +129,8 @@ class TestStreamBonfireInteractor:
                 "parent_bonfire_id": "bonfire-001",
                 "created_at": datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat(),
                 "decay_at": datetime(2025, 1, 1, 3, 0, 0, tzinfo=UTC).isoformat(),
+                "field_id": "sakurazaka46",
+                "user_hash": "mockuserhash123",
             },
         ]
         mock_pubsub_gateway.subscribe_raw = Mock(
@@ -171,6 +174,7 @@ class TestStreamBonfireInteractor:
                 decay_after_seconds=600,
                 vanish_after_days=30,
                 parent_bonfire_id="bonfire-001",
+                field_id="sakurazaka46",
             ),
             Spark.create(
                 spark_id="snap-reply-2",
@@ -179,6 +183,7 @@ class TestStreamBonfireInteractor:
                 decay_after_seconds=600,
                 vanish_after_days=30,
                 parent_bonfire_id="bonfire-001",
+                field_id="sakurazaka46",
             ),
         ]
         mock_spark_repository.find_replies_by_bonfire_id = Mock(
@@ -194,6 +199,8 @@ class TestStreamBonfireInteractor:
                 "parent_bonfire_id": "bonfire-001",
                 "created_at": datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat(),
                 "decay_at": datetime(2025, 1, 1, 3, 0, 0, tzinfo=UTC).isoformat(),
+                "field_id": "sakurazaka46",
+                "user_hash": "mockuserhash123",
             },
         ]
         mock_pubsub_gateway.subscribe_raw = Mock(
@@ -285,6 +292,8 @@ class TestStreamBonfireInteractor:
                 "parent_bonfire_id": "bonfire-001",
                 "created_at": datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat(),
                 "decay_at": datetime(2025, 1, 1, 3, 0, 0, tzinfo=UTC).isoformat(),
+                "field_id": "sakurazaka46",
+                "user_hash": "mockuserhash123",
             },
         ]
         mock_pubsub_gateway.subscribe_raw = Mock(

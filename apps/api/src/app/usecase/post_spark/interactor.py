@@ -6,7 +6,7 @@ This module implements the business logic for posting a spark.
 import uuid
 from datetime import datetime
 
-from app.domain.constants import LOG_EVENTS
+from app.domain.constants import LOG_EVENTS, VALID_FIELDS
 from app.domain.exception import AppError
 from app.domain.model.spark import Spark
 from app.domain.repository.bonfire_repository import IBonfireRepository
@@ -36,7 +36,6 @@ class PostSparkInteractor(IPostSparkUseCase):
         decay_after_seconds: int,
         vanish_after_days: int,
         ng_words: list[str],
-        pubsub_channel: str,
     ) -> None:
         """Initialize the interactor.
 
@@ -68,7 +67,6 @@ class PostSparkInteractor(IPostSparkUseCase):
         self.decay_after_seconds = decay_after_seconds
         self.vanish_after_days = vanish_after_days
         self.ng_words = ng_words
-        self.pubsub_channel = pubsub_channel
 
     async def execute(
         self,
@@ -105,6 +103,15 @@ class PostSparkInteractor(IPostSparkUseCase):
                 },
             )
             raise AppError(internal_code=1003)
+
+        # Validate field_id
+        if input_data.field_id not in VALID_FIELDS:
+            self.logger.warning(
+                LOG_EVENTS.SPARK_VALIDATION_FAILED,
+                "Invalid field_id",
+                context={"field_id": input_data.field_id},
+            )
+            raise AppError(internal_code=1002, context={"message": "Invalid field_id"})
 
         # Check for NG words
         content_lower = input_data.content.lower()
@@ -151,6 +158,18 @@ class PostSparkInteractor(IPostSparkUseCase):
                 raise AppError(internal_code=1005)
             decay_at = bonfire.decay_at
 
+            # Validate field consistency
+            if bonfire.field_id != input_data.field_id:
+                self.logger.warning(
+                    LOG_EVENTS.SPARK_VALIDATION_FAILED,
+                    "Field mismatch for reply",
+                    context={
+                        "bonfire_field_id": bonfire.field_id,
+                        "input_field_id": input_data.field_id,
+                    },
+                )
+                raise AppError(internal_code=1002, context={"message": "Field mismatch"})
+
         # Create spark entity
         spark = Spark.create(
             spark_id=str(uuid.uuid4()),
@@ -158,6 +177,7 @@ class PostSparkInteractor(IPostSparkUseCase):
             user_hash=user_hash,
             decay_after_seconds=self.decay_after_seconds,
             vanish_after_days=self.vanish_after_days,
+            field_id=input_data.field_id,
             parent_bonfire_id=parent_bonfire_id,
             decay_at=decay_at,
         )
@@ -170,6 +190,7 @@ class PostSparkInteractor(IPostSparkUseCase):
             id=saved_spark.id,
             content=saved_spark.content,
             user_hash=saved_spark.user_hash[:8],
+            field_id=saved_spark.field_id,
             parent_bonfire_id=saved_spark.parent_bonfire_id,
             created_at=saved_spark.created_at,
             decay_at=saved_spark.decay_at,
@@ -179,7 +200,7 @@ class PostSparkInteractor(IPostSparkUseCase):
         if parent_bonfire_id:
             channel = f"bonfire:{parent_bonfire_id}"
         else:
-            channel = self.pubsub_channel
+            channel = f"timeline:{input_data.field_id}"
 
         # Publish to Redis pub/sub for real-time streaming
         await self.pubsub_gateway.publish(channel, spark_output)

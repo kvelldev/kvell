@@ -6,7 +6,9 @@ This module defines the Spark entity representing a user's post.
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.domain.constants import VALID_FIELDS
 
 
 class SparkLevel(str, Enum):
@@ -26,6 +28,7 @@ class Spark(BaseModel):
     content: str = Field(..., description="Spark content text")
     user_hash: str = Field(..., description="Anonymized user identifier")
     fuel_count: int = Field(default=0, description="Number of fuel added to this spark")
+    field_id: str = Field(..., description="Field ID (Community ID) this spark belongs to")
     level: SparkLevel = Field(
         default=SparkLevel.SPARK,
         description="Current promotion level",
@@ -47,6 +50,13 @@ class Spark(BaseModel):
         description="Timestamp when the spark vanishes (physical deletion via TTL)",
     )
 
+    @field_validator("field_id")
+    @classmethod
+    def validate_field_id(cls, v: str) -> str:
+        """Validate that field_id is in the allowed list of fields."""
+        if v not in VALID_FIELDS:
+            raise ValueError(f"Invalid field_id: {v}")
+        return v
     @staticmethod
     def create(
         spark_id: str,
@@ -54,17 +64,18 @@ class Spark(BaseModel):
         user_hash: str,
         decay_after_seconds: int,
         vanish_after_days: int,
+        field_id: str,
         parent_bonfire_id: str | None = None,
         decay_at: datetime | None = None,
     ) -> "Spark":
         """Create a new Spark entity with calculated timestamps.
 
         Args:
-            spark_id: Unique identifier for the spark
             content: Spark content text
             user_hash: Anonymized user identifier
             decay_after_seconds: Duration in seconds until spark decays
             vanish_after_days: Days until spark vanishes (physical deletion)
+            field_id: Field ID the spark belongs to
             parent_bonfire_id: Parent bonfire ID if this is a reply
             decay_at: Explicit decay_at (used for replies to inherit from bonfire)
 
@@ -78,6 +89,7 @@ class Spark(BaseModel):
             content=content,
             user_hash=user_hash,
             fuel_count=0,
+            field_id=field_id,
             parent_bonfire_id=parent_bonfire_id,
             created_at=now,
             decay_at=decay_at if decay_at else now + timedelta(seconds=decay_after_seconds),

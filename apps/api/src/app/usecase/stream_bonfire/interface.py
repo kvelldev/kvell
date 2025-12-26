@@ -50,6 +50,7 @@ class RawSparkMessage(BaseModel):
     content: str
     user_hash: str
     parent_bonfire_id: str | None = None
+    field_id: str
     created_at: datetime
     decay_at: datetime
 
@@ -74,21 +75,24 @@ class RawBonfireExtendedMessage(BaseModel):
     message: str = ""
 
 
-def _get_pubsub_message_discriminator(v: object) -> str:
-    """Discriminator function for PubSub messages."""
-    msg_type: str
-    if isinstance(v, dict):
-        v_dict = cast("dict[str, Any]", v)
-        raw_type = v_dict.get("type")
-        msg_type = str(raw_type) if raw_type is not None else "spark"
-    else:
-        msg_type = str(getattr(v, "type", "spark"))
+def _get_pubsub_message_discriminator(v: dict[str, Any] | object) -> str:
+    """Discriminator for PubSub messages by 'type' field."""
+    msg_type_str: str = "spark"
 
-    if msg_type == "bonfire_decayed":
-        return "decayed"
-    if msg_type == "bonfire_extended":
-        return "extended"
-    return "spark"
+    if isinstance(v, dict):
+        raw_type = v.get("type", "spark")
+        msg_type_str = str(raw_type)
+    else:
+        raw_type = getattr(v, "type", "spark")
+        msg_type_str = str(raw_type)
+
+    # Direct mapping
+    type_map = {
+        "bonfire_decayed": "decayed",
+        "bonfire_extended": "extended",
+        "spark": "spark",
+    }
+    return type_map.get(msg_type_str, "spark")
 
 
 # Discriminated union type for PubSub raw messages

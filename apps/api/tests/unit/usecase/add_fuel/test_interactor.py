@@ -86,6 +86,7 @@ class TestAddFuelInteractor:
             content="Test spark",
             user_hash="author_hash",
             fuel_count=10,
+            field_id="sakurazaka46",
             created_at=now,
             decay_at=now + timedelta(minutes=10),  # Still active
             vanish_at=now + timedelta(days=7),
@@ -100,6 +101,7 @@ class TestAddFuelInteractor:
             content="Old spark",
             user_hash="author_hash",
             fuel_count=5,
+            field_id="sakurazaka46",
             created_at=now - timedelta(minutes=20),
             decay_at=now - timedelta(minutes=10),  # Already decayed
             vanish_at=now + timedelta(days=7),

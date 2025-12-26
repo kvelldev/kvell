@@ -31,7 +31,7 @@ class GetActiveBonfiresInteractor(IGetActiveBonfiresUseCase):
         self.bonfire_repository = bonfire_repository
         self.logger = logger
 
-    async def execute(self) -> GetActiveBonfiresOutput:
+    async def execute(self, field_id: str) -> GetActiveBonfiresOutput:
         """Get all active bonfires.
 
         Returns:
@@ -40,11 +40,12 @@ class GetActiveBonfiresInteractor(IGetActiveBonfiresUseCase):
         """
         bonfires: list[BonfireDTO] = []
 
-        async for bonfire in self.bonfire_repository.find_active_bonfires():
+        async for bonfire in self.bonfire_repository.find_active_bonfires(field_id):
             bonfires.append(
                 BonfireDTO(
                     id=bonfire.id,
                     spark_id=bonfire.spark_id,
+                    field_id=bonfire.field_id,
                     content=bonfire.content,
                     unique_user_count=bonfire.unique_user_count,
                     heat_score=bonfire.heat_score,

@@ -20,6 +20,7 @@ class TestBonfire:
             content="Test content",
             unique_user_count=10,
             heat_score=50,
+            field_id="sakurazaka46",
         )
 
         assert bonfire.id == "spark-1"
@@ -39,6 +40,7 @@ class TestBonfire:
             unique_user_count=10,
             heat_score=50,
             initial_decay_hours=6,
+            field_id="sakurazaka46",
         )
 
         assert bonfire.decay_at == datetime(2024, 1, 1, 18, 0, 0, tzinfo=UTC)
@@ -54,6 +56,7 @@ class TestBonfire:
             unique_user_count=10,
             heat_score=50,
             initial_decay_hours=1,
+            field_id="sakurazaka46",
         )
         # decay_at = 13:00
 
@@ -70,6 +73,7 @@ class TestBonfire:
             content="Test",
             unique_user_count=10,
             heat_score=50,
+            field_id="sakurazaka46",
         )
 
         extended = bonfire.extend_by_fuel(extension_minutes=10)
@@ -94,6 +98,7 @@ class TestBonfire:
             heat_score=50,
             created_at=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
             decay_at=datetime(2024, 1, 1, 12, 30, 0, tzinfo=UTC),  # 30 min remaining
+            field_id="sakurazaka46",
         )
 
         extended = bonfire.extend_by_reply(extension_hours=3)
@@ -112,6 +117,7 @@ class TestBonfire:
             heat_score=50,
             created_at=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
             decay_at=datetime(2024, 1, 1, 20, 0, 0, tzinfo=UTC),  # 8 hours remaining
+            field_id="sakurazaka46",
         )
 
         extended = bonfire.extend_by_reply(extension_hours=3)
@@ -130,6 +136,7 @@ class TestBonfire:
             heat_score=50,
             created_at=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
             decay_at=datetime(2024, 1, 1, 12, 30, 0, tzinfo=UTC),
+            field_id="sakurazaka46",
         )
 
         custom_time = datetime(2024, 1, 1, 14, 0, 0, tzinfo=UTC)
@@ -154,6 +161,7 @@ class TestBonfire:
             heat_score=50,
             created_at=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
             decay_at=datetime(2024, 1, 1, 15, 0, 0, tzinfo=UTC),
+            field_id="sakurazaka46",
         )
 
         assert bonfire.is_active is True
@@ -169,6 +177,7 @@ class TestBonfire:
             heat_score=50,
             created_at=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
             decay_at=datetime(2024, 1, 1, 15, 0, 0, tzinfo=UTC),
+            field_id="sakurazaka46",
         )
 
         assert bonfire.is_active is False
@@ -184,6 +193,7 @@ class TestBonfire:
             heat_score=50,
             created_at=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
             decay_at=datetime(2024, 1, 1, 15, 0, 0, tzinfo=UTC),
+            field_id="sakurazaka46",
         )
 
         assert bonfire.is_active is False
@@ -197,6 +207,7 @@ class TestBonfire:
             content="Test",
             unique_user_count=10,
             heat_score=50,
+            field_id="sakurazaka46",
         )
 
         # Direct attribute modification should fail silently or raise

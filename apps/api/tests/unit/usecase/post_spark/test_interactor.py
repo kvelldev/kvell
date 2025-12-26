@@ -74,7 +74,6 @@ class TestPostSparkInteractor:
             decay_after_seconds=600,
             vanish_after_days=30,
             ng_words=["forbidden_word", "bad_word"],
-            pubsub_channel="sparks:events",
         )
 
     async def test_execute_whenValidInput_returnsSparkOutput(
@@ -84,7 +83,7 @@ class TestPostSparkInteractor:
     ) -> None:
         """Test execute with valid input returns SparkOutput."""
         # Arrange
-        input_data = PostSparkInput(content="Valid spark content")
+        input_data = PostSparkInput(content="Valid spark content", field_id="sakurazaka46")
         ip_address = "192.168.1.1"
 
         mock_spark = Spark.create(
@@ -93,6 +92,7 @@ class TestPostSparkInteractor:
             user_hash="test-user-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -112,7 +112,7 @@ class TestPostSparkInteractor:
         """Test execute with too long content raises AppError with code 1003."""
         # Arrange
         long_content = "x" * 501  # Over 500 char limit
-        input_data = PostSparkInput(content=long_content)
+        input_data = PostSparkInput(content=long_content, field_id="sakurazaka46")
         ip_address = "192.168.1.1"
 
         # Act & Assert
@@ -127,7 +127,10 @@ class TestPostSparkInteractor:
     ) -> None:
         """Test execute with NG word raises AppError with code 1002."""
         # Arrange
-        input_data = PostSparkInput(content="This contains forbidden_word here")
+        input_data = PostSparkInput(
+            content="This contains forbidden_word here",
+            field_id="sakurazaka46",
+        )
         ip_address = "192.168.1.1"
 
         # Act & Assert
@@ -142,7 +145,10 @@ class TestPostSparkInteractor:
     ) -> None:
         """Test execute with NG word (case insensitive) raises AppError."""
         # Arrange
-        input_data = PostSparkInput(content="This contains FORBIDDEN_WORD here")
+        input_data = PostSparkInput(
+            content="This contains FORBIDDEN_WORD here",
+            field_id="sakurazaka46",
+        )
         ip_address = "192.168.1.1"
 
         # Act & Assert
@@ -158,7 +164,7 @@ class TestPostSparkInteractor:
     ) -> None:
         """Test execute when rate limit exceeded raises AppError with code 1004."""
         # Arrange
-        input_data = PostSparkInput(content="Valid content")
+        input_data = PostSparkInput(content="Valid content", field_id="sakurazaka46")
         ip_address = "192.168.1.1"
         mock_rate_limiter.check_and_increment.return_value = False  # Exceeded
 
@@ -176,7 +182,7 @@ class TestPostSparkInteractor:
     ) -> None:
         """Test execute calls identity provider with IP address."""
         # Arrange
-        input_data = PostSparkInput(content="Valid content")
+        input_data = PostSparkInput(content="Valid content", field_id="sakurazaka46")
         ip_address = "192.168.1.1"
         mock_spark = Spark.create(
             spark_id="test-id",
@@ -184,6 +190,7 @@ class TestPostSparkInteractor:
             user_hash="test-user-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -201,7 +208,7 @@ class TestPostSparkInteractor:
     ) -> None:
         """Test execute calls rate limiter with correct parameters."""
         # Arrange
-        input_data = PostSparkInput(content="Valid content")
+        input_data = PostSparkInput(content="Valid content", field_id="sakurazaka46")
         ip_address = "192.168.1.1"
         mock_spark = Spark.create(
             spark_id="test-id",
@@ -209,6 +216,7 @@ class TestPostSparkInteractor:
             user_hash="test-user-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -229,7 +237,7 @@ class TestPostSparkInteractor:
     ) -> None:
         """Test execute saves spark with correct fields."""
         # Arrange
-        input_data = PostSparkInput(content="Valid content")
+        input_data = PostSparkInput(content="Valid content", field_id="sakurazaka46")
         ip_address = "192.168.1.1"
         mock_spark = Spark.create(
             spark_id="test-id",
@@ -237,6 +245,7 @@ class TestPostSparkInteractor:
             user_hash="test-user-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -248,6 +257,7 @@ class TestPostSparkInteractor:
         saved_spark = mock_spark_repository.save.call_args[0][0]
         assert saved_spark.content == input_data.content
         assert saved_spark.user_hash == "test-user-hash"
+        assert saved_spark.field_id == "sakurazaka46"
 
     async def test_execute_whenValid_publishesToPubSubChannel(
         self,
@@ -257,7 +267,7 @@ class TestPostSparkInteractor:
     ) -> None:
         """Test execute publishes to pub/sub channel after saving."""
         # Arrange
-        input_data = PostSparkInput(content="Valid content")
+        input_data = PostSparkInput(content="Valid content", field_id="sakurazaka46")
         ip_address = "192.168.1.1"
         mock_spark = Spark.create(
             spark_id="test-id",
@@ -265,6 +275,7 @@ class TestPostSparkInteractor:
             user_hash="test-user-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -274,7 +285,7 @@ class TestPostSparkInteractor:
         # Assert
         mock_pubsub_gateway.publish.assert_called_once()
         call_args = mock_pubsub_gateway.publish.call_args
-        assert call_args[0][0] == "sparks:events"  # channel
+        assert call_args[0][0] == "timeline:sakurazaka46"  # channel
         published_message = call_args[0][1]  # message
         assert isinstance(published_message, SparkOutput)
         assert published_message.id == "test-id"
@@ -288,7 +299,7 @@ class TestPostSparkInteractor:
     ) -> None:
         """Test execute publishes only after successful save."""
         # Arrange
-        input_data = PostSparkInput(content="Valid content")
+        input_data = PostSparkInput(content="Valid content", field_id="sakurazaka46")
         ip_address = "192.168.1.1"
         mock_spark = Spark.create(
             spark_id="test-id",
@@ -296,6 +307,7 @@ class TestPostSparkInteractor:
             user_hash="test-user-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -317,6 +329,21 @@ class TestPostSparkInteractor:
 
         # Assert
         assert call_order == ["save", "publish"]
+
+    async def test_execute_whenInvalidFieldId_raisesAppError(
+        self,
+        interactor: PostSparkInteractor,
+    ) -> None:
+        """Test execute with invalid field_id raises AppError."""
+        # Arrange
+        input_data = PostSparkInput(content="Valid content", field_id="invalid_field")
+        ip_address = "192.168.1.1"
+
+        # Act & Assert
+        with pytest.raises(AppError) as exc_info:
+            await interactor.execute(input_data, ip_address)
+
+        assert exc_info.value.internal_code == 1002
 
 
 class TestPostSparkInteractorReply:
@@ -380,7 +407,6 @@ class TestPostSparkInteractorReply:
             decay_after_seconds=600,
             vanish_after_days=30,
             ng_words=["forbidden_word"],
-            pubsub_channel="sparks:events",
         )
 
     @pytest.fixture
@@ -392,6 +418,7 @@ class TestPostSparkInteractorReply:
             unique_user_count=10,
             heat_score=100,
             initial_decay_hours=3,
+            field_id="sakurazaka46",
         )
 
     async def test_execute_whenReplyToBonfire_checksBonfireExists(
@@ -405,6 +432,7 @@ class TestPostSparkInteractorReply:
         input_data = PostSparkInput(
             content="Reply content",
             parent_bonfire_id="bonfire-001",
+            field_id="sakurazaka46",
         )
         ip_address = "192.168.1.1"
         mock_bonfire_repository.find_by_id.return_value = mock_bonfire
@@ -427,6 +455,7 @@ class TestPostSparkInteractorReply:
         input_data = PostSparkInput(
             content="Reply content",
             parent_bonfire_id="nonexistent-bonfire",
+            field_id="sakurazaka46",
         )
         ip_address = "192.168.1.1"
         mock_bonfire_repository.find_by_id.return_value = None
@@ -449,6 +478,7 @@ class TestPostSparkInteractorReply:
         input_data = PostSparkInput(
             content="Reply content",
             parent_bonfire_id="bonfire-001",
+            field_id="sakurazaka46",
         )
         ip_address = "192.168.1.1"
         mock_bonfire_repository.find_by_id.return_value = mock_bonfire
@@ -461,6 +491,7 @@ class TestPostSparkInteractorReply:
             vanish_after_days=30,
             parent_bonfire_id="bonfire-001",
             decay_at=mock_bonfire.decay_at,
+            field_id="sakurazaka46",
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -485,6 +516,7 @@ class TestPostSparkInteractorReply:
         input_data = PostSparkInput(
             content="Reply content",
             parent_bonfire_id="bonfire-001",
+            field_id="sakurazaka46",
         )
         ip_address = "192.168.1.1"
         mock_bonfire_repository.find_by_id.return_value = mock_bonfire
@@ -497,6 +529,7 @@ class TestPostSparkInteractorReply:
             vanish_after_days=30,
             parent_bonfire_id="bonfire-001",
             decay_at=mock_bonfire.decay_at,
+            field_id="sakurazaka46",
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -523,6 +556,7 @@ class TestPostSparkInteractorReply:
         input_data = PostSparkInput(
             content="Reply content",
             parent_bonfire_id="bonfire-001",
+            field_id="sakurazaka46",
         )
         ip_address = "192.168.1.1"
         mock_bonfire_repository.find_by_id.return_value = mock_bonfire
@@ -535,6 +569,7 @@ class TestPostSparkInteractorReply:
             vanish_after_days=30,
             parent_bonfire_id="bonfire-001",
             decay_at=mock_bonfire.decay_at,
+            field_id="sakurazaka46",
         )
         mock_spark_repository.save.return_value = mock_spark
 
@@ -543,3 +578,25 @@ class TestPostSparkInteractorReply:
 
         # Assert
         assert result.parent_bonfire_id == "bonfire-001"
+
+    async def test_execute_whenReplyFieldMismatch_raisesAppError(
+        self,
+        interactor: PostSparkInteractor,
+        mock_bonfire_repository: AsyncMock,
+        mock_bonfire: Bonfire,
+    ) -> None:
+        """Test reply with field mismatch raises AppError."""
+        # Arrange
+        input_data = PostSparkInput(
+            content="Reply content",
+            parent_bonfire_id="bonfire-001",
+            field_id="nhk",  # Mismatch with mock_bonfire (sakurazaka46)
+        )
+        ip_address = "192.168.1.1"
+        mock_bonfire_repository.find_by_id.return_value = mock_bonfire
+
+        # Act & Assert
+        with pytest.raises(AppError) as exc_info:
+            await interactor.execute(input_data, ip_address)
+
+        assert exc_info.value.internal_code == 1002

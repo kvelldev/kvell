@@ -18,6 +18,7 @@ class PostSparkInput(BaseModel):
         default=None,
         description="Parent bonfire ID if this is a reply",
     )
+    field_id: str = Field(..., description="Field (Community) ID")
 
 
 class SparkOutput(BaseModel):
@@ -34,6 +35,7 @@ class SparkOutput(BaseModel):
         default=None,
         description="Parent bonfire ID if this is a reply",
     )
+    field_id: str = Field(..., description="Field (Community) ID")
     created_at: datetime = Field(..., description="Creation timestamp (UTC)")
     decay_at: datetime = Field(
         ..., description="Timestamp when the spark decays (becomes invisible)"

@@ -1,13 +1,14 @@
 """Unit tests for StreamTimelineInteractor."""
 
-from datetime import UTC, datetime
+
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from app.domain.model.spark import Spark
-from app.usecase.dto.spark_dto import SparkOutput
+
+from app.usecase.dto.timeline_event import SparkPostedEvent, TimelineEvent
 from app.usecase.stream_timeline.interactor import StreamTimelineInteractor
 
 pytestmark = pytest.mark.asyncio
@@ -65,7 +66,6 @@ class TestStreamTimelineInteractor:
             pubsub_gateway=mock_pubsub_gateway,
             logger=mock_logger,
             active_spark_seconds=600,
-            pubsub_channel="sparks:events",
         )
 
     async def test_execute_whenNoActiveSparks_yieldsOnlyStreamEvents(
@@ -83,38 +83,51 @@ class TestStreamTimelineInteractor:
 
         # Mock pub/sub to yield 2 sparks then stop
         items = [
-            SparkOutput(
-                id="stream-1",
-                content="Stream spark 1",
-                user_hash="abc12345",
-                created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
-                decay_at=datetime(2025, 1, 1, 0, 10, 0, tzinfo=UTC),
-            ),
-            SparkOutput(
-                id="stream-2",
-                content="Stream spark 2",
-                user_hash="def67890",
-                created_at=datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC),
-                decay_at=datetime(2025, 1, 1, 0, 11, 0, tzinfo=UTC),
-            ),
+            {
+                "type": "spark_posted",
+                "data": {
+                    "id": "stream-1",
+                    "content": "Stream spark 1",
+                    "user_hash": "abc12345",
+                    "created_at": "2025-01-01T00:00:00Z",
+                    "decay_at": "2025-01-01T00:10:00Z",
+                    "field_id": "test_field",
+                }
+            },
+            {
+                "type": "spark_posted",
+                "data": {
+                    "id": "stream-2",
+                    "content": "Stream spark 2",
+                    "user_hash": "def67890",
+                    "created_at": "2025-01-01T00:01:00Z",
+                    "decay_at": "2025-01-01T00:11:00Z",
+                    "field_id": "test_field",
+                }
+            },
         ]
-        mock_pubsub_gateway.subscribe = Mock(return_value=MockAsyncIterator(items))
+        mock_pubsub_gateway.subscribe_raw = Mock(return_value=MockAsyncIterator(items))
 
         # Act
-        results: list[SparkOutput] = []
+        results: list[TimelineEvent] = []
         count = 0
-        async for spark in interactor.execute():
-            results.append(spark)
+        async for event in interactor.execute(field_id="test_field"):
+            results.append(event)
             count += 1
             if count >= 2:  # Only collect 2 stream events
                 break
 
         # Assert
         assert len(results) == 2
-        assert results[0].id == "stream-1"
-        assert results[1].id == "stream-2"
-        mock_spark_repository.find_active_sparks.assert_called_once_with(seconds=600)
-        mock_pubsub_gateway.subscribe.assert_called_once_with("sparks:events")
+        assert isinstance(results[0], SparkPostedEvent)
+        assert results[0].data.id == "stream-1"
+        assert isinstance(results[1], SparkPostedEvent)
+        assert results[1].data.id == "stream-2"
+
+        mock_spark_repository.find_active_sparks.assert_called_once_with(
+            field_id="test_field", seconds=600
+        )
+        mock_pubsub_gateway.subscribe_raw.assert_called_once_with(["timeline:test_field"])
 
     async def test_execute_whenActiveSparksExist_yieldsSnapshotThenStream(
         self,
@@ -131,6 +144,7 @@ class TestStreamTimelineInteractor:
                 user_hash="user-1",
                 decay_after_seconds=600,
                 vanish_after_days=30,
+                field_id="test_field",
             ),
             Spark.create(
                 spark_id="snap-2",
@@ -138,6 +152,7 @@ class TestStreamTimelineInteractor:
                 user_hash="user-2",
                 decay_after_seconds=600,
                 vanish_after_days=30,
+                field_id="test_field",
             ),
         ]
         # Repository returns async iterator of sparks
@@ -147,21 +162,25 @@ class TestStreamTimelineInteractor:
 
         # Mock pub/sub to yield 1 spark then stop
         items = [
-            SparkOutput(
-                id="stream-1",
-                content="Stream spark 1",
-                user_hash="stream01",
-                created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
-                decay_at=datetime(2025, 1, 1, 0, 10, 0, tzinfo=UTC),
-            ),
+            {
+                "type": "spark_posted",
+                "data": {
+                    "id": "stream-1",
+                    "content": "Stream spark 1",
+                    "user_hash": "stream01",
+                    "created_at": "2025-01-01T00:00:00Z",
+                    "decay_at": "2025-01-01T00:10:00Z",
+                    "field_id": "test_field",
+                }
+            },
         ]
-        mock_pubsub_gateway.subscribe = Mock(return_value=MockAsyncIterator(items))
+        mock_pubsub_gateway.subscribe_raw = Mock(return_value=MockAsyncIterator(items))
 
         # Act
-        results: list[SparkOutput] = []
+        results: list[TimelineEvent] = []
         count = 0
-        async for spark in interactor.execute():
-            results.append(spark)
+        async for event in interactor.execute(field_id="test_field"):
+            results.append(event)
             count += 1
             if count >= 3:  # Collect 2 snapshot + 1 stream
                 break
@@ -169,13 +188,15 @@ class TestStreamTimelineInteractor:
         # Assert
         assert len(results) == 3
         # First 2 are snapshot (oldest first)
-        assert results[0].id == "snap-1"
-        assert results[0].content == "Snapshot spark 1"
-        assert results[1].id == "snap-2"
-        assert results[1].content == "Snapshot spark 2"
+        assert isinstance(results[0], SparkPostedEvent)
+        assert results[0].data.id == "snap-1"
+
+        assert isinstance(results[1], SparkPostedEvent)
+        assert results[1].data.id == "snap-2"
+
         # Last one is stream
-        assert results[2].id == "stream-1"
-        assert results[2].content == "Stream spark 1"
+        assert isinstance(results[2], SparkPostedEvent)
+        assert results[2].data.id == "stream-1"
 
     async def test_execute_whenSnapshotReturnsMultipleSparks_yieldsInAscendingOrder(
         self,
@@ -192,6 +213,7 @@ class TestStreamTimelineInteractor:
                 user_hash=f"user-{i}",
                 decay_after_seconds=600,
                 vanish_after_days=30,
+                field_id="test_field",
             )
             for i in range(5)
         ]
@@ -201,13 +223,13 @@ class TestStreamTimelineInteractor:
         )
 
         # Mock pub/sub (won't actually iterate)
-        mock_pubsub_gateway.subscribe = Mock(return_value=MockAsyncIterator([]))
+        mock_pubsub_gateway.subscribe_raw = Mock(return_value=MockAsyncIterator([]))
 
         # Act
-        results: list[SparkOutput] = []
+        results: list[TimelineEvent] = []
         count = 0
-        async for spark in interactor.execute():
-            results.append(spark)
+        async for event in interactor.execute(field_id="test_field"):
+            results.append(event)
             count += 1
             if count >= 5:  # Only collect snapshot
                 break
@@ -215,5 +237,6 @@ class TestStreamTimelineInteractor:
         # Assert
         assert len(results) == 5
         for i in range(5):
-            assert results[i].id == f"snap-{i}"
-            assert results[i].content == f"Spark {i}"
+            event = results[i]
+            assert isinstance(event, SparkPostedEvent)
+            assert event.data.id == f"snap-{i}"

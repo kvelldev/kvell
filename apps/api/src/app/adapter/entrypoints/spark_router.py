@@ -141,9 +141,10 @@ async def add_fuel_to_spark(
     return output
 
 
-@router.websocket("/ws")
+@router.websocket("/{field_id}/ws")
 async def websocket_timeline(
     websocket: WebSocket,
+    field_id: str,
     usecase: Annotated[IStreamTimelineUseCase, Depends(get_stream_timeline_usecase)],
     logger: Annotated[ILogger, Depends(get_logger)],
 ) -> None:
@@ -160,12 +161,12 @@ async def websocket_timeline(
     logger.info(
         LOG_EVENTS.WEBSOCKET_CONNECTED,
         "WebSocket connection established",
-        context={"client": str(websocket.client)},
+        context={"client": str(websocket.client), "field_id": field_id},
     )
 
     try:
         # Stream timeline updates (Snapshot + Stream)
-        async for timeline_event in usecase.execute():
+        async for timeline_event in usecase.execute(field_id):
             # Send event as JSON to client
             # model_dump(mode='json') ensures datetime serialization uses string format
             await websocket.send_json(timeline_event.model_dump(mode="json"))

@@ -11,6 +11,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import IndexModel
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
+from app.adapter.gateways.base_repository import BaseRepository
 from app.domain.constants import LOG_EVENTS
 from app.domain.exception import AppError
 from app.domain.model.spark import Spark, SparkLevel
@@ -19,7 +20,7 @@ from app.domain.repository.spark_repository import ISparkRepository
 from app.usecase.ports.logger import ILogger
 
 
-class MongoSparkRepository(ISparkRepository):
+class MongoSparkRepository(BaseRepository, ISparkRepository):
     """MongoDB implementation of spark repository."""
 
     COLLECTION_NAME = "sparks"
@@ -52,15 +53,20 @@ class MongoSparkRepository(ISparkRepository):
                     name="vanish_at_ttl",
                     expireAfterSeconds=0,
                 ),
-                # Query index for timeline retrieval (by decay_at)
+                # Query index for timeline retrieval (by field_id, decay_at)
                 IndexModel(
-                    [("decay_at", -1)],
-                    name="decay_at_desc",
+                    [("field_id", 1), ("decay_at", -1)],
+                    name="field_decay_at_desc",
                 ),
-                # Query index for active sparks retrieval (by created_at)
+                # Query index for active sparks retrieval (by field_id, created_at)
                 IndexModel(
-                    [("created_at", 1)],
-                    name="created_at_asc",
+                    [("field_id", 1), ("created_at", 1)],
+                    name="field_created_at_asc",
+                ),
+                # Compound index for active sparks retrieval with level filter
+                IndexModel(
+                    [("field_id", 1), ("level", 1), ("created_at", 1)],
+                    name="field_level_created_at_asc",
                 ),
                 # Query index for replies retrieval (by parent_bonfire_id)
                 IndexModel(
@@ -137,6 +143,7 @@ class MongoSparkRepository(ISparkRepository):
                 "content": spark.content,
                 "user_hash": spark.user_hash,
                 "fuel_count": spark.fuel_count,
+                "field_id": spark.field_id,
                 "level": spark.level.value,
                 "parent_bonfire_id": spark.parent_bonfire_id,
                 "created_at": spark.created_at,
@@ -233,9 +240,9 @@ class MongoSparkRepository(ISparkRepository):
 
             # MongoDB stores datetime as UTC but returns them as timezone-naive
             # Add UTC timezone to match Spark model expectations
-            created_at = document["created_at"].replace(tzinfo=UTC)
-            decay_at = document["decay_at"].replace(tzinfo=UTC)
-            vanish_at = document["vanish_at"].replace(tzinfo=UTC)
+            created_at = self._ensure_utc(document["created_at"])
+            decay_at = self._ensure_utc(document["decay_at"])
+            vanish_at = self._ensure_utc(document["vanish_at"])
 
             # Parse level with fallback for legacy documents
             level_str = document.get("level", SparkLevel.SPARK.value)
@@ -246,6 +253,7 @@ class MongoSparkRepository(ISparkRepository):
                 content=document["content"],
                 user_hash=document["user_hash"],
                 fuel_count=document.get("fuel_count", 0),
+                field_id=document.get("field_id", "sakurazaka46"),  # Fallback for migration
                 level=level,
                 parent_bonfire_id=document.get("parent_bonfire_id"),
                 created_at=created_at,
@@ -255,12 +263,14 @@ class MongoSparkRepository(ISparkRepository):
 
     async def find_active_sparks(
         self,
+        field_id: str,
         seconds: int,
         limit: int = 1000,
     ) -> AsyncIterator[Spark]:
         """Find all active sparks created within the specified seconds.
 
         Args:
+            field_id: Field ID to filter by
             seconds: Number of seconds to look back from now
             limit: Maximum number of sparks to return (default 1000)
 
@@ -281,13 +291,17 @@ class MongoSparkRepository(ISparkRepository):
                 context={
                     "collection": self.COLLECTION_NAME,
                     "cutoff_time": cutoff_time.isoformat(),
+                    "collection": self.COLLECTION_NAME,
+                    "field_id": field_id,
+                    "cutoff_time": cutoff_time.isoformat(),
                     "limit": limit,
                 },
             )
 
-            # Query for active sparks (not BONFIRE) created after cutoff_time
+            # Query for active sparks (not BONFIRE) created after cutoff_time in the specific field
             cursor = self.collection.find(
                 {
+                    "field_id": field_id,
                     "created_at": {"$gte": cutoff_time},
                     "level": {"$ne": SparkLevel.BONFIRE.value},
                 },
@@ -299,9 +313,9 @@ class MongoSparkRepository(ISparkRepository):
                 count += 1
                 # MongoDB returns datetime as UTC but timezone-naive
                 # Add UTC timezone to match Spark model expectations
-                created_at = doc["created_at"].replace(tzinfo=UTC)
-                decay_at = doc["decay_at"].replace(tzinfo=UTC)
-                vanish_at = doc["vanish_at"].replace(tzinfo=UTC)
+                created_at = self._ensure_utc(doc["created_at"])
+                decay_at = self._ensure_utc(doc["decay_at"])
+                vanish_at = self._ensure_utc(doc["vanish_at"])
 
                 # Parse level with fallback for legacy documents
                 level_str = doc.get("level", SparkLevel.SPARK.value)
@@ -312,6 +326,7 @@ class MongoSparkRepository(ISparkRepository):
                     content=doc["content"],
                     user_hash=doc["user_hash"],
                     fuel_count=doc.get("fuel_count", 0),
+                    field_id=doc.get("field_id", "sakurazaka46"),
                     level=level,
                     parent_bonfire_id=doc.get("parent_bonfire_id"),
                     created_at=created_at,
@@ -335,6 +350,7 @@ class MongoSparkRepository(ISparkRepository):
                 error=e,
                 context={
                     "collection": self.COLLECTION_NAME,
+                    "field_id": field_id,
                     "seconds": seconds,
                 },
             )
@@ -575,7 +591,7 @@ class MongoSparkRepository(ISparkRepository):
         try:
             result = await self.collection.update_one(
                 {"id": spark_id},
-                {"$set": {"decay_at": new_decay_at}},
+                {"$max": {"decay_at": new_decay_at}},
             )
 
             if result.matched_count == 0:
@@ -648,9 +664,9 @@ class MongoSparkRepository(ISparkRepository):
             async for doc in cursor:
                 count += 1
                 # MongoDB returns datetime as UTC but timezone-naive
-                created_at = doc["created_at"].replace(tzinfo=UTC)
-                decay_at = doc["decay_at"].replace(tzinfo=UTC)
-                vanish_at = doc["vanish_at"].replace(tzinfo=UTC)
+                created_at = self._ensure_utc(doc["created_at"])
+                decay_at = self._ensure_utc(doc["decay_at"])
+                vanish_at = self._ensure_utc(doc["vanish_at"])
 
                 # Parse level with fallback for legacy documents
                 level_str = doc.get("level", SparkLevel.SPARK.value)
@@ -661,6 +677,7 @@ class MongoSparkRepository(ISparkRepository):
                     content=doc["content"],
                     user_hash=doc["user_hash"],
                     fuel_count=doc.get("fuel_count", 0),
+                    field_id=doc.get("field_id", "sakurazaka46"),
                     level=level,
                     parent_bonfire_id=doc.get("parent_bonfire_id"),
                     created_at=created_at,

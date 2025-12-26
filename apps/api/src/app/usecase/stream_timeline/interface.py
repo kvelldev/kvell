@@ -6,14 +6,14 @@ This module defines the input port for timeline streaming.
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
-from app.usecase.dto.spark_dto import SparkOutput
+from app.usecase.dto.timeline_event import TimelineEvent
 
 
 class IStreamTimelineUseCase(ABC):
     """Interface for streaming timeline use case."""
 
     @abstractmethod
-    async def execute(self) -> AsyncIterator[SparkOutput]:
+    async def execute(self, field_id: str) -> AsyncIterator[TimelineEvent]:
         """Stream timeline updates (Snapshot + Stream).
 
         First yields active sparks from the database (Snapshot),

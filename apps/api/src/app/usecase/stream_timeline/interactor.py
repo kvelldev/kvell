@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 
-from app.domain.constants import LOG_EVENTS
+from app.domain.constants import LOG_EVENTS, PUBSUB_BUFFER_SIZE
 from app.domain.repository.spark_repository import ISparkRepository
 from app.usecase.dto.spark_dto import SparkOutput
 from app.usecase.dto.timeline_event import SparkPostedEvent, SparkUpdatedEvent, TimelineEvent
@@ -25,7 +25,6 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
         pubsub_gateway: IPubSubGateway,
         logger: ILogger,
         active_spark_seconds: int,
-        pubsub_channels: list[str],
     ) -> None:
         """Initialize the interactor.
 
@@ -34,16 +33,14 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
             pubsub_gateway: Gateway for pub/sub messaging
             logger: Logger for structured logging
             active_spark_seconds: Seconds to look back for active sparks
-            pubsub_channels: Redis pub/sub channel names
 
         """
         self.spark_repository = spark_repository
         self.pubsub_gateway = pubsub_gateway
         self.logger = logger
         self.active_spark_seconds = active_spark_seconds
-        self.pubsub_channels = pubsub_channels
 
-    async def execute(self) -> AsyncIterator[TimelineEvent]:
+    async def execute(self, field_id: str) -> AsyncIterator[TimelineEvent]:
         """Stream timeline updates (Snapshot + Stream).
 
         Prevents race conditions by:
@@ -57,21 +54,23 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
 
         """
         # Queue for buffering PubSub messages during DB fetch
-        buffer: asyncio.Queue[TimelineEvent] = asyncio.Queue()
+        # Use bounded queue to prevent memory leaks (Active User Load Protection)
+        buffer: asyncio.Queue[TimelineEvent] = asyncio.Queue(maxsize=PUBSUB_BUFFER_SIZE)
 
         # Background task to subscribe to PubSub
         async def pubsub_listener() -> None:
             """Listen to PubSub and buffer messages."""
+            # Dynamic channel for the field
+            channel = f"timeline:{field_id}"
+
             self.logger.info(
                 LOG_EVENTS.TIMELINE_STREAM_STARTED,
                 "Starting timeline stream subscription",
-                context={"channels": self.pubsub_channels},
+                context={"channel": channel},
             )
 
             # Using subscribe_raw to handle multiple message types (posted/updated)
-            async for raw_msg in self.pubsub_gateway.subscribe_raw(
-                self.pubsub_channels
-            ):
+            async for raw_msg in self.pubsub_gateway.subscribe_raw([channel]):
                 msg_type = raw_msg.get("type")
 
                 # DEBUG Log
@@ -103,7 +102,15 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
                              event = SparkPostedEvent(data=spark_output)
 
                     if event:
-                        await buffer.put(event)
+                        try:
+                            # Try to put in buffer with timeout to drop if full
+                            await asyncio.wait_for(buffer.put(event), timeout=0.1)
+                        except asyncio.TimeoutError:
+                            self.logger.warning(
+                                LOG_EVENTS.PUBSUB_BUFFER_OVERFLOW,
+                                "Buffer full, dropping message",
+                                context={"channel": channel},
+                            )
                     else:
                         self.logger.warning(
                             LOG_EVENTS.PUBSUB_DESERIALIZATION_ERROR,
@@ -128,6 +135,7 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
             snapshot_count = 0
 
             async for spark in self.spark_repository.find_active_sparks(
+                field_id=field_id,
                 seconds=self.active_spark_seconds,
             ):
                 snapshot_ids.add(spark.id)
@@ -138,6 +146,7 @@ class StreamTimelineInteractor(IStreamTimelineUseCase):
                     id=spark.id,
                     content=spark.content,
                     user_hash=spark.user_hash[:8],
+                    field_id=spark.field_id,
                     created_at=spark.created_at,
                     decay_at=spark.decay_at,
                 )

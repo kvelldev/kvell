@@ -41,6 +41,7 @@ class ISparkRepository(ABC):
     @abstractmethod
     async def find_active_sparks(
         self,
+        field_id: str,
         seconds: int,
         limit: int = 1000,
     ) -> AsyncIterator[Spark]:

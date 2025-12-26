@@ -1,904 +1,3647 @@
-/**
- * App Component
- *
- * Root application component with routing and DI providers.
- */
+"""Bonfire API Router.
 
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
-import { TimelinePage } from "@/components/pages/TimelinePage";
-import { LoggerProvider } from "@/components/LoggerContext";
-import { sentryLogger } from "@/adapter/infra/sentryLogger";
-import { DebugPage } from "./components/pages/debugPage";
-import { AtmosphereBackground } from "./components/atoms/AtmosphereBackground";
-import { Toaster } from "@/components/ui/sonner";
+This module provides REST and WebSocket endpoints for bonfire operations.
+"""
 
-function App() {
-  return (
-    <LoggerProvider logger={sentryLogger}>
-      <AtmosphereBackground />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Navigate to="/timeline" replace />} />
-          <Route path="/timeline" element={<TimelinePage />} />
-          <Route
-            path="/timeline/bonfire/:bonfireId"
-            element={<TimelinePage />}
-          />
-          <Route path="/health" element={<HealthCheckPage />} />
-          <Route path="/debug" element={<DebugPage />} />
-        </Routes>
-      </BrowserRouter>
-      <Toaster position="bottom-center" />
-    </LoggerProvider>
-  );
-}
+from typing import Annotated
 
-export default App;
-/**
- * BonfirePlaceholderCard Component (Molecule)
- *
- * Displays a placeholder card when no bonfires exist.
- * Shares visual style with BonfireCard (Glassmorphism, same dimensions).
- *
- * Uses subtle Info icon instead of bonfire image to indicate empty state.
- */
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 
-import clsx from "clsx";
-import { Info } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+from app.adapter.entrypoints.dependencies import (
+    get_get_bonfires_usecase,
+    get_logger,
+    get_stream_bonfire_usecase,
+)
+from app.domain.constants import LOG_EVENTS
+from app.usecase.dto.spark_dto import SparkOutput
+from app.usecase.get_bonfires.interface import IGetActiveBonfiresUseCase
+from app.usecase.ports.logger import ILogger
+from app.usecase.stream_bonfire.interface import IStreamBonfireUseCase
 
-interface BonfirePlaceholderCardProps {
-  message: string;
-}
+router = APIRouter(prefix="/api/bonfires", tags=["bonfires"])
 
-export const BonfirePlaceholderCard = ({
-  message,
-}: BonfirePlaceholderCardProps) => {
-  return (
-    <Card
-      className={clsx(
-        // Layout & Responsive dimensions (same as BonfireCard)
-        "h-52 w-52 md:h-72 md:w-72",
-        "flex-none overflow-hidden",
 
-        // Base Style (Glassmorphism)
-        "bg-night-900/40 backdrop-blur-md",
-        "border border-white/10",
-      )}
-      data-testid="bonfire-placeholder"
-    >
-      {/* Icon Section (replaces image) */}
-      <div
-        className={clsx(
-          "relative h-28 w-full md:h-40",
-          "flex items-center justify-center",
-          "bg-earthshadow-base/20",
-        )}
-      >
-        <Info className="text-ash-500 size-8 md:size-10" strokeWidth={1} />
-      </div>
+@router.get("")
+async def get_active_bonfires(
+    field_id: str,
+    usecase: IGetActiveBonfiresUseCase = Depends(get_get_bonfires_usecase),
+) -> JSONResponse:
+    """Get all active bonfires.
 
-      {/* Content Section */}
-      <CardContent className="h-16 p-3 md:h-20 md:p-4">
-        <p className="font-base text-ash-500 text-center text-sm leading-relaxed">
-          {message}
-        </p>
-      </CardContent>
-    </Card>
-  );
-};
-import { memo, useState, useCallback } from "react";
-import clsx from "clsx";
-import { Flame } from "lucide-react";
-import type { SparkViewModel } from "@/domain/model/spark";
-import { IgniteEffect } from "@/components/atoms/IgniteEffect";
-import Linkify from "linkify-react";
-import { SparkImageThumbnail } from "./SparkImageThumbnail";
+    Returns:
+        List of active bonfires with their details
 
-interface SparkCardProps {
-  spark: SparkViewModel;
-  /**
-   * Callback when fuel button is clicked
-   */
-  onAddFuel?: (sparkId: string) => void;
-  /**
-   * Hide the fuel button (used for bonfire replies which cannot be promoted)
-   * @default false
-   */
-  hideFuelButton?: boolean;
-}
+    """
+    output = await usecase.execute(field_id)
 
-const formatTime = (totalSeconds: number): string => {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-};
-
-/**
- * SparkCard Component (Memoized)
- *
- * Renders a single spark with:
- * - Fade-in animation on mount
- * - Color temperature based heat expression (white→ash transition)
- * - Dynamic glow: Visible when hot, disappears when cooled (Ash)
- * - TTL countdown timer in bottom-right corner
- * - Text truncation for long content
- * - Add fuel button with ignite effect
- *
- * Performance:
- * - Memoized to prevent re-renders when temperature state doesn't change
- * - Only re-renders if spark.id, spark.content, spark.temperature, or spark.remainingTimeInSeconds changes
- * @returns Rendered spark card element
- */
-const SparkCardComponent = ({
-  spark,
-  onAddFuel,
-  hideFuelButton = false,
-}: SparkCardProps) => {
-  const isHot = spark.temperature === "hot";
-  const [showEffect, setShowEffect] = useState(false);
-
-  const shadowClass = isHot ? "shadow-glow-sm" : "shadow-none";
-  // Glassmorphism: soft borders with glow (not hard lines)
-  const borderClass = isHot
-    ? "border border-ember-500/50 ring-1 ring-ember-500/20"
-    : "border border-white/10";
-
-  const handleAddFuel = () => {
-    // Trigger ignite effect
-    setShowEffect(true);
-    // Call parent callback
-    onAddFuel?.(spark.id);
-  };
-
-  // Memoize onComplete to prevent IgniteEffect useEffect from re-firing on every render
-  const handleEffectComplete = useCallback(() => {
-    setShowEffect(false);
-  }, []);
-
-  return (
-    <div
-      className={clsx(
-        // Glassmorphism: translucent background with backdrop blur
-        "rounded-card bg-night-800/40 text-ash-500 p-4 backdrop-blur-md transition-all duration-1000 ease-in-out",
-        shadowClass,
-        borderClass,
-      )}
-      data-testid="spark-item"
-      data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
-    >
-      <p className="font-base text-sm leading-relaxed break-words whitespace-pre-wrap">
-        <Linkify
-          options={{
-            target: "_blank",
-            rel: "noopener noreferrer",
-            className:
-              "text-ember-500/70 hover:underline text-ember-400 font-medium",
-            nl2br: true, // preserve line breaks logic if needed, but 'whitespace-pre-wrap' does it usually. Linkify handles simple strings.
-            format: (value: string) =>
-              value.length > 30 ? value.slice(0, 30) + "..." : value,
-          }}
-        >
-          {spark.content}
-        </Linkify>
-      </p>
-
-      {/* Image Thumbnail */}
-      {spark.imageUrl && (
-        <SparkImageThumbnail
-          key={spark.imageUrl.primaryUrl}
-          image={spark.imageUrl}
-        />
-      )}
-
-      <div className="mt-2 flex items-center justify-between">
-        {/* Add Fuel Button - hidden for bonfire replies */}
-        {!hideFuelButton && (
-          <button
-            onClick={handleAddFuel}
-            className={clsx(
-              "rounded-button relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all",
-              "border-ember-500/30 bg-ember-500/10 text-ember-500 border",
-              "hover:border-ember-500/50 hover:bg-ember-500/20",
-              "focus:ring-ember-500/50 focus:ring-2 focus:outline-none",
-            )}
-            data-testid="add-fuel-button"
-            aria-label="Add fuel to spark"
-          >
-            <Flame className="h-3.5 w-3.5" />
-            <span>薪をくべる</span>
-            <IgniteEffect
-              trigger={showEffect}
-              onComplete={handleEffectComplete}
-            />
-          </button>
-        )}
-        {/* Spacer when fuel button is hidden */}
-        {hideFuelButton && <div />}
-        {/* User Hash */}
-        <span
-          className="text-ash-400 mb-1 block font-mono text-xs"
-          data-testid="spark-user-hash"
-        >
-          @{spark.userHash}
-        </span>
-        {/* TTL Timer */}
-        {/* <span
-          className={clsx("font-mono text-xs transition-colors duration-1000")}
-          data-testid="spark-timer"
-        >
-          {formatTime(spark.remainingTimeInSeconds)}
-        </span> */}
-      </div>
-    </div>
-  );
-};
-
-export const SparkCard = memo(SparkCardComponent);
-/**
- * BonfireCarousel Organism Component (Dumb)
- *
- * Horizontally scrolling container for bonfires using shadcn Carousel.
- * Pure presentational component - receives all data via props.
- *
- * UX Design:
- * - Mobile: Swipe/drag only (buttons hidden)
- * - Desktop: Swipe/drag + hover-visible buttons
- *
- * Visual style follows Design Token guidelines.
- * Uses shadcn/ui Carousel (Embla) as base component.
- */
-
-import type { BonfireViewModel } from "@/domain/model/bonfire";
-import { BonfireCard } from "@/components/molecules/BonfireCard";
-import { BonfirePlaceholderCard } from "@/components/molecules/BonfirePlaceholderCard";
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselPrevious,
-  CarouselNext,
-} from "@/components/ui/carousel";
-
-/**
- * Props for BonfireCarousel component
- */
-interface BonfireCarouselProps {
-  /**
-   * Array of bonfires to display
-   */
-  bonfires: BonfireViewModel[];
-  /**
-   * Callback when a bonfire card is clicked
-   */
-  onBonfireClick?: (bonfire: BonfireViewModel) => void;
-}
-
-/**
- * BonfireCarousel Component
- *
- * Features:
- * - Horizontal carousel with Embla (via shadcn)
- * - Responsive navigation: hidden on mobile, hover-visible on desktop
- * - Drag/swipe support on all devices
- * - Empty state shows placeholder card with guidance message
- * @returns Rendered carousel element or placeholder if empty
- */
-export const BonfireCarousel = ({
-  bonfires,
-  onBonfireClick,
-}: BonfireCarouselProps) => {
-  // Empty State: Show placeholder card in carousel
-  if (bonfires.length === 0) {
-    return (
-      <section
-        className="group relative w-full px-4 py-4 md:px-12"
-        data-testid="bonfire-carousel"
-        aria-label="焚き火エリア"
-      >
-        <Carousel
-          opts={{
-            align: "center",
-            loop: false,
-            dragFree: false,
-          }}
-          className="w-full"
-        >
-          <CarouselContent className="-ml-4 overflow-visible">
-            <CarouselItem className="basis-auto py-4 pl-4">
-              <BonfirePlaceholderCard message="たくさんの薪がくべられると焚き火になります" />
-            </CarouselItem>
-          </CarouselContent>
-        </Carousel>
-      </section>
-    );
-  }
-
-  return (
-    <section
-      className="group relative w-full px-4 py-4 md:px-12"
-      data-testid="bonfire-carousel"
-      aria-label="焚き火エリア"
-    >
-      <Carousel
-        opts={{
-          align: "center",
-          loop: false,
-          dragFree: false,
-        }}
-        className="w-full"
-      >
-        <CarouselContent className="-ml-4 overflow-visible">
-          {bonfires.map((bonfire) => (
-            <CarouselItem key={bonfire.id} className="basis-auto py-4 pl-4">
-              <BonfireCard bonfire={bonfire} onClick={onBonfireClick} />
-            </CarouselItem>
-          ))}
-        </CarouselContent>
-
-        {/* Navigation buttons: hidden on mobile, hover-visible on desktop */}
-        <CarouselPrevious className="left-2 hidden h-12 w-12 opacity-0 transition-opacity duration-300 group-hover:opacity-100 md:flex" />
-        <CarouselNext className="right-2 hidden h-12 w-12 opacity-0 transition-opacity duration-300 group-hover:opacity-100 md:flex" />
-      </Carousel>
-    </section>
-  );
-};
-/**
- * Timeline Page (Smart Component)
- *
- * Entry point for the Timeline feature.
- * Handles dependency injection and wiring of UseCase to UI components.
- * Includes spark posting functionality with FAB and modal.
- */
-
-import { useState, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { Flame } from "lucide-react";
-import { LayoutGroup } from "framer-motion";
-import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
-import { bonfireRepository } from "@/adapter/repository/bonfireRepository";
-import { sparkRepository } from "@/adapter/repository/sparkRepository";
-import { triggerHapticFeedback } from "@/adapter/infra/haptic";
-import { useTimelineStream } from "@/usecase/useTimelineStream";
-import { usePostSpark } from "@/usecase/usePostSpark";
-import { useAddFuel } from "@/usecase/useAddFuel";
-import { useBonfire } from "@/usecase/useBonfire";
-import { useConnectionToast } from "@/usecase/useConnectionToast";
-import { TimelineStream } from "@/components/organisms/TimelineStream";
-import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
-import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
-import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
-import { SparkPostModal } from "@/components/organisms/SparkPostModal";
-import { BonfireCarousel } from "@/components/organisms/BonfireCarousel";
-import { BonfireDetailPage } from "@/components/pages/BonfireDetailPage";
-import { useLogger } from "@/components/useLogger";
-import { settings } from "@/adapter/infra/settings";
-import { LOG_EVENTS } from "@/domain/constants";
-import type { BonfireViewModel } from "@/domain/model/bonfire";
-
-/**
- * Timeline Page Component
- *
- * Responsibilities:
- * - Display real-time timeline of sparks
- * - Provide FAB button to open spark posting modal
- * - Handle spark posting with error display
- * @returns Rendered timeline page with posting capability
- */
-export const TimelinePage = () => {
-  // Routing: Get bonfireId from URL params for deep linking support
-  const { bonfireId } = useParams<{ bonfireId: string }>();
-  const navigate = useNavigate();
-
-  // Local UI state for posting
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [content, setContent] = useState("");
-
-  // Dependency Injection: Logger
-  const logger = useLogger();
-
-  // UseCase: Fetch bonfires
-  const { bonfires, refetch: refetchBonfires } = useBonfire(bonfireRepository);
-
-  // UseCase: Connect to WebSocket and receive sparks
-  const { sparks, status } = useTimelineStream({
-    repository: wsTimelineRepository,
-    onBonfirePromoted: () => {
-      // Refresh bonfire list when a spark receives promotion event
-      void refetchBonfires();
-    },
-  });
-
-  // UI: Handle connection status with Toast (Custom Hook)
-  useConnectionToast(status);
-
-  // UseCase: Post spark
-  const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
-
-  // UseCase: Add fuel to spark
-  const { addFuel } = useAddFuel(sparkRepository, logger);
-
-  // Derive selected bonfire from URL params (for deep linking & browser back support)
-  const selectedBonfire = useMemo(() => {
-    if (!bonfireId) return null;
-    return bonfires.find((b) => b.id === bonfireId) ?? null;
-  }, [bonfireId, bonfires]);
-
-  // Event Handler: Submit spark
-  const handleSubmit = async () => {
-    const trimmedContent = content.trim();
-    if (!trimmedContent) return;
-
-    try {
-      await postSpark({ content: trimmedContent });
-      // On success: Clear input and close modal
-      setContent("");
-      setIsModalOpen(false);
-    } catch {
-      // Error is already logged by UseCase and stored in error state
-      // UI will display error via SparkPostModal
-    }
-  };
-
-  // Event Handler: Add fuel to spark
-  const handleAddFuel = (sparkId: string) => {
-    // Trigger haptic feedback (UI layer responsibility)
-    const hapticTriggered = triggerHapticFeedback();
-    if (!hapticTriggered) {
-      logger.info("Haptic feedback not supported", {
-        event: LOG_EVENTS.ADD_FUEL.HAPTIC_NOT_SUPPORTED,
-      });
-    }
-
-    // Execute UseCase
-    void addFuel({ sparkId });
-  };
-
-  // Event Handler: Open bonfire detail overlay (navigate to bonfire detail URL)
-  const handleBonfireClick = (bonfire: BonfireViewModel) => {
-    void navigate(`/timeline/bonfire/${bonfire.id}`);
-  };
-
-  // Event Handler: Close bonfire detail overlay (navigate back)
-  const handleBonfireClose = () => {
-    void navigate("/timeline");
-  };
-
-  return (
-    <LayoutGroup>
-      <TimelineTemplate
-        bonfireArea={
-          <BonfireCarousel
-            bonfires={bonfires}
-            onBonfireClick={handleBonfireClick}
-          />
-        }
-        sparkArea={
-          // Show ErrorStateMessage ONLY if there are no sparks (initial load failure)
-          status.type === "error" && sparks.length === 0 ? (
-            <ErrorStateMessage
-              title="サーバーに接続できません"
-              description="ネットワーク接続を確認してページを再読み込みしてください"
-              testId="timeline-error-message"
-            />
-          ) : (
-            <TimelineStream sparks={sparks} onAddFuel={handleAddFuel} />
-          )
-        }
-      />
-
-      <FloatingActionButton
-        onClick={() => {
-          setIsModalOpen(true);
-        }}
-        icon={<Flame size={24} />}
-        label="種火をともす"
-        testId="spark-post-fab"
-      />
-
-      <SparkPostModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-        }}
-        content={content}
-        onContentChange={setContent}
-        onSubmit={() => {
-          void handleSubmit();
-        }}
-        isPosting={isPosting}
-        maxLength={settings.sparkMaxLength}
-        error={error}
-      />
-
-      <BonfireDetailPage
-        bonfire={selectedBonfire}
-        isOpen={selectedBonfire !== null}
-        onClose={handleBonfireClose}
-      />
-    </LayoutGroup>
-  );
-};
-import {
-  CircleCheck,
-  Info,
-  LoaderCircle,
-  OctagonX,
-  TriangleAlert,
-} from "lucide-react"
-import { useTheme } from "next-themes"
-import { Toaster as Sonner } from "sonner"
-
-type ToasterProps = React.ComponentProps<typeof Sonner>
-
-const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
-
-  return (
-    <Sonner
-      theme={theme as ToasterProps["theme"]}
-      className="toaster group"
-      icons={{
-        success: <CircleCheck className="h-4 w-4" />,
-        info: <Info className="h-4 w-4" />,
-        warning: <TriangleAlert className="h-4 w-4" />,
-        error: <OctagonX className="h-4 w-4" />,
-        loading: <LoaderCircle className="h-4 w-4 animate-spin" />,
-      }}
-      toastOptions={{
-        classNames: {
-          toast:
-            "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
-          description: "group-[.toast]:text-muted-foreground",
-          actionButton:
-            "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
-          cancelButton:
-            "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+    return JSONResponse(
+        status_code=200,
+        content={
+            "bonfires": [
+                {
+                    "id": b.id,
+                    "spark_id": b.spark_id,
+                    "field_id": b.field_id,
+                    "content": b.content,
+                    "unique_user_count": b.unique_user_count,
+                    "heat_score": b.heat_score,
+                    "created_at": b.created_at.isoformat(),
+                    "decay_at": b.decay_at.isoformat(),
+                }
+                for b in output.bonfires
+            ],
+            "count": output.count,
         },
-      }}
-      {...props}
-    />
-  )
+    )
+
+
+@router.websocket("/{bonfire_id}/ws")
+async def websocket_bonfire(
+    websocket: WebSocket,
+    bonfire_id: str,
+    usecase: Annotated[IStreamBonfireUseCase, Depends(get_stream_bonfire_usecase)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> None:
+    """WebSocket endpoint for streaming bonfire detail updates.
+
+    Args:
+        websocket: WebSocket connection
+        bonfire_id: The bonfire ID to stream
+        usecase: Stream bonfire use case (injected)
+        logger: Logger instance (injected)
+
+    """
+    await websocket.accept()
+
+    logger.info(
+        LOG_EVENTS.WEBSOCKET_CONNECTED,
+        "WebSocket connection established for bonfire",
+        context={"client": str(websocket.client), "bonfire_id": bonfire_id},
+    )
+
+    try:
+        # Stream bonfire updates (Snapshot + Stream)
+        async for message in usecase.execute(bonfire_id):
+            if isinstance(message, SparkOutput):
+                # Send spark reply as JSON to client
+                await websocket.send_json({
+                    "type": "spark",
+                    **message.model_dump(),
+                })
+            else:
+                # BonfireEvent: Send bonfire event as JSON to client
+                await websocket.send_json({
+                    "type": message.event_type.value,
+                    "bonfire_id": message.bonfire_id,
+                    "message": message.message,
+                })
+
+    except WebSocketDisconnect:
+        logger.info(
+            LOG_EVENTS.WEBSOCKET_DISCONNECTED,
+            "WebSocket connection closed by client",
+            context={"client": str(websocket.client), "bonfire_id": bonfire_id},
+        )
+
+    except Exception as e:
+        logger.exception(
+            LOG_EVENTS.WEBSOCKET_ERROR,
+            "Error during WebSocket communication",
+            error=e,
+            context={"client": str(websocket.client), "bonfire_id": bonfire_id},
+        )
+        raise
+"""Dependency Injection Configuration.
+
+This module defines FastAPI dependencies for dependency injection.
+Following the Dependency Inversion Principle, dependencies are injected
+through FastAPI's Depends mechanism, making testing easier through
+dependency_overrides.
+"""
+
+from typing import Any
+
+from fastapi import Depends
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from redis.asyncio import Redis
+
+from app.adapter.gateways.mongo_bonfire_repository import MongoBonfireRepository
+from app.adapter.gateways.mongo_health_repository import MongoHealthRepository
+from app.adapter.gateways.mongo_spark_repository import MongoSparkRepository
+from app.adapter.gateways.redis_pubsub_gateway import RedisPubSubGateway
+from app.adapter.gateways.redis_rate_limiter import RedisRateLimiter
+from app.adapter.gateways.redis_threshold_config import RedisThresholdConfigRepository
+from app.adapter.gateways.simple_ip_provider import SimpleIPProvider
+from app.adapter.infra.database import Database
+from app.adapter.infra.logger import JsonLogger
+from app.adapter.infra.redis_client import RedisClient
+from app.adapter.infra.settings import settings
+from app.domain.repository.bonfire_repository import IBonfireRepository
+from app.domain.repository.health_repository import IHealthRepository
+from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.repository.threshold_config_repository import IThresholdConfigRepository
+from app.domain.service.identity_provider import IIdentityProvider
+from app.domain.service.ignition_service import IgnitionService
+from app.domain.service.rate_limiter import IRateLimiter
+from app.domain.service.bonfire_service import BonfireService
+from app.usecase.add_fuel.interactor import AddFuelInteractor
+from app.usecase.add_fuel.interface import IAddFuelUseCase
+from app.usecase.check_promotion.interactor import CheckPromotionInteractor
+from app.usecase.check_promotion.interface import ICheckPromotionUseCase
+from app.usecase.get_bonfires.interactor import GetActiveBonfiresInteractor
+from app.usecase.get_bonfires.interface import IGetActiveBonfiresUseCase
+from app.usecase.health_check.interactor import HealthCheckInteractor
+from app.usecase.health_check.interface import IHealthCheckUseCase
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+from app.usecase.post_spark.interactor import PostSparkInteractor
+from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_bonfire.interactor import StreamBonfireInteractor
+from app.usecase.stream_bonfire.interface import IStreamBonfireUseCase
+from app.usecase.stream_timeline.interactor import StreamTimelineInteractor
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
+
+
+def get_db() -> AsyncIOMotorDatabase[Any]:
+    """Get the database instance.
+
+    This is the base dependency that provides the MongoDB connection.
+    Can be overridden in tests to use a different database.
+
+    Returns:
+        MongoDB database instance
+
+    """
+    return Database.get_database()
+
+
+def get_logger() -> ILogger:
+    """Get the logger instance.
+
+    This dependency provides the application logger.
+    Can be overridden in tests to use a mock logger.
+
+    Returns:
+        Logger instance
+
+    """
+    return JsonLogger(service_name="kvell-api")
+
+
+def get_health_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> IHealthRepository:
+    """Get the health repository instance.
+
+    This dependency chains from get_db() and provides the health repository.
+    Can be overridden in tests to use a mock repository.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Health repository instance
+
+    """
+    return MongoHealthRepository(db, logger)
+
+
+def get_health_usecase(
+    repo: IHealthRepository = Depends(get_health_repository),
+    logger: ILogger = Depends(get_logger),
+) -> IHealthCheckUseCase:
+    """Get the health check use case instance.
+
+    This dependency chains from get_health_repository() and provides
+    the use case interactor. Can be overridden in tests to use a mock use case.
+
+    Args:
+        repo: Health repository instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Health check use case instance
+
+    """
+    return HealthCheckInteractor(repo, logger)
+
+
+# Spark Dependencies
+
+
+def get_redis() -> Redis:  # type: ignore[type-arg]
+    """Get the Redis client instance.
+
+    Returns:
+        Redis client instance
+
+    """
+    return RedisClient.get_client()
+
+
+def get_spark_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> ISparkRepository:
+    """Get the spark repository instance.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Spark repository instance
+
+    """
+    return MongoSparkRepository(db, logger)
+
+
+def get_identity_provider() -> IIdentityProvider:
+    """Get the identity provider instance.
+
+    Returns:
+        Identity provider instance
+
+    """
+    return SimpleIPProvider(secret_key=settings.identity_secret_key)
+
+
+def get_rate_limiter(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+) -> IRateLimiter:
+    """Get the rate limiter instance.
+
+    Args:
+        redis: Redis client instance (injected)
+
+    Returns:
+        Rate limiter instance
+
+    """
+    return RedisRateLimiter(redis)
+
+
+def get_pubsub_gateway(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+    logger: ILogger = Depends(get_logger),
+) -> IPubSubGateway:
+    """Get the pub/sub gateway instance.
+
+    Args:
+        redis: Redis client instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Pub/sub gateway instance
+
+    """
+    return RedisPubSubGateway(redis, logger)
+
+
+def get_bonfire_repository(
+    db: AsyncIOMotorDatabase[Any] = Depends(get_db),
+    logger: ILogger = Depends(get_logger),
+) -> IBonfireRepository:
+    """Get the bonfire repository instance.
+
+    Args:
+        db: MongoDB database instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Bonfire repository instance
+
+    """
+    return MongoBonfireRepository(db, logger)
+
+
+def get_post_spark_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    identity_provider: IIdentityProvider = Depends(get_identity_provider),
+    rate_limiter: IRateLimiter = Depends(get_rate_limiter),
+    logger: ILogger = Depends(get_logger),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+) -> IPostSparkUseCase:
+    """Get the post spark use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        identity_provider: Identity provider instance (injected)
+        rate_limiter: Rate limiter instance (injected)
+        logger: Logger instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+        bonfire_repository: Bonfire repository instance (injected)
+
+    Returns:
+        Post spark use case instance
+
+    """
+    return PostSparkInteractor(
+        spark_repository=spark_repository,
+        identity_provider=identity_provider,
+        rate_limiter=rate_limiter,
+        logger=logger,
+        pubsub_gateway=pubsub_gateway,
+        bonfire_repository=bonfire_repository,
+        max_length=settings.spark_max_length,
+        rate_limit_count=settings.spark_rate_limit_count,
+        rate_limit_window_seconds=settings.spark_rate_limit_window_seconds,
+        decay_after_seconds=settings.spark_decay_after_seconds,
+        vanish_after_days=settings.spark_vanish_after_days,
+        ng_words=settings.spark_ng_words_list,
+    )
+
+
+def get_stream_timeline_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> IStreamTimelineUseCase:
+    """Get the stream timeline use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Stream timeline use case instance
+
+    """
+    return StreamTimelineInteractor(
+        spark_repository=spark_repository,
+        pubsub_gateway=pubsub_gateway,
+        logger=logger,
+        active_spark_seconds=settings.spark_decay_after_seconds,
+    )
+
+
+# Bonfire Dependencies
+
+
+def get_threshold_config(
+    redis: Redis = Depends(get_redis),  # type: ignore[type-arg]
+    logger: ILogger = Depends(get_logger),
+) -> IThresholdConfigRepository:
+    """Get the threshold config repository instance.
+
+    Args:
+        redis: Redis client instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Threshold config repository instance
+
+    """
+    return RedisThresholdConfigRepository(redis, logger)
+
+
+def get_ignition_service() -> IgnitionService:
+    """Get the ignition service instance.
+
+    Returns:
+        Ignition service instance
+
+    """
+    return IgnitionService()
+
+
+def get_check_promotion_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+    threshold_config: IThresholdConfigRepository = Depends(get_threshold_config),
+    ignition_service: IgnitionService = Depends(get_ignition_service),
+    pubsub: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> ICheckPromotionUseCase:
+    """Get the check promotion use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        bonfire_repository: Bonfire repository instance (injected)
+        threshold_config: Threshold config repository instance (injected)
+        ignition_service: Ignition service instance (injected)
+        pubsub: PubSub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Check promotion use case instance
+
+    """
+    return CheckPromotionInteractor(
+        spark_repository=spark_repository,
+        bonfire_repository=bonfire_repository,
+        threshold_config=threshold_config,
+        ignition_service=ignition_service,
+        pubsub=pubsub,
+        logger=logger,
+    )
+
+
+def get_get_bonfires_usecase(
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+    logger: ILogger = Depends(get_logger),
+) -> IGetActiveBonfiresUseCase:
+    """Get the get active bonfires use case instance.
+
+    Args:
+        bonfire_repository: Bonfire repository instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Get active bonfires use case instance
+
+    """
+    return GetActiveBonfiresInteractor(
+        bonfire_repository=bonfire_repository,
+        logger=logger,
+    )
+
+
+def get_bonfire_service(
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+) -> BonfireService:
+    """Get the bonfire service instance.
+
+    Args:
+        bonfire_repository: Bonfire repository instance (injected)
+
+    Returns:
+        Bonfire service instance
+
+    """
+    return BonfireService(
+        bonfire_repository=bonfire_repository,
+    )
+
+
+# Add Fuel (depends on Bonfire services)
+
+
+def get_add_fuel_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    check_promotion: ICheckPromotionUseCase = Depends(get_check_promotion_usecase),
+    bonfire_service: BonfireService = Depends(get_bonfire_service),
+    pubsub: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> IAddFuelUseCase:
+    """Get the add fuel use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        check_promotion: Check promotion use case (injected)
+        bonfire_service: Bonfire service (injected)
+        pubsub: PubSub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Add fuel use case instance
+
+    """
+    return AddFuelInteractor(
+        spark_repository=spark_repository,
+        check_promotion=check_promotion,
+        bonfire_service=bonfire_service,
+        pubsub=pubsub,
+        logger=logger,
+    )
+
+
+def get_stream_bonfire_usecase(
+    spark_repository: ISparkRepository = Depends(get_spark_repository),
+    bonfire_repository: IBonfireRepository = Depends(get_bonfire_repository),
+    pubsub_gateway: IPubSubGateway = Depends(get_pubsub_gateway),
+    logger: ILogger = Depends(get_logger),
+) -> IStreamBonfireUseCase:
+    """Get the stream bonfire use case instance.
+
+    Args:
+        spark_repository: Spark repository instance (injected)
+        bonfire_repository: Bonfire repository instance (injected)
+        pubsub_gateway: Pub/sub gateway instance (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Stream bonfire use case instance
+
+    """
+    return StreamBonfireInteractor(
+        spark_repository=spark_repository,
+        bonfire_repository=bonfire_repository,
+        pubsub_gateway=pubsub_gateway,
+        logger=logger,
+    )
+"""Spark API Router.
+
+This module defines API endpoints for spark operations.
+"""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, status
+
+from app.adapter.entrypoints.dependencies import (
+    get_add_fuel_usecase,
+    get_identity_provider,
+    get_logger,
+    get_post_spark_usecase,
+    get_stream_timeline_usecase,
+)
+from app.domain.constants import LOG_EVENTS
+from app.domain.service.identity_provider import IIdentityProvider
+from app.usecase.add_fuel.interface import AddFuelInput, AddFuelOutput, IAddFuelUseCase
+from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
+from app.usecase.ports.logger import ILogger
+from app.usecase.post_spark.interface import IPostSparkUseCase
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
+
+router = APIRouter(prefix="/api/sparks", tags=["sparks"])
+
+
+def get_client_ip(request: Request) -> str:
+    """Extract client IP address from request.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Client IP address
+
+    """
+    # Check for X-Forwarded-For header (proxy/load balancer)
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        # Take the first IP if multiple are present
+        return forwarded.split(",")[0].strip()
+
+    # Fallback to direct client IP
+    if request.client:
+        return request.client.host
+
+    # Last resort fallback
+    return "0.0.0.0"  # noqa: S104
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def post_spark(
+    request: Request,
+    input_data: PostSparkInput,
+    usecase: Annotated[IPostSparkUseCase, Depends(get_post_spark_usecase)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> SparkOutput:
+    """Post a new spark.
+
+    Args:
+        request: FastAPI request object (for IP extraction)
+        input_data: Input data containing spark content
+        usecase: Post spark use case (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        The created spark details
+
+    Raises:
+        AppError: If validation fails or rate limit is exceeded
+
+    """
+    ip_address = get_client_ip(request)
+
+    logger.info(
+        LOG_EVENTS.SPARK_POST_STARTED,
+        "Spark post request received",
+        context={
+            "content_length": len(input_data.content),
+            "ip_address": ip_address,
+        },
+    )
+
+    result = await usecase.execute(input_data, ip_address)
+
+    logger.info(
+        LOG_EVENTS.SPARK_POST_SUCCESS,
+        "Spark posted successfully",
+        context={"spark_id": result.id},
+    )
+
+    return result
+
+
+@router.post("/{spark_id}/fuel", status_code=status.HTTP_200_OK)
+async def add_fuel_to_spark(
+    request: Request,
+    spark_id: str,
+    usecase: Annotated[IAddFuelUseCase, Depends(get_add_fuel_usecase)],
+    identity_provider: Annotated[IIdentityProvider, Depends(get_identity_provider)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> AddFuelOutput:
+    """Add fuel to a spark.
+
+    Args:
+        request: FastAPI request object (for IP extraction)
+        spark_id: The spark ID to add fuel to
+        usecase: Add fuel use case (injected)
+        identity_provider: Identity provider (injected)
+        logger: Logger instance (injected)
+
+    Returns:
+        Success response (without revealing fuel count)
+
+    Raises:
+        AppError: If spark not found (1005) or already decayed (1001)
+
+    """
+    ip_address = get_client_ip(request)
+    user_hash = identity_provider.get_user_hash(ip_address)
+
+    logger.info(
+        LOG_EVENTS.FUEL_ADD_STARTED,
+        "Fuel add request received",
+        context={
+            "spark_id": spark_id,
+            "ip_address": ip_address,
+        },
+    )
+
+    input_data = AddFuelInput(spark_id=spark_id, user_hash=user_hash)
+    output = await usecase.execute(input_data)
+
+    logger.info(
+        LOG_EVENTS.FUEL_ADD_SUCCESS,
+        "Fuel add request completed",
+        context={"spark_id": spark_id},
+    )
+
+    return output
+
+
+@router.websocket("/{field_id}/ws")
+async def websocket_timeline(
+    websocket: WebSocket,
+    field_id: str,
+    usecase: Annotated[IStreamTimelineUseCase, Depends(get_stream_timeline_usecase)],
+    logger: Annotated[ILogger, Depends(get_logger)],
+) -> None:
+    """WebSocket endpoint for streaming timeline updates.
+
+    Args:
+        websocket: WebSocket connection
+        usecase: Stream timeline use case (injected)
+        logger: Logger instance (injected)
+
+    """
+    await websocket.accept()
+
+    logger.info(
+        LOG_EVENTS.WEBSOCKET_CONNECTED,
+        "WebSocket connection established",
+        context={"client": str(websocket.client), "field_id": field_id},
+    )
+
+    try:
+        # Stream timeline updates (Snapshot + Stream)
+        async for timeline_event in usecase.execute(field_id):
+            # Send event as JSON to client
+            # model_dump(mode='json') ensures datetime serialization uses string format
+            await websocket.send_json(timeline_event.model_dump(mode="json"))
+
+    except WebSocketDisconnect:
+        logger.info(
+            LOG_EVENTS.WEBSOCKET_DISCONNECTED,
+            "WebSocket connection closed by client",
+            context={"client": str(websocket.client)},
+        )
+
+    except Exception as e:
+        logger.exception(
+            LOG_EVENTS.WEBSOCKET_ERROR,
+            "Error during WebSocket communication",
+            error=e,
+            context={"client": str(websocket.client)},
+        )
+        raise
+"""Base Repository.
+
+This module defines the base repository class with common utility methods.
+"""
+
+from datetime import UTC, datetime
+
+
+class BaseRepository:
+    """Base repository with common utility methods."""
+
+    @staticmethod
+    def _ensure_utc(dt: datetime) -> datetime:
+        """Ensure the datetime is timezone-aware (UTC).
+
+        MongoDB returns timezone-naive datetimes representing UTC.
+        This method attaches the UTC timezone if it's missing.
+
+        Args:
+            dt: The datetime to process
+
+        Returns:
+            Timezone-aware datetime (UTC)
+
+        """
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=UTC)
+        return dt
+"""MongoDB implementation of Bonfire Repository.
+
+This module implements the bonfire repository using MongoDB.
+"""
+
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import DESCENDING, IndexModel
+from pymongo.errors import DuplicateKeyError, PyMongoError
+
+from app.adapter.gateways.base_repository import BaseRepository
+from app.domain.constants import LOG_EVENTS
+from app.domain.exception import AppError
+from app.domain.model.bonfire import Bonfire
+from app.domain.repository.bonfire_repository import IBonfireRepository
+from app.usecase.ports.logger import ILogger
+
+
+class MongoBonfireRepository(BaseRepository, IBonfireRepository):
+    """MongoDB implementation of bonfire repository."""
+
+    COLLECTION_NAME = "bonfires"
+
+    def __init__(self, db: AsyncIOMotorDatabase[Any], logger: ILogger) -> None:
+        """Initialize the repository.
+
+        Args:
+            db: MongoDB database instance
+            logger: Logger for structured logging
+
+        """
+        self.db = db
+        self.collection = db[self.COLLECTION_NAME]
+        self.logger = logger
+
+    async def ensure_indexes(self) -> None:
+        """Create necessary indexes for the bonfires collection.
+
+        This should be called during application startup.
+        """
+        try:
+            indexes = [
+                # TTL index for automatic deletion when decayed
+                IndexModel(
+                    [("decay_at", 1)],
+                    name="decay_at_ttl",
+                    expireAfterSeconds=0,
+                ),
+                # Query index for active bonfires (by field_id, decay_at descending)
+                IndexModel(
+                    [("field_id", 1), ("decay_at", DESCENDING)],
+                    name="field_decay_at_desc",
+                ),
+                # Index for looking up bonfire by spark_id
+                IndexModel(
+                    [("spark_id", 1)],
+                    name="spark_id_idx",
+                    unique=True,
+                ),
+            ]
+            await self.collection.create_indexes(indexes)
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Bonfire indexes created successfully",
+                context={"collection": self.COLLECTION_NAME},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to create bonfire indexes",
+                error=e,
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+
+    async def save(self, bonfire: Bonfire) -> Bonfire:
+        """Save a bonfire.
+
+        Args:
+            bonfire: The bonfire to save
+
+        Returns:
+            The saved bonfire
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            document = {
+                "id": bonfire.id,
+                "spark_id": bonfire.spark_id,
+                "field_id": bonfire.field_id,
+                "content": bonfire.content,
+                "unique_user_count": bonfire.unique_user_count,
+                "heat_score": bonfire.heat_score,
+                "created_at": bonfire.created_at,
+                "decay_at": bonfire.decay_at,
+            }
+
+            await self.collection.insert_one(document)
+
+            self.logger.info(
+                LOG_EVENTS.BONFIRE_CREATED,
+                "Bonfire saved successfully",
+                context={"bonfire_id": bonfire.id},
+            )
+        except DuplicateKeyError:
+            # Race condition: Bonfire already created by another request.
+            # This is acceptable (idempotent).
+            self.logger.warning(
+                LOG_EVENTS.BONFIRE_CREATED,
+                "Bonfire persistence skipped (already exists)",
+                context={"bonfire_id": bonfire.id},
+            )
+            # Proceed as if success
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to save bonfire: {self.COLLECTION_NAME}",
+                error=e,
+                context={"bonfire_id": bonfire.id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return bonfire
+
+    async def find_by_id(self, bonfire_id: str) -> Bonfire | None:
+        """Find a bonfire by ID.
+
+        Args:
+            bonfire_id: The bonfire ID to search for
+
+        Returns:
+            The bonfire if found, None otherwise
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            document: dict[str, Any] | None = await self.collection.find_one(
+                {"id": bonfire_id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query bonfire: {self.COLLECTION_NAME}",
+                error=e,
+                context={"bonfire_id": bonfire_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            if document is None:
+                return None
+
+            return self._document_to_bonfire(document)
+
+    async def find_by_spark_id(self, spark_id: str) -> Bonfire | None:
+        """Find a bonfire by its original spark ID.
+
+        Args:
+            spark_id: The original spark ID
+
+        Returns:
+            The bonfire if found, None otherwise
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            document: dict[str, Any] | None = await self.collection.find_one(
+                {"spark_id": spark_id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query bonfire by spark_id: {self.COLLECTION_NAME}",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            if document is None:
+                return None
+
+            return self._document_to_bonfire(document)
+
+    async def find_active_bonfires(self, field_id: str) -> AsyncIterator[Bonfire]:
+        """Find all active (non-decayed) bonfires.
+
+        Yields:
+            Active bonfires sorted by created_at descending (newest first)
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            now = datetime.now(UTC)
+
+            # Query for bonfires that haven't decayed yet in the specific field
+            cursor = self.collection.find(
+                {
+                    "field_id": field_id,
+                    "decay_at": {"$gt": now},
+                },
+            ).sort("created_at", 1)
+
+            async for doc in cursor:
+                yield self._document_to_bonfire(doc)
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query active bonfires: {self.COLLECTION_NAME}",
+                error=e,
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+
+    async def update_decay_at(
+        self,
+        bonfire_id: str,
+        new_decay_at: datetime,
+    ) -> bool:
+        """Update bonfire's decay_at timestamp.
+
+        Uses atomic update to prevent race conditions.
+
+        Args:
+            bonfire_id: The bonfire ID to update
+            new_decay_at: New decay timestamp
+
+        Returns:
+            True if updated successfully, False if bonfire not found
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            result = await self.collection.update_one(
+                {"id": bonfire_id},
+                {"$max": {"decay_at": new_decay_at}},
+            )
+
+            if result.matched_count == 0:
+                self.logger.warning(
+                    LOG_EVENTS.BONFIRE_NOT_FOUND,
+                    "Bonfire not found for decay_at update",
+                    context={"bonfire_id": bonfire_id},
+                )
+                return False
+
+            self.logger.info(
+                LOG_EVENTS.BONFIRE_EXTENDED,
+                "Bonfire decay_at updated",
+                context={
+                    "bonfire_id": bonfire_id,
+                    "new_decay_at": new_decay_at.isoformat(),
+                },
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to update bonfire decay_at: {self.COLLECTION_NAME}",
+                error=e,
+                context={"bonfire_id": bonfire_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return True
+
+    async def delete_by_id(self, bonfire_id: str) -> bool:
+        """Delete a bonfire by ID.
+
+        Args:
+            bonfire_id: The bonfire ID to delete
+
+        Returns:
+            True if deleted successfully, False if not found
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            result = await self.collection.delete_one({"id": bonfire_id})
+
+            if result.deleted_count == 0:
+                return False
+
+            self.logger.info(
+                LOG_EVENTS.BONFIRE_DECAYED,
+                "Bonfire deleted",
+                context={"bonfire_id": bonfire_id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to delete bonfire: {self.COLLECTION_NAME}",
+                error=e,
+                context={"bonfire_id": bonfire_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return True
+
+    def _document_to_bonfire(self, document: dict[str, Any]) -> Bonfire:
+        """Convert MongoDB document to Bonfire entity.
+
+        Args:
+            document: MongoDB document
+
+        Returns:
+            Bonfire entity
+
+        """
+        # MongoDB returns datetime as UTC but timezone-naive
+        created_at = self._ensure_utc(document["created_at"])
+        decay_at = self._ensure_utc(document["decay_at"])
+
+        return Bonfire(
+            id=document["id"],
+            spark_id=document["spark_id"],
+            field_id=document.get("field_id", "sakurazaka46"),
+            content=document["content"],
+            unique_user_count=document["unique_user_count"],
+            heat_score=document["heat_score"],
+            created_at=created_at,
+            decay_at=decay_at,
+        )
+"""MongoDB implementation of Spark Repository.
+
+This module implements the spark repository using MongoDB.
+"""
+
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import IndexModel
+from pymongo.errors import DuplicateKeyError, PyMongoError
+
+from app.adapter.gateways.base_repository import BaseRepository
+from app.domain.constants import LOG_EVENTS
+from app.domain.exception import AppError
+from app.domain.model.spark import Spark, SparkLevel
+from app.domain.model.spark_engagement import SparkEngagement
+from app.domain.repository.spark_repository import ISparkRepository
+from app.usecase.ports.logger import ILogger
+
+
+class MongoSparkRepository(BaseRepository, ISparkRepository):
+    """MongoDB implementation of spark repository."""
+
+    COLLECTION_NAME = "sparks"
+    FUEL_HISTORY_COLLECTION = "spark_fuel_history"
+
+    def __init__(self, db: AsyncIOMotorDatabase[Any], logger: ILogger) -> None:
+        """Initialize the repository.
+
+        Args:
+            db: MongoDB database instance
+            logger: Logger for structured logging
+
+        """
+        self.db = db
+        self.collection = db[self.COLLECTION_NAME]
+        self.fuel_history_collection = db[self.FUEL_HISTORY_COLLECTION]
+        self.logger = logger
+
+    async def ensure_indexes(self) -> None:
+        """Create necessary indexes for the sparks and fuel history collections.
+
+        This should be called during application startup.
+        """
+        try:
+            # Sparks collection indexes
+            spark_indexes = [
+                # TTL index for automatic deletion
+                IndexModel(
+                    [("vanish_at", 1)],
+                    name="vanish_at_ttl",
+                    expireAfterSeconds=0,
+                ),
+                # Query index for timeline retrieval (by field_id, decay_at)
+                IndexModel(
+                    [("field_id", 1), ("decay_at", -1)],
+                    name="field_decay_at_desc",
+                ),
+                # Query index for active sparks retrieval (by field_id, created_at)
+                IndexModel(
+                    [("field_id", 1), ("created_at", 1)],
+                    name="field_created_at_asc",
+                ),
+                # Compound index for active sparks retrieval with level filter
+                IndexModel(
+                    [("field_id", 1), ("level", 1), ("created_at", 1)],
+                    name="field_level_created_at_asc",
+                ),
+                # Query index for replies retrieval (by parent_bonfire_id)
+                IndexModel(
+                    [("parent_bonfire_id", 1), ("created_at", 1)],
+                    name="parent_bonfire_id_created_at_asc",
+                ),
+            ]
+            await self.collection.create_indexes(spark_indexes)
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark indexes created successfully",
+                context={"collection": self.COLLECTION_NAME},
+            )
+
+            # Fuel history collection indexes
+            fuel_history_indexes = [
+                # Unique compound index for idempotency
+                IndexModel(
+                    [("spark_id", 1), ("user_hash", 1)],
+                    name="spark_user_unique",
+                    unique=True,
+                ),
+                # TTL index for cleanup (optional - keep fuel history for 30 days)
+                IndexModel(
+                    [("created_at", 1)],
+                    name="created_at_ttl",
+                    expireAfterSeconds=30 * 24 * 60 * 60,  # 30 days
+                ),
+            ]
+            await self.fuel_history_collection.create_indexes(fuel_history_indexes)
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Fuel history indexes created successfully",
+                context={"collection": self.FUEL_HISTORY_COLLECTION},
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to create indexes",
+                error=e,
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": "sparks/fuel_history"},
+                cause=e,
+            ) from e
+
+    async def save(self, spark: Spark) -> Spark:
+        """Save a spark.
+
+        Args:
+            spark: The spark to save
+
+        Returns:
+            The saved spark
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Saving spark to MongoDB",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark.id,
+                },
+            )
+
+            document = {
+                "id": spark.id,
+                "content": spark.content,
+                "user_hash": spark.user_hash,
+                "fuel_count": spark.fuel_count,
+                "field_id": spark.field_id,
+                "level": spark.level.value,
+                "parent_bonfire_id": spark.parent_bonfire_id,
+                "created_at": spark.created_at,
+                "decay_at": spark.decay_at,
+                "vanish_at": spark.vanish_at,
+            }
+
+            await self.collection.insert_one(document)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark saved successfully",
+                context={"spark_id": spark.id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to save spark: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark.id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return spark
+
+    async def find_by_id(self, spark_id: str) -> Spark | None:
+        """Find a spark by ID.
+
+        Args:
+            spark_id: The spark ID to search for
+
+        Returns:
+            The spark if found, None otherwise
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying spark by ID",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark_id,
+                },
+            )
+
+            document: dict[str, Any] | None = await self.collection.find_one(
+                {"id": spark_id},
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query spark: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": spark_id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            if document is None:
+                self.logger.info(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found",
+                    context={
+                        "collection": self.COLLECTION_NAME,
+                        "spark_id": spark_id,
+                    },
+                )
+                return None
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "spark_id": document["id"],
+                },
+            )
+
+            # MongoDB stores datetime as UTC but returns them as timezone-naive
+            # Add UTC timezone to match Spark model expectations
+            created_at = self._ensure_utc(document["created_at"])
+            decay_at = self._ensure_utc(document["decay_at"])
+            vanish_at = self._ensure_utc(document["vanish_at"])
+
+            # Parse level with fallback for legacy documents
+            level_str = document.get("level", SparkLevel.SPARK.value)
+            level = SparkLevel(level_str)
+
+            return Spark(
+                id=document["id"],
+                content=document["content"],
+                user_hash=document["user_hash"],
+                fuel_count=document.get("fuel_count", 0),
+                field_id=document.get("field_id", "sakurazaka46"),  # Fallback for migration
+                level=level,
+                parent_bonfire_id=document.get("parent_bonfire_id"),
+                created_at=created_at,
+                decay_at=decay_at,
+                vanish_at=vanish_at,
+            )
+
+    async def find_active_sparks(
+        self,
+        field_id: str,
+        seconds: int,
+        limit: int = 1000,
+    ) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified seconds.
+
+        Args:
+            field_id: Field ID to filter by
+            seconds: Number of seconds to look back from now
+            limit: Maximum number of sparks to return (default 1000)
+
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            # Calculate the cutoff time
+            cutoff_time = datetime.now(UTC) - timedelta(seconds=seconds)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying active sparks",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "cutoff_time": cutoff_time.isoformat(),
+                    "collection": self.COLLECTION_NAME,
+                    "field_id": field_id,
+                    "cutoff_time": cutoff_time.isoformat(),
+                    "limit": limit,
+                },
+            )
+
+            # Query for active sparks (not BONFIRE) created after cutoff_time in the specific field
+            cursor = self.collection.find(
+                {
+                    "field_id": field_id,
+                    "created_at": {"$gte": cutoff_time},
+                    "level": {"$ne": SparkLevel.BONFIRE.value},
+                },
+            ).sort("created_at", 1).limit(limit)
+
+            # Yield sparks one by one (streaming, no to_list)
+            count = 0
+            async for doc in cursor:
+                count += 1
+                # MongoDB returns datetime as UTC but timezone-naive
+                # Add UTC timezone to match Spark model expectations
+                created_at = self._ensure_utc(doc["created_at"])
+                decay_at = self._ensure_utc(doc["decay_at"])
+                vanish_at = self._ensure_utc(doc["vanish_at"])
+
+                # Parse level with fallback for legacy documents
+                level_str = doc.get("level", SparkLevel.SPARK.value)
+                level = SparkLevel(level_str)
+
+                yield Spark(
+                    id=doc["id"],
+                    content=doc["content"],
+                    user_hash=doc["user_hash"],
+                    fuel_count=doc.get("fuel_count", 0),
+                    field_id=doc.get("field_id", "sakurazaka46"),
+                    level=level,
+                    parent_bonfire_id=doc.get("parent_bonfire_id"),
+                    created_at=created_at,
+                    decay_at=decay_at,
+                    vanish_at=vanish_at,
+                )
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Active sparks retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "count": count,
+                },
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query active sparks: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "field_id": field_id,
+                    "seconds": seconds,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+
+    async def try_add_fuel(self, spark_id: str, user_hash: str) -> bool:
+        """Atomically add fuel to a spark if the user hasn't fueled it yet.
+
+        This method ensures atomicity and idempotency using MongoDB transactions:
+        1. Start a transaction session
+        2. Insert fuel history record (idempotency check via unique index)
+        3. Increment spark's fuel_count
+        4. Commit transaction (or abort on any error)
+
+        Args:
+            spark_id: The spark ID to add fuel to
+            user_hash: The user hash attempting to add fuel
+
+        Returns:
+            True if fuel was added (first time), False if user already fueled
+
+        Raises:
+            AppError: If database operation fails (excluding duplicate key)
+
+        """
+        # Start a session for transaction
+        async with await self.db.client.start_session() as session:
+            try:
+                async with session.start_transaction():
+                    # Step 1: Try to insert fuel history (idempotency check)
+                    fuel_history_doc = {
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                        "created_at": datetime.now(UTC),
+                    }
+
+                    await self.fuel_history_collection.insert_one(
+                        fuel_history_doc,
+                        session=session,
+                    )
+
+                    # Step 2: If insert succeeded, increment fuel_count atomically
+                    await self.collection.update_one(
+                        {"id": spark_id},
+                        {"$inc": {"fuel_count": 1}},
+                        session=session,
+                    )
+
+                    # Transaction commits automatically on context exit
+                    self.logger.info(
+                        LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                        "Fuel added successfully (transactional)",
+                        context={
+                            "spark_id": spark_id,
+                            "user_hash": user_hash,
+                        },
+                    )
+
+            except DuplicateKeyError:
+                # User already fueled this spark - idempotent behavior
+                # Transaction auto-aborts, no changes persisted
+                self.logger.info(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "User already fueled this spark (idempotent)",
+                    context={
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                    },
+                )
+                return False
+
+            except PyMongoError as e:
+                # Transaction auto-aborts on any PyMongo error
+                self.logger.exception(
+                    LOG_EVENTS.DB_QUERY_ERROR,
+                    "Failed to add fuel (transaction aborted)",
+                    error=e,
+                    context={
+                        "spark_id": spark_id,
+                        "user_hash": user_hash,
+                    },
+                )
+                raise AppError(
+                    internal_code=2002,
+                    context={"tableName": self.FUEL_HISTORY_COLLECTION},
+                    cause=e,
+                ) from e
+
+            else:
+                return True
+
+    async def get_engagement(
+        self,
+        spark_id: str,
+        fuel_weight: int = 1,
+        reply_weight: int = 5,
+    ) -> SparkEngagement | None:
+        """Get engagement metrics for a spark.
+
+        Calculates unique user count and fuel count from fuel history.
+
+        Args:
+            spark_id: The spark ID to get engagement for
+            fuel_weight: Weight for fuel actions in heat score calculation
+            reply_weight: Weight for reply actions in heat score calculation
+
+        Returns:
+            SparkEngagement if spark exists, None otherwise
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            # Check if spark exists first
+            spark_doc = await self.collection.find_one(
+                {"id": spark_id},
+                {"fuel_count": 1},
+            )
+
+            if spark_doc is None:
+                return None
+
+            # Count unique users from fuel history
+            unique_users = await self.fuel_history_collection.count_documents(
+                {"spark_id": spark_id},
+            )
+
+            fuel_count = spark_doc.get("fuel_count", 0)
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Engagement metrics retrieved",
+                context={
+                    "spark_id": spark_id,
+                    "unique_user_count": unique_users,
+                    "fuel_count": fuel_count,
+                },
+            )
+
+            return SparkEngagement(
+                spark_id=spark_id,
+                unique_user_count=unique_users,
+                fuel_count=fuel_count,
+                reply_count=0,  # Future feature
+                fuel_weight=fuel_weight,
+                reply_weight=reply_weight,
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to get engagement metrics",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.FUEL_HISTORY_COLLECTION},
+                cause=e,
+            ) from e
+
+    async def update_level(self, spark_id: str, level: SparkLevel) -> bool:
+        """Update spark's promotion level.
+
+        Args:
+            spark_id: The spark ID to update
+            level: New spark level
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            result = await self.collection.update_one(
+                {"id": spark_id},
+                {"$set": {"level": level.value}},
+            )
+
+            if result.matched_count == 0:
+                self.logger.warning(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found for level update",
+                    context={"spark_id": spark_id},
+                )
+                return False
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark level updated",
+                context={
+                    "spark_id": spark_id,
+                    "new_level": level.value,
+                },
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to update spark level",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return True
+
+    async def update_decay_at(
+        self,
+        spark_id: str,
+        new_decay_at: datetime,
+    ) -> bool:
+        """Update spark's decay_at timestamp.
+
+        Used when promoting to kindling (TTL extension).
+
+        Args:
+            spark_id: The spark ID to update
+            new_decay_at: New decay timestamp
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            result = await self.collection.update_one(
+                {"id": spark_id},
+                {"$max": {"decay_at": new_decay_at}},
+            )
+
+            if result.matched_count == 0:
+                self.logger.warning(
+                    LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                    "Spark not found for decay_at update",
+                    context={"spark_id": spark_id},
+                )
+                return False
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Spark decay_at updated",
+                context={
+                    "spark_id": spark_id,
+                    "new_decay_at": new_decay_at.isoformat(),
+                },
+            )
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                "Failed to update spark decay_at",
+                error=e,
+                context={"spark_id": spark_id},
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+        else:
+            return True
+
+    async def find_replies_by_bonfire_id(
+        self,
+        bonfire_id: str,
+        limit: int = 1000,
+    ) -> AsyncIterator[Spark]:
+        """Find all replies for a specific bonfire.
+
+        Args:
+            bonfire_id: The parent bonfire ID
+            limit: Maximum number of replies to return (default 1000)
+
+        Yields:
+            Reply sparks sorted by created_at in ascending order (oldest first)
+
+        Raises:
+            AppError: If database operation fails
+
+        """
+        try:
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Querying replies by bonfire ID",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "bonfire_id": bonfire_id,
+                    "limit": limit,
+                },
+            )
+
+            # Query for sparks with matching parent_bonfire_id, sorted by created_at
+            cursor = self.collection.find(
+                {"parent_bonfire_id": bonfire_id},
+            ).sort("created_at", 1).limit(limit)
+
+            # Yield sparks one by one (streaming, no to_list)
+            count = 0
+            async for doc in cursor:
+                count += 1
+                # MongoDB returns datetime as UTC but timezone-naive
+                created_at = self._ensure_utc(doc["created_at"])
+                decay_at = self._ensure_utc(doc["decay_at"])
+                vanish_at = self._ensure_utc(doc["vanish_at"])
+
+                # Parse level with fallback for legacy documents
+                level_str = doc.get("level", SparkLevel.SPARK.value)
+                level = SparkLevel(level_str)
+
+                yield Spark(
+                    id=doc["id"],
+                    content=doc["content"],
+                    user_hash=doc["user_hash"],
+                    fuel_count=doc.get("fuel_count", 0),
+                    field_id=doc.get("field_id", "sakurazaka46"),
+                    level=level,
+                    parent_bonfire_id=doc.get("parent_bonfire_id"),
+                    created_at=created_at,
+                    decay_at=decay_at,
+                    vanish_at=vanish_at,
+                )
+
+            self.logger.info(
+                LOG_EVENTS.DB_CONNECTION_SUCCESS,
+                "Replies retrieved successfully",
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "bonfire_id": bonfire_id,
+                    "count": count,
+                },
+            )
+
+        except PyMongoError as e:
+            self.logger.exception(
+                LOG_EVENTS.DB_QUERY_ERROR,
+                f"Failed to query replies: {self.COLLECTION_NAME}",
+                error=e,
+                context={
+                    "collection": self.COLLECTION_NAME,
+                    "bonfire_id": bonfire_id,
+                },
+            )
+            raise AppError(
+                internal_code=2002,
+                context={"tableName": self.COLLECTION_NAME},
+                cause=e,
+            ) from e
+"""Internal status code definitions and log event IDs.
+
+Defines internal status codes and their corresponding messages.
+Defines event IDs for structured logging.
+"""
+
+from typing import Final
+
+INTERNAL_STATUSES: Final[dict[int, str]] = {
+    # Success
+    200: "OK",
+    201: "Created",
+    204: "No Content",
+    # Domain Errors (Client side origin / Business Logic)
+    1001: "この種火は既に燃え尽きています。",  # Gone (Life expired)
+    1002: "投稿に不適切な表現が含まれています。",  # NG Words (Validation)
+    1003: "投稿文字数が制限を超えています。",  # Length Limit (Validation)
+    1004: "薪をくべるペースが早すぎます。",  # Throttling (Rate Limit)
+    1005: "指定された種火が存在しないか、消滅しています。",  # Not Found
+    # Error caused by Server side (System Error)
+    2001: "DBへの接続中に異常が発生しました",
+    2002: "{tableName}テーブルへのクエリ中に異常が発生しました",
+    500: "Internal Server Error",
 }
 
-export { Toaster }
-import { useEffect, useRef } from "react";
-import { toast } from "sonner";
-import { Wifi, WifiOff } from "lucide-react";
-import type { ConnectionStatus } from "./useTimelineStream";
+InternalStatusCode = int
 
-/**
- * Custom Hook to handle Connection Status Toast notification
- * Manages the side effect of showing/updating/dismissing toasts based on connection state.
- */
-export const useConnectionToast = (status: ConnectionStatus) => {
-  const toastIdRef = useRef<string | number>("connection-status");
 
-  // Extract primitives for dependency array
-  const { type } = status;
-  const attempt = status.type === "reconnecting" ? status.attempt : 0;
-  const maxAttempts = status.type === "reconnecting" ? status.maxAttempts : 0;
+# =============================================================================
+# Promotion Configuration Constants
+# =============================================================================
 
-  useEffect(() => {
-    if (type === "reconnecting") {
-      toast.loading(`再接続を試みています... (${attempt}/${maxAttempts})`, {
-        id: toastIdRef.current,
-        duration: Infinity,
-      });
-    } else if (type === "connected") {
-      // Show Success and Dismiss
-      toast.success("接続しました", {
-        id: toastIdRef.current,
-        icon: <Wifi className="h-4 w-4" />,
-        duration: 2000,
-      });
-    } else if (type === "error") {
-      // Show Failure
-      toast.error("接続できませんでした", {
-        id: toastIdRef.current,
-        description: "ページを再読み込みしてください",
-        icon: <WifiOff className="h-4 w-4" />,
-        duration: Infinity,
-      });
-    }
-  }, [type, attempt, maxAttempts]);
-};
-/**
- * Timeline Stream UseCase
- *
- * Business logic for real-time timeline spark streaming.
- * Manages WebSocket connection, spark accumulation, deduplication, TTL cleanup,
- * and temperature calculation for UI rendering.
- *
- * Implements batching for incoming events to reduce render frequency.
- */
+# -----------------------------------------------------------------------------
+# Fixed Values (Specification-defined, not dynamically adjustable)
+# -----------------------------------------------------------------------------
+KINDLING_THRESHOLD_UU: Final[int] = 3  # Fixed: 3 unique users for kindling
+KINDLING_DECAY_HOURS: Final[int] = 3  # TTL extension when promoted to kindling
+BONFIRE_INITIAL_TTL_HOURS: Final[int] = 24  # Initial TTL for new bonfire
+BONFIRE_FUEL_EXTENSION_MINUTES: Final[int] = 10  # TTL extension per fuel
+BONFIRE_REPLY_EXTENSION_HOURS: Final[int] = 3  # TTL extension per reply
+FUEL_WEIGHT: Final[int] = 1  # Weight for fuel in heat score
+REPLY_WEIGHT: Final[int] = 5  # Weight for reply in heat score
+PUBSUB_BUFFER_SIZE: Final[int] = 100  # Size of buffer for PubSub messages
 
-import { useEffect, useRef, useState } from "react";
-import type { Spark, SparkViewModel } from "@/domain/model/spark";
-import type { ITimelineRepository } from "@/domain/repository/timelineRepository";
-import type { TimelineEvent } from "@/domain/model/timelineEvent";
-import { computeSparkViewModel } from "@/domain/service/sparkService";
+# -----------------------------------------------------------------------------
+# Fallback Values (Used when Redis is unavailable)
+# -----------------------------------------------------------------------------
+FALLBACK_BONFIRE_THRESHOLD_UU: Final[int] = 10  # DAU-based, fallback=10
+FALLBACK_HEAT_SCORE_THRESHOLD: Final[int] = 0  # 0 until reply feature
 
-/**
- * Update interval for temperature recalculation and TTL cleanup
- * Run every second for immediate removal of expired sparks and temperature updates
- */
-const UPDATE_INTERVAL_MS = 1000;
 
-/**
- * Batch processing interval in milliseconds.
- * Incoming WebSocket events are buffered and processed in chunks to prevent UI jank.
- */
-const BATCH_INTERVAL_MS = 200;
+# -----------------------------------------------------------------------------
+# Valid Fields (Communities)
+# -----------------------------------------------------------------------------
+VALID_FIELDS: Final[list[str]] = [
+    "sakurazaka46",
+    "nhk",
+    "wbc",
+]
 
-/**
- * Compute ViewModels from raw sparks by adding temperature state and remaining time
- * @param sparks - Raw spark data from repository
- * @returns Spark ViewModels with computed temperature and countdown timer
- */
-const computeViewModels = (sparks: Spark[]): SparkViewModel[] => {
-  return sparks.map(computeSparkViewModel);
-};
 
-export type ConnectionStatus =
-  | { type: "connected" }
-  | { type: "disconnected" }
-  | {
-      type: "reconnecting";
-      attempt: number;
-      maxAttempts: number;
-      nextRetryDelayMs: number;
-    }
-  | { type: "error"; reason: string };
+class LogEvents:
+    """Log event ID constants for structured logging.
 
-interface UseTimelineStreamProps {
-  repository: ITimelineRepository;
-  onBonfirePromoted?: () => void;
-}
+    All log calls should use these event IDs instead of raw strings.
+    """
 
-/**
- * Timeline Stream Custom Hook
- * @param repository - Timeline repository implementation (DIP)
- * @param onBonfirePromoted - Callback triggers when a spark is promoted to Bonfire
- * @returns Object containing current spark ViewModels and connection error state
- */
-export const useTimelineStream = ({
-  repository,
-  onBonfirePromoted,
-}: UseTimelineStreamProps) => {
-  const [sparks, setSparks] = useState<Spark[]>([]);
-  const [viewModels, setViewModels] = useState<SparkViewModel[]>([]);
+    # Health check events
+    HEALTH_CHECK_STARTED: Final[str] = "HEALTH_001"
+    HEALTH_CHECK_SUCCESS: Final[str] = "HEALTH_002"
+    HEALTH_CHECK_FAILED: Final[str] = "HEALTH_003"
+    HEALTH_MESSAGE_SAVED: Final[str] = "HEALTH_004"
+    HEALTH_MESSAGE_RETRIEVED: Final[str] = "HEALTH_005"
 
-  // Buffer for incoming events to be processed in batch
-  const eventBuffer = useRef<TimelineEvent[]>([]);
+    # Spark events
+    SPARK_POST_STARTED: Final[str] = "SPARK_001"
+    SPARK_POST_SUCCESS: Final[str] = "SPARK_002"
+    SPARK_POST_FAILED: Final[str] = "SPARK_003"
+    SPARK_VALIDATION_FAILED: Final[str] = "SPARK_004"
+    SPARK_RATE_LIMIT_EXCEEDED: Final[str] = "SPARK_005"
+    SPARK_NG_WORD_DETECTED: Final[str] = "SPARK_006"
 
-  // Connection State Machine
-  const [status, setStatus] = useState<ConnectionStatus>({
-    type: "disconnected",
-  });
+    # Fuel events
+    FUEL_ADD_STARTED: Final[str] = "FUEL_001"
+    FUEL_ADD_SUCCESS: Final[str] = "FUEL_002"
+    FUEL_ALREADY_ADDED: Final[str] = "FUEL_003"
+    FUEL_SELF_SPARK: Final[str] = "FUEL_004"
+    FUEL_SPARK_NOT_FOUND: Final[str] = "FUEL_005"
+    FUEL_SPARK_DECAYED: Final[str] = "FUEL_006"
+    FUEL_RETRY_ATTEMPT: Final[str] = "FUEL_007"
+    FUEL_RETRY_EXHAUSTED: Final[str] = "FUEL_008"
 
-  // Reconnection Constants
-  const MAX_RETRIES = 3;
-  const BASE_DELAY = 1000;
-  const MAX_DELAY = 10000;
+    # Timeline streaming events
+    TIMELINE_SNAPSHOT_LOADED: Final[str] = "TIMELINE_001"
+    TIMELINE_STREAM_STARTED: Final[str] = "TIMELINE_002"
+    TIMELINE_STREAM_MESSAGE: Final[str] = "TIMELINE_003"
 
-  const calculateBackoff = (attempt: number) => {
-    // 2^0=1000, 2^1=2000, 2^2=4000
-    const delay = Math.min(BASE_DELAY * Math.pow(2, attempt), MAX_DELAY);
-    const jitter = delay * (0.1 + Math.random() * 0.2);
-    return delay + jitter;
-  };
+    # WebSocket events
+    WEBSOCKET_CONNECTED: Final[str] = "WS_001"
+    WEBSOCKET_DISCONNECTED: Final[str] = "WS_002"
+    WEBSOCKET_ERROR: Final[str] = "WS_003"
 
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+    # PubSub events
+    PUBSUB_PUBLISH_SUCCESS: Final[str] = "PUBSUB_001"
+    PUBSUB_PUBLISH_ERROR: Final[str] = "PUBSUB_002"
+    PUBSUB_SUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_003"
+    PUBSUB_MESSAGE_RECEIVED: Final[str] = "PUBSUB_004"
+    PUBSUB_DESERIALIZATION_ERROR: Final[str] = "PUBSUB_005"
+    PUBSUB_SUBSCRIBE_ERROR: Final[str] = "PUBSUB_006"
+    PUBSUB_UNSUBSCRIBE_SUCCESS: Final[str] = "PUBSUB_007"
+    PUBSUB_BUFFER_OVERFLOW: Final[str] = "PUBSUB_008"
 
-  // Force reconnection trigger (used by triggerReconnection to re-run the main effect)
-  const [connectTrigger, setConnectTrigger] = useState(0);
+    # Database events
+    DB_CONNECTION_SUCCESS: Final[str] = "DB_001"
+    DB_CONNECTION_FAILED: Final[str] = "DB_002"
+    DB_QUERY_ERROR: Final[str] = "DB_003"
 
-  // Trigger Reconnection (Pure State Update)
-  const triggerReconnection = (currentAttempt: number) => {
-    if (currentAttempt >= MAX_RETRIES) {
-      setStatus({ type: "error", reason: "Max retries exceeded" });
-      return;
-    }
+    # Application lifecycle events
+    APP_STARTUP: Final[str] = "APP_001"
+    APP_SHUTDOWN: Final[str] = "APP_002"
 
-    const nextRetryDelay = calculateBackoff(currentAttempt);
-    setStatus({
-      type: "reconnecting",
-      attempt: currentAttempt + 1,
-      maxAttempts: MAX_RETRIES,
-      nextRetryDelayMs: nextRetryDelay,
-    });
-  };
+    # Error events
+    UNHANDLED_ERROR: Final[str] = "ERROR_001"
+    VALIDATION_ERROR: Final[str] = "ERROR_002"
 
-  // Side Effect: Handle Reconnection Timer
-  useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>;
+    # Bonfire/Promotion events
+    PROMOTION_CHECK_STARTED: Final[str] = "PROMO_001"
+    PROMOTION_TO_KINDLING: Final[str] = "PROMO_002"
+    PROMOTION_TO_BONFIRE: Final[str] = "PROMO_003"
+    PROMOTION_NOT_NEEDED: Final[str] = "PROMO_004"
+    BONFIRE_CREATED: Final[str] = "BONFIRE_001"
+    BONFIRE_EXTENDED: Final[str] = "BONFIRE_002"
+    BONFIRE_DECAYED: Final[str] = "BONFIRE_003"
+    BONFIRE_NOT_FOUND: Final[str] = "BONFIRE_004"
 
-    if (status.type === "reconnecting") {
-      timeoutId = setTimeout(() => {
-        setConnectTrigger((prev) => prev + 1);
-      }, status.nextRetryDelayMs);
-    }
+    # Threshold config events
+    THRESHOLD_FETCH_SUCCESS: Final[str] = "THRESH_001"
+    THRESHOLD_FETCH_FALLBACK: Final[str] = "THRESH_002"
 
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [status]);
 
-  // Smart reconnection on window events (Focus / Online)
-  useEffect(() => {
-    const handleImmediateReconnect = () => {
-      // If we are waiting for a retry, cancel the wait and try immediately
-      if (
-        status.type === "reconnecting" ||
-        status.type === "error" ||
-        status.type === "disconnected"
-      ) {
-        if (reconnectTimeoutRef.current)
-          clearTimeout(reconnectTimeoutRef.current);
-        // Reset to first attempt for immediate manual/focus trigger?
-        // Or just trigger next attempt immediately?
-        // Let's treat explicit user action (focus/online) as a fresh start or immediate retry.
-        // Better to try immediately.
-        setConnectTrigger((prev) => prev + 1);
-        setStatus({
-          type: "reconnecting",
-          attempt: 1,
-          maxAttempts: MAX_RETRIES,
-          nextRetryDelayMs: 0,
-        });
-      }
-    };
+# Singleton instance
+LOG_EVENTS = LogEvents()
+"""Bonfire Entity.
 
-    window.addEventListener("focus", handleImmediateReconnect);
-    window.addEventListener("online", handleImmediateReconnect);
+This module defines the Bonfire entity representing a promoted spark.
+"""
 
-    return () => {
-      window.removeEventListener("focus", handleImmediateReconnect);
-      window.removeEventListener("online", handleImmediateReconnect);
-    };
-  }, [status.type]);
+from datetime import UTC, datetime, timedelta
 
-  useEffect(() => {
-    // 1. Establish WebSocket connection
-    const disconnect = repository.connect(
-      (event) => {
-        setStatus((prev) => {
-          if (prev.type === "connected") return prev;
-          return { type: "connected" };
-        });
-        // Push to buffer instead of updating state directly
-        eventBuffer.current.push(event);
-      },
-      () => {
-        // Error callback (Disconnected)
-        // Determine next step based on current status
-        setStatus((prev) => {
-          if (prev.type === "connected") {
-            // First disconnect
-            triggerReconnection(0); // Start with attempt 0
-            return {
-              type: "reconnecting",
-              attempt: 1,
-              maxAttempts: MAX_RETRIES,
-              nextRetryDelayMs: 0,
-            }; // Temporary state until triggerReconnection updates it properly with delay
-          } else if (prev.type === "reconnecting") {
-            triggerReconnection(prev.attempt);
-            return prev; // triggerReconnection will update state
-          }
-          // If already in error or disconnected state, just ensure hasError is true
-          return { type: "disconnected" }; // Or error, depending on previous state
-        });
-      },
-    );
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-    // 2. Setup periodic temperature recalculation and TTL cleanup
-    const updateTimer = setInterval(() => {
-      const now = Date.now();
+from app.domain.constants import VALID_FIELDS
 
-      setSparks((previous) => {
-        // Filter out expired sparks
-        const aliveSparks = previous.filter((spark) => {
-          const expirationTime = new Date(spark.decayAt).getTime();
-          return now < expirationTime;
-        });
 
-        // Optimization: return same reference if nothing changed
-        if (aliveSparks.length === previous.length) {
-          return previous;
+class Bonfire(BaseModel):
+    """Bonfire entity representing a promoted spark.
+
+    A Bonfire is created when a Spark meets the promotion criteria
+    (sufficient unique users and heat score).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(..., description="Unique identifier (same as original spark_id)")
+    spark_id: str = Field(..., description="Reference to the original spark")
+    field_id: str = Field(..., description="Field ID the bonfire belongs to")
+    content: str = Field(..., description="Original spark content")
+    unique_user_count: int = Field(..., description="Number of unique users engaged")
+    heat_score: int = Field(..., description="Heat score at promotion time")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="Bonfire creation timestamp (UTC)",
+    )
+    decay_at: datetime = Field(
+        ...,
+        description="Timestamp when the bonfire decays",
+    )
+
+    @field_validator("field_id")
+    @classmethod
+    def validate_field_id(cls, v: str) -> str:
+        """Validate that field_id is in the allowed list of fields."""
+        if v not in VALID_FIELDS:
+            raise ValueError(f"Invalid field_id: {v}")
+        return v
+    @staticmethod
+    def create(
+        spark_id: str,
+        field_id: str,
+        content: str,
+        unique_user_count: int,
+        heat_score: int,
+        initial_decay_hours: int = 3,
+    ) -> "Bonfire":
+        """Create a new Bonfire from a promoted Spark.
+
+        Args:
+        Args:
+            spark_id: Original spark's ID
+            field_id: Field ID
+            content: Original spark content
+            unique_user_count: Number of unique users at promotion
+            heat_score: Heat score at promotion
+            initial_decay_hours: Initial TTL in hours
+
+        Returns:
+            New Bonfire instance
+
+        """
+        now = datetime.now(UTC)
+        return Bonfire(
+            id=spark_id,
+            spark_id=spark_id,
+            field_id=field_id,
+            content=content,
+            unique_user_count=unique_user_count,
+            heat_score=heat_score,
+            created_at=now,
+            decay_at=now + timedelta(hours=initial_decay_hours),
+        )
+
+    def extend_by_fuel(self, extension_minutes: int) -> "Bonfire":
+        """Extend bonfire TTL when fuel is added.
+
+        Args:
+            extension_minutes: Minutes to extend from current decay_at
+
+        Returns:
+            New Bonfire instance with extended decay_at
+
+        """
+        new_decay_at = self.decay_at + timedelta(minutes=extension_minutes)
+        return self.model_copy(update={"decay_at": new_decay_at})
+
+    def extend_by_reply(
+        self,
+        extension_hours: int,
+        current_time: datetime | None = None,
+    ) -> "Bonfire":
+        """Extend bonfire TTL when a reply is added.
+
+        Only extends if remaining TTL is shorter than extension_hours.
+
+        Args:
+            extension_hours: Hours to extend from current time
+            current_time: Current time (default: now)
+
+        Returns:
+            New Bonfire instance with extended decay_at (or unchanged)
+
+        """
+        now = current_time or datetime.now(UTC)
+        new_decay_at = now + timedelta(hours=extension_hours)
+
+        # Only extend if new decay_at is later than current
+        if new_decay_at > self.decay_at:
+            return self.model_copy(update={"decay_at": new_decay_at})
+        return self
+
+    @property
+    def is_active(self) -> bool:
+        """Check if bonfire is still active (not decayed)."""
+        return datetime.now(UTC) < self.decay_at
+"""Spark Entity.
+
+This module defines the Spark entity representing a user's post.
+"""
+
+from datetime import UTC, datetime, timedelta
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.domain.constants import VALID_FIELDS
+
+
+class SparkLevel(str, Enum):
+    """Level of spark engagement."""
+
+    SPARK = "spark"  # Initial state (TTL: 30min)
+    KINDLING = "kindling"  # Extended state (UU >= 3, TTL: 3h)
+    BONFIRE = "bonfire"  # Promoted state (UU >= threshold AND heat_score >= 50)
+
+
+class Spark(BaseModel):
+    """Spark entity representing a user's post."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(..., description="Unique identifier")
+    content: str = Field(..., description="Spark content text")
+    user_hash: str = Field(..., description="Anonymized user identifier")
+    fuel_count: int = Field(default=0, description="Number of fuel added to this spark")
+    field_id: str = Field(..., description="Field ID (Community ID) this spark belongs to")
+    level: SparkLevel = Field(
+        default=SparkLevel.SPARK,
+        description="Current promotion level",
+    )
+    parent_bonfire_id: str | None = Field(
+        default=None,
+        description="Parent bonfire ID if this is a reply, None for root sparks",
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="Creation timestamp (UTC)",
+    )
+    decay_at: datetime = Field(
+        ...,
+        description="Timestamp when the spark decays (becomes invisible)",
+    )
+    vanish_at: datetime = Field(
+        ...,
+        description="Timestamp when the spark vanishes (physical deletion via TTL)",
+    )
+
+    @field_validator("field_id")
+    @classmethod
+    def validate_field_id(cls, v: str) -> str:
+        """Validate that field_id is in the allowed list of fields."""
+        if v not in VALID_FIELDS:
+            raise ValueError(f"Invalid field_id: {v}")
+        return v
+    @staticmethod
+    def create(
+        spark_id: str,
+        content: str,
+        user_hash: str,
+        decay_after_seconds: int,
+        vanish_after_days: int,
+        field_id: str,
+        parent_bonfire_id: str | None = None,
+        decay_at: datetime | None = None,
+    ) -> "Spark":
+        """Create a new Spark entity with calculated timestamps.
+
+        Args:
+            content: Spark content text
+            user_hash: Anonymized user identifier
+            decay_after_seconds: Duration in seconds until spark decays
+            vanish_after_days: Days until spark vanishes (physical deletion)
+            field_id: Field ID the spark belongs to
+            parent_bonfire_id: Parent bonfire ID if this is a reply
+            decay_at: Explicit decay_at (used for replies to inherit from bonfire)
+
+        Returns:
+            New Spark instance
+
+        """
+        now = datetime.now(UTC)
+        return Spark(
+            id=spark_id,
+            content=content,
+            user_hash=user_hash,
+            fuel_count=0,
+            field_id=field_id,
+            parent_bonfire_id=parent_bonfire_id,
+            created_at=now,
+            decay_at=decay_at if decay_at else now + timedelta(seconds=decay_after_seconds),
+            vanish_at=now + timedelta(days=vanish_after_days),
+        )
+"""Bonfire Repository Interface.
+
+This module defines the output port for bonfire persistence.
+"""
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from datetime import datetime
+
+from app.domain.model.bonfire import Bonfire
+
+
+class IBonfireRepository(ABC):
+    """Repository interface for bonfire operations."""
+
+    @abstractmethod
+    async def save(self, bonfire: Bonfire) -> Bonfire:
+        """Save a bonfire.
+
+        Args:
+            bonfire: The bonfire to save
+
+        Returns:
+            The saved bonfire
+
+        """
+
+    @abstractmethod
+    async def find_by_id(self, bonfire_id: str) -> Bonfire | None:
+        """Find a bonfire by ID.
+
+        Args:
+            bonfire_id: The bonfire ID to search for
+
+        Returns:
+            The bonfire if found, None otherwise
+
+        """
+
+    @abstractmethod
+    async def find_by_spark_id(self, spark_id: str) -> Bonfire | None:
+        """Find a bonfire by its original spark ID.
+
+        Args:
+            spark_id: The original spark ID
+
+        Returns:
+            The bonfire if found, None otherwise
+
+        """
+
+    @abstractmethod
+    async def find_active_bonfires(self, field_id: str) -> AsyncIterator[Bonfire]:
+        """Find all active (non-decayed) bonfires.
+
+        Yields:
+            Active bonfires sorted by created_at descending (newest first)
+
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError
+
+    @abstractmethod
+    async def update_decay_at(
+        self,
+        bonfire_id: str,
+        new_decay_at: datetime,
+    ) -> bool:
+        """Update bonfire's decay_at timestamp.
+
+        Uses atomic update to prevent race conditions.
+
+        Args:
+            bonfire_id: The bonfire ID to update
+            new_decay_at: New decay timestamp
+
+        Returns:
+            True if updated successfully, False if bonfire not found
+
+        """
+
+    @abstractmethod
+    async def delete_by_id(self, bonfire_id: str) -> bool:
+        """Delete a bonfire by ID.
+
+        Used when bonfire decays.
+
+        Args:
+            bonfire_id: The bonfire ID to delete
+
+        Returns:
+            True if deleted successfully, False if not found
+
+        """
+"""Spark Repository Interface.
+
+This module defines the output port for spark persistence.
+"""
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from datetime import datetime
+
+from app.domain.model.spark import Spark, SparkLevel
+from app.domain.model.spark_engagement import SparkEngagement
+
+
+class ISparkRepository(ABC):
+    """Repository interface for spark operations."""
+
+    @abstractmethod
+    async def save(self, spark: Spark) -> Spark:
+        """Save a spark.
+
+        Args:
+            spark: The spark to save
+
+        Returns:
+            The saved spark
+
+        """
+
+    @abstractmethod
+    async def find_by_id(self, spark_id: str) -> Spark | None:
+        """Find a spark by ID.
+
+        Args:
+            spark_id: The spark ID to search for
+
+        Returns:
+            The spark if found, None otherwise
+
+        """
+
+    @abstractmethod
+    async def find_active_sparks(
+        self,
+        field_id: str,
+        seconds: int,
+        limit: int = 1000,
+    ) -> AsyncIterator[Spark]:
+        """Find all active sparks created within the specified seconds.
+
+        Args:
+            seconds: Number of seconds to look back from now
+            limit: Maximum number of sparks to return (default 1000)
+
+        Yields:
+            Active sparks sorted by created_at in ascending order (oldest first)
+
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError
+
+    @abstractmethod
+    async def try_add_fuel(self, spark_id: str, user_hash: str) -> bool:
+        """Atomically add fuel to a spark if the user hasn't fueled it yet.
+
+        This method ensures idempotency by checking if the user has already
+        added fuel to this spark. If not, it increments the fuel_count and
+        records the user's action.
+
+        Args:
+            spark_id: The spark ID to add fuel to
+            user_hash: The user hash attempting to add fuel
+
+        Returns:
+            True if fuel was added (first time), False if user already fueled
+
+        """
+
+    @abstractmethod
+    async def get_engagement(
+        self,
+        spark_id: str,
+        fuel_weight: int = 1,
+        reply_weight: int = 5,
+    ) -> SparkEngagement | None:
+        """Get engagement metrics for a spark.
+
+        Calculates unique user count and fuel count from fuel history.
+
+        Args:
+            spark_id: The spark ID to get engagement for
+            fuel_weight: Weight for fuel actions in heat score calculation
+            reply_weight: Weight for reply actions in heat score calculation
+
+        Returns:
+            SparkEngagement if spark exists, None otherwise
+
+        """
+
+    @abstractmethod
+    async def update_level(self, spark_id: str, level: SparkLevel) -> bool:
+        """Update spark's promotion level.
+
+        Args:
+            spark_id: The spark ID to update
+            level: New spark level
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        """
+
+    @abstractmethod
+    async def update_decay_at(
+        self,
+        spark_id: str,
+        new_decay_at: datetime,
+    ) -> bool:
+        """Update spark's decay_at timestamp.
+
+        Used when promoting to kindling (TTL extension).
+
+        Args:
+            spark_id: The spark ID to update
+            new_decay_at: New decay timestamp
+
+        Returns:
+            True if updated successfully, False if spark not found
+
+        """
+
+    @abstractmethod
+    async def find_replies_by_bonfire_id(
+        self,
+        bonfire_id: str,
+        limit: int = 1000,
+    ) -> AsyncIterator[Spark]:
+        """Find all replies for a specific bonfire.
+
+        Args:
+            bonfire_id: The parent bonfire ID
+            limit: Maximum number of replies to return (default 1000)
+
+        Yields:
+            Reply sparks sorted by created_at in ascending order (oldest first)
+
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError
+"""Check Promotion Interactor.
+
+This module implements the business logic for checking and executing
+spark promotions (Spark -> Kindling -> Bonfire).
+"""
+
+from datetime import UTC, datetime, timedelta
+
+from app.domain.constants import (
+    FUEL_WEIGHT,
+    KINDLING_DECAY_HOURS,
+    KINDLING_THRESHOLD_UU,
+    LOG_EVENTS,
+    REPLY_WEIGHT,
+)
+from app.domain.exception import AppError
+from app.domain.model.bonfire import Bonfire
+from app.domain.model.spark import SparkLevel
+from app.domain.model.spark_engagement import SparkEngagement
+from app.domain.repository.bonfire_repository import IBonfireRepository
+from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.repository.threshold_config_repository import IThresholdConfigRepository
+from app.domain.service.ignition_service import IgnitionService
+from app.usecase.check_promotion.interface import (
+    CheckPromotionInput,
+    CheckPromotionOutput,
+    ICheckPromotionUseCase,
+)
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+
+
+class CheckPromotionInteractor(ICheckPromotionUseCase):
+    """Interactor for checking and executing spark promotions."""
+
+    def __init__(
+        self,
+        spark_repository: ISparkRepository,
+        bonfire_repository: IBonfireRepository,
+        threshold_config: IThresholdConfigRepository,
+        ignition_service: IgnitionService,
+        pubsub: IPubSubGateway,
+        logger: ILogger,
+    ) -> None:
+        """Initialize the interactor.
+
+        Args:
+            spark_repository: Repository for spark operations
+            bonfire_repository: Repository for bonfire operations
+            threshold_config: Repository for threshold configuration
+            ignition_service: Domain service for promotion logic
+            pubsub: PubSub gateway for broadcasting events
+            logger: Logger for structured logging
+
+        """
+        self.spark_repository = spark_repository
+        self.bonfire_repository = bonfire_repository
+        self.threshold_config = threshold_config
+        self.ignition_service = ignition_service
+        self.pubsub = pubsub
+        self.logger = logger
+
+    async def execute(self, input_data: CheckPromotionInput) -> CheckPromotionOutput:
+        """Check and execute spark promotion.
+
+        Promotion Flow:
+        1. Fetch spark and engagement metrics
+        2. Get current thresholds from config
+        3. Use IgnitionService to determine if promotion should occur
+        4. If promoting to Kindling: extend TTL
+        5. If promoting to Bonfire: create Bonfire entity
+        6. Broadcast promotion event via PubSub
+
+        Args:
+            input_data: Input containing spark_id
+
+        Returns:
+            Output indicating promotion result
+
+        Raises:
+            AppError: If spark not found (1005)
+
+        """
+        self.logger.info(
+            LOG_EVENTS.PROMOTION_CHECK_STARTED,
+            "Checking promotion for spark",
+            context={"spark_id": input_data.spark_id},
+        )
+
+        # 1. Find the spark
+        spark = await self.spark_repository.find_by_id(input_data.spark_id)
+        if spark is None:
+            self.logger.warning(
+                LOG_EVENTS.BONFIRE_NOT_FOUND,
+                "Spark not found for promotion check",
+                context={"spark_id": input_data.spark_id},
+            )
+            raise AppError(internal_code=1005)
+
+        previous_level = spark.level
+
+        # 2. Get engagement metrics with fixed weights
+        engagement = await self.spark_repository.get_engagement(
+            input_data.spark_id,
+            fuel_weight=FUEL_WEIGHT,
+            reply_weight=REPLY_WEIGHT,
+        )
+        if engagement is None:
+            # Spark exists but has no engagement yet - return early
+            self.logger.info(
+                LOG_EVENTS.PROMOTION_NOT_NEEDED,
+                "No engagement for spark, skipping promotion check",
+                context={"spark_id": input_data.spark_id},
+            )
+            return CheckPromotionOutput(
+                spark_id=input_data.spark_id,
+                promoted=False,
+                previous_level=previous_level,
+                current_level=previous_level,
+                bonfire_created=False,
+            )
+
+        # 3. Get dynamic thresholds from Redis
+        bonfire_threshold = await self.threshold_config.get_bonfire_threshold_uu()
+        heat_threshold = await self.threshold_config.get_heat_score_threshold()
+
+        # 4. Check promotion using domain service
+        promotion_result = self.ignition_service.check_promotion(
+            current_level=previous_level,
+            engagement=engagement,
+            kindling_threshold_uu=KINDLING_THRESHOLD_UU,
+            bonfire_threshold_uu=bonfire_threshold,
+            heat_score_threshold=heat_threshold,
+        )
+
+        if not promotion_result.should_promote:
+            self.logger.info(
+                LOG_EVENTS.PROMOTION_NOT_NEEDED,
+                "No promotion needed",
+                context={
+                    "spark_id": input_data.spark_id,
+                    "reason": promotion_result.reason,
+                },
+            )
+            return CheckPromotionOutput(
+                spark_id=input_data.spark_id,
+                promoted=False,
+                previous_level=previous_level,
+                current_level=previous_level,
+                bonfire_created=False,
+            )
+
+        # 5. Execute promotion
+        bonfire_created = False
+
+        if promotion_result.target_level == SparkLevel.KINDLING:
+            await self._promote_to_kindling(input_data.spark_id)
+        elif promotion_result.target_level == SparkLevel.BONFIRE:
+            await self._promote_to_bonfire(
+                spark_id=input_data.spark_id,
+                field_id=spark.field_id,
+                content=spark.content,
+                engagement=engagement,
+            )
+            bonfire_created = True
+
+        # 6. Update spark level
+        await self.spark_repository.update_level(
+            input_data.spark_id,
+            promotion_result.target_level,
+        )
+
+        # 7. Broadcast promotion event
+        await self._broadcast_promotion(
+            spark_id=input_data.spark_id,
+            new_level=promotion_result.target_level,
+            bonfire_created=bonfire_created,
+        )
+
+        return CheckPromotionOutput(
+            spark_id=input_data.spark_id,
+            promoted=True,
+            previous_level=previous_level,
+            current_level=promotion_result.target_level,
+            bonfire_created=bonfire_created,
+        )
+
+    async def _promote_to_kindling(self, spark_id: str) -> None:
+        """Promote spark to kindling (extend TTL).
+
+        Args:
+            spark_id: ID of the spark to promote
+
+        """
+        new_decay_at = datetime.now(UTC) + timedelta(hours=KINDLING_DECAY_HOURS)
+
+        await self.spark_repository.update_decay_at(spark_id, new_decay_at)
+
+        self.logger.info(
+            LOG_EVENTS.PROMOTION_TO_KINDLING,
+            "Spark promoted to kindling",
+            context={
+                "spark_id": spark_id,
+                "new_decay_at": new_decay_at.isoformat(),
+            },
+        )
+
+    async def _promote_to_bonfire(
+        self,
+        spark_id: str,
+        field_id: str,
+        content: str,
+        engagement: SparkEngagement,
+    ) -> None:
+        """Promote spark to bonfire (create Bonfire entity).
+
+        Args:
+            spark_id: ID of the spark to promote
+            content: Spark content
+            engagement: Engagement metrics
+
+        """
+        bonfire = Bonfire.create(
+            spark_id=spark_id,
+            field_id=field_id,
+            content=content,
+            unique_user_count=engagement.unique_user_count,
+            heat_score=engagement.heat_score,
+        )
+
+        await self.bonfire_repository.save(bonfire)
+
+        self.logger.info(
+            LOG_EVENTS.PROMOTION_TO_BONFIRE,
+            "Spark promoted to bonfire",
+            context={
+                "spark_id": spark_id,
+                "bonfire_id": bonfire.id,
+                "unique_user_count": engagement.unique_user_count,
+                "heat_score": engagement.heat_score,
+            },
+        )
+
+    async def _broadcast_promotion(
+        self,
+        spark_id: str,
+        new_level: SparkLevel,
+        bonfire_created: bool,
+    ) -> None:
+        """Broadcast promotion event via PubSub.
+
+        Args:
+            spark_id: ID of the promoted spark
+            new_level: New level after promotion
+            bonfire_created: Whether a bonfire was created
+
+        """
+        # Calculate new specific decay_at based on level
+        # Note: Ideally we should pass the actual new decay_at from the modification methods
+        # but for now we'll fetch or estimate it.
+        # Since we just updated it in step 6 (update_level), we might need to fetch it again
+        # or pass it from _promote_to_kindling/_promote_to_bonfire.
+        # However, to keep it simple and consistent with the plan, let's fetch the updated spark.
+        spark = await self.spark_repository.find_by_id(spark_id)
+        if not spark:
+            return
+
+        event_data = {
+            "type": "spark_updated",
+            "spark_id": spark_id,
+            "level": new_level.value,
+            "decay_at": spark.decay_at.isoformat().replace("+00:00", "Z"),
+            "bonfire_id": spark.id if bonfire_created else None,
         }
 
-        return aliveSparks;
-      });
-    }, UPDATE_INTERVAL_MS);
+        channel = f"timeline:{spark.field_id}"
+        await self.pubsub.publish(channel, event_data)
+"""Spark DTOs.
 
-    // 3. Cleanup on unmount or re-run
-    return () => {
-      disconnect();
-      clearInterval(updateTimer);
-      if (reconnectTimeoutRef.current)
-        clearTimeout(reconnectTimeoutRef.current);
-    };
-  }, [repository, connectTrigger]);
+This module defines Data Transfer Objects for spark use cases.
+"""
 
-  // Batch process incoming events
-  useEffect(() => {
-    const processBatch = () => {
-      if (eventBuffer.current.length === 0) return;
+from datetime import UTC, datetime
 
-      const events = [...eventBuffer.current];
-      eventBuffer.current = []; // Clear buffer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-      setSparks((currentSparks) => {
-        const updatedSparks = [...currentSparks];
-        let bonfirePromoted = false;
 
-        events.forEach((event) => {
-          if (event.type === "spark_posted") {
-            const newSpark = event.data;
-            // Deduplication
-            if (!updatedSparks.some((s) => s.id === newSpark.id)) {
-              updatedSparks.push(newSpark);
-            }
-          } else if (event.type === "spark_updated") {
-            const { spark_id, level, decay_at } = event;
+class PostSparkInput(BaseModel):
+    """Input DTO for posting a spark."""
 
-            // Find spark to update
-            const sparkIndex = updatedSparks.findIndex(
-              (s) => s.id === spark_id,
-            );
-            if (sparkIndex !== -1) {
-              if (level === "bonfire") {
-                // Remove from timeline if promoted to Bonfire
-                updatedSparks.splice(sparkIndex, 1);
-                bonfirePromoted = true;
-              } else {
-                // Update properties (e.g. extension to Kindling)
-                updatedSparks[sparkIndex] = {
-                  ...updatedSparks[sparkIndex],
-                  decayAt: decay_at,
-                };
-              }
-            }
-          }
-        });
+    model_config = ConfigDict(frozen=True)
 
-        if (bonfirePromoted && onBonfirePromoted) {
-          // Trigger callback (outside check to avoid state update loops if possible,
-          // but here needs setTimeout to break render cycle potentially)
-          setTimeout(onBonfirePromoted, 0);
-        }
+    content: str = Field(..., description="Spark content text", min_length=1)
+    parent_bonfire_id: str | None = Field(
+        default=None,
+        description="Parent bonfire ID if this is a reply",
+    )
+    field_id: str = Field(..., description="Field (Community) ID")
 
-        return updatedSparks;
-      });
-    };
 
-    const batchTimer = setInterval(processBatch, BATCH_INTERVAL_MS);
-    return () => {
-      clearInterval(batchTimer);
-    };
-  }, [onBonfirePromoted]);
+class SparkOutput(BaseModel):
+    """Output DTO for spark operations."""
 
-  // 4. Recompute ViewModels whenever sparks change or timer ticks
-  // Logic remains same: periodic update for countdown
-  useEffect(() => {
-    // Immediate update when sparks change
-    setViewModels(computeViewModels(sparks));
+    model_config = ConfigDict(frozen=True)
 
-    const timer = setInterval(() => {
-      setViewModels(() => {
-        // Recompute to update time remaining
-        // We use the same sparks state unless it changed
-        return computeViewModels(sparks);
-      });
-    }, UPDATE_INTERVAL_MS);
+    id: str = Field(..., description="Spark ID")
+    content: str = Field(..., description="Spark content")
+    user_hash: str = Field(
+        ..., description="Anonymized user identifier (first 8 characters)"
+    )
+    parent_bonfire_id: str | None = Field(
+        default=None,
+        description="Parent bonfire ID if this is a reply",
+    )
+    field_id: str = Field(..., description="Field (Community) ID")
+    created_at: datetime = Field(..., description="Creation timestamp (UTC)")
+    decay_at: datetime = Field(
+        ..., description="Timestamp when the spark decays (becomes invisible)"
+    )
 
-    return () => {
-      clearInterval(timer);
-    };
-  }, [sparks]);
+    @field_serializer("created_at", "decay_at")
+    def serialize_datetime(self, dt: datetime) -> str:
+        """Serialize datetime to ISO 8601 format with Z suffix for UTC.
 
-  return { sparks: viewModels, status };
-};
+        If datetime is naive (no timezone info), assume it's UTC.
+
+        Args:
+            dt: Datetime to serialize
+
+        Returns:
+            ISO 8601 string with Z suffix (e.g., "2025-12-08T12:34:56.789000Z")
+
+        """
+        # If naive datetime, assume UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        # Convert to UTC and format with Z suffix
+        return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+"""Get Active Bonfires Interactor.
+
+This module implements the business logic for retrieving active bonfires.
+"""
+
+from app.domain.constants import LOG_EVENTS
+from app.domain.repository.bonfire_repository import IBonfireRepository
+from app.usecase.get_bonfires.interface import (
+    BonfireDTO,
+    GetActiveBonfiresOutput,
+    IGetActiveBonfiresUseCase,
+)
+from app.usecase.ports.logger import ILogger
+
+
+class GetActiveBonfiresInteractor(IGetActiveBonfiresUseCase):
+    """Interactor for retrieving active bonfires."""
+
+    def __init__(
+        self,
+        bonfire_repository: IBonfireRepository,
+        logger: ILogger,
+    ) -> None:
+        """Initialize the interactor.
+
+        Args:
+            bonfire_repository: Repository for bonfire operations
+            logger: Logger for structured logging
+
+        """
+        self.bonfire_repository = bonfire_repository
+        self.logger = logger
+
+    async def execute(self, field_id: str) -> GetActiveBonfiresOutput:
+        """Get all active bonfires.
+
+        Returns:
+            Output containing list of active bonfires
+
+        """
+        bonfires: list[BonfireDTO] = []
+
+        async for bonfire in self.bonfire_repository.find_active_bonfires(field_id):
+            bonfires.append(
+                BonfireDTO(
+                    id=bonfire.id,
+                    spark_id=bonfire.spark_id,
+                    field_id=bonfire.field_id,
+                    content=bonfire.content,
+                    unique_user_count=bonfire.unique_user_count,
+                    heat_score=bonfire.heat_score,
+                    created_at=bonfire.created_at,
+                    decay_at=bonfire.decay_at,
+                )
+            )
+
+        self.logger.info(
+            LOG_EVENTS.BONFIRE_CREATED,  # Reusing event for retrieval
+            "Active bonfires retrieved",
+            context={"count": len(bonfires)},
+        )
+
+        return GetActiveBonfiresOutput(
+            bonfires=bonfires,
+            count=len(bonfires),
+        )
+"""Get Active Bonfires UseCase Interface.
+
+This module defines the interface and DTOs for retrieving active bonfires.
+"""
+
+from abc import ABC, abstractmethod
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+class BonfireDTO(BaseModel):
+    """Data transfer object for bonfire."""
+
+    id: str = Field(..., description="Bonfire ID")
+    spark_id: str = Field(..., description="Original spark ID")
+    field_id: str = Field(..., description="Field (Community) ID")
+    content: str = Field(..., description="Bonfire content")
+    unique_user_count: int = Field(..., description="Number of unique users")
+    heat_score: int = Field(..., description="Heat score")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    decay_at: datetime = Field(..., description="Decay timestamp")
+
+
+class GetActiveBonfiresOutput(BaseModel):
+    """Output of get active bonfires use case."""
+
+    bonfires: list["BonfireDTO"] = Field(
+        default_factory=lambda: [],
+        description="List of active bonfires",
+    )
+    count: int = Field(default=0, description="Number of active bonfires")
+
+
+class IGetActiveBonfiresUseCase(ABC):
+    """Interface for get active bonfires use case.
+
+    Returns all currently active (non-decayed) bonfires.
+    """
+
+    @abstractmethod
+    async def execute(self, field_id: str) -> GetActiveBonfiresOutput:
+        """Get all active bonfires.
+
+        Returns:
+            Output containing list of active bonfires
+
+        """
+"""Post Spark UseCase Implementation.
+
+This module implements the business logic for posting a spark.
+"""
+
+import uuid
+from datetime import datetime
+
+from app.domain.constants import LOG_EVENTS, VALID_FIELDS
+from app.domain.exception import AppError
+from app.domain.model.spark import Spark
+from app.domain.repository.bonfire_repository import IBonfireRepository
+from app.domain.repository.spark_repository import ISparkRepository
+from app.domain.service.identity_provider import IIdentityProvider
+from app.domain.service.rate_limiter import IRateLimiter
+from app.usecase.dto.spark_dto import PostSparkInput, SparkOutput
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+from app.usecase.post_spark.interface import IPostSparkUseCase
+
+
+class PostSparkInteractor(IPostSparkUseCase):
+    """Interactor for posting a spark."""
+
+    def __init__(
+        self,
+        spark_repository: ISparkRepository,
+        identity_provider: IIdentityProvider,
+        rate_limiter: IRateLimiter,
+        logger: ILogger,
+        pubsub_gateway: IPubSubGateway,
+        bonfire_repository: IBonfireRepository,
+        max_length: int,
+        rate_limit_count: int,
+        rate_limit_window_seconds: int,
+        decay_after_seconds: int,
+        vanish_after_days: int,
+        ng_words: list[str],
+    ) -> None:
+        """Initialize the interactor.
+
+        Args:
+            spark_repository: Repository for spark persistence
+            identity_provider: Provider for user hash generation
+            rate_limiter: Rate limiter for preventing spam
+            logger: Logger for structured logging
+            pubsub_gateway: Gateway for pub/sub messaging
+            bonfire_repository: Repository for bonfire operations
+            max_length: Maximum character length for content
+            rate_limit_count: Maximum posts per window
+            rate_limit_window_seconds: Rate limit window in seconds
+            decay_after_seconds: Duration in seconds until spark decays
+            vanish_after_days: Days until physical deletion
+            ng_words: List of prohibited words
+            pubsub_channel: Redis pub/sub channel name
+
+        """
+        self.spark_repository = spark_repository
+        self.identity_provider = identity_provider
+        self.rate_limiter = rate_limiter
+        self.logger = logger
+        self.pubsub_gateway = pubsub_gateway
+        self.bonfire_repository = bonfire_repository
+        self.max_length = max_length
+        self.rate_limit_count = rate_limit_count
+        self.rate_limit_window_seconds = rate_limit_window_seconds
+        self.decay_after_seconds = decay_after_seconds
+        self.vanish_after_days = vanish_after_days
+        self.ng_words = ng_words
+
+    async def execute(
+        self,
+        input_data: PostSparkInput,
+        ip_address: str,
+    ) -> SparkOutput:
+        """Execute the post spark use case.
+
+        Args:
+            input_data: Input data containing spark content
+            ip_address: Client IP address for user identification
+
+        Returns:
+            The created spark details
+
+        Raises:
+            AppError: If validation fails or rate limit is exceeded
+
+        """
+        self.logger.info(
+            LOG_EVENTS.SPARK_POST_STARTED,
+            "Starting spark post",
+            context={"content_length": len(input_data.content)},
+        )
+
+        # Validate content length
+        if len(input_data.content) > self.max_length:
+            self.logger.warning(
+                LOG_EVENTS.SPARK_VALIDATION_FAILED,
+                "Content length exceeds limit",
+                context={
+                    "content_length": len(input_data.content),
+                    "max_length": self.max_length,
+                },
+            )
+            raise AppError(internal_code=1003)
+
+        # Validate field_id
+        if input_data.field_id not in VALID_FIELDS:
+            self.logger.warning(
+                LOG_EVENTS.SPARK_VALIDATION_FAILED,
+                "Invalid field_id",
+                context={"field_id": input_data.field_id},
+            )
+            raise AppError(internal_code=1002, context={"message": "Invalid field_id"})
+
+        # Check for NG words
+        content_lower = input_data.content.lower()
+        # TODO@Gaomond: O(N * M) Operation. (N: NGワード数, M: 本文長)
+        for ng_word in self.ng_words:
+            if ng_word.lower() in content_lower:
+                self.logger.warning(
+                    LOG_EVENTS.SPARK_NG_WORD_DETECTED,
+                    "NG word detected in content",
+                    context={"ng_word": ng_word},
+                )
+                raise AppError(internal_code=1002)
+
+        # Generate user hash
+        user_hash = self.identity_provider.get_user_hash(ip_address)
+
+        # Check rate limit
+        within_limit = await self.rate_limiter.check_and_increment(
+            user_hash=user_hash,
+            limit=self.rate_limit_count,
+            window_seconds=self.rate_limit_window_seconds,
+        )
+
+        if not within_limit:
+            self.logger.warning(
+                LOG_EVENTS.SPARK_RATE_LIMIT_EXCEEDED,
+                "Rate limit exceeded",
+                context={"user_hash": user_hash},
+            )
+            raise AppError(internal_code=1004)
+
+        # Handle reply case: check parent bonfire and get its decay_at
+        parent_bonfire_id = input_data.parent_bonfire_id
+        decay_at: datetime | None = None
+
+        if parent_bonfire_id:
+            bonfire = await self.bonfire_repository.find_by_id(parent_bonfire_id)
+            if bonfire is None:
+                self.logger.warning(
+                    LOG_EVENTS.BONFIRE_NOT_FOUND,
+                    "Parent bonfire not found for reply",
+                    context={"bonfire_id": parent_bonfire_id},
+                )
+                raise AppError(internal_code=1005)
+            decay_at = bonfire.decay_at
+
+            # Validate field consistency
+            if bonfire.field_id != input_data.field_id:
+                self.logger.warning(
+                    LOG_EVENTS.SPARK_VALIDATION_FAILED,
+                    "Field mismatch for reply",
+                    context={
+                        "bonfire_field_id": bonfire.field_id,
+                        "input_field_id": input_data.field_id,
+                    },
+                )
+                raise AppError(internal_code=1002, context={"message": "Field mismatch"})
+
+        # Create spark entity
+        spark = Spark.create(
+            spark_id=str(uuid.uuid4()),
+            content=input_data.content,
+            user_hash=user_hash,
+            decay_after_seconds=self.decay_after_seconds,
+            vanish_after_days=self.vanish_after_days,
+            field_id=input_data.field_id,
+            parent_bonfire_id=parent_bonfire_id,
+            decay_at=decay_at,
+        )
+
+        # Save to repository
+        saved_spark = await self.spark_repository.save(spark)
+
+        # Map to output DTO (user_hash is truncated to 8 characters for display)
+        spark_output = SparkOutput(
+            id=saved_spark.id,
+            content=saved_spark.content,
+            user_hash=saved_spark.user_hash[:8],
+            field_id=saved_spark.field_id,
+            parent_bonfire_id=saved_spark.parent_bonfire_id,
+            created_at=saved_spark.created_at,
+            decay_at=saved_spark.decay_at,
+        )
+
+        # Determine publish channel: bonfire-specific for replies, global for sparks
+        if parent_bonfire_id:
+            channel = f"bonfire:{parent_bonfire_id}"
+        else:
+            channel = f"timeline:{input_data.field_id}"
+
+        # Publish to Redis pub/sub for real-time streaming
+        await self.pubsub_gateway.publish(channel, spark_output)
+
+        self.logger.info(
+            LOG_EVENTS.SPARK_POST_SUCCESS,
+            "Spark posted successfully",
+            context={
+                "spark_id": saved_spark.id,
+                "is_reply": parent_bonfire_id is not None,
+            },
+        )
+
+        return spark_output
+"""Stream Bonfire UseCase Implementation.
+
+This module implements the business logic for streaming bonfire detail updates.
+"""
+
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator
+
+from pydantic import ValidationError
+
+from app.domain.constants import LOG_EVENTS, PUBSUB_BUFFER_SIZE
+from app.domain.exception import AppError
+from app.domain.repository.bonfire_repository import IBonfireRepository
+from app.domain.repository.spark_repository import ISparkRepository
+from app.usecase.dto.spark_dto import SparkOutput
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway, PubSubMessage
+from app.usecase.stream_bonfire.interface import (
+    BonfireEvent,
+    BonfireEventType,
+    BonfireStreamMessage,
+    IStreamBonfireUseCase,
+    PubSubMessageAdapter,
+    RawBonfireDecayedMessage,
+    RawSparkMessage,
+)
+
+
+
+
+class StreamBonfireInteractor(IStreamBonfireUseCase):
+    """Interactor for streaming bonfire detail updates."""
+
+    def __init__(
+        self,
+        spark_repository: ISparkRepository,
+        bonfire_repository: IBonfireRepository,
+        pubsub_gateway: IPubSubGateway,
+        logger: ILogger,
+    ) -> None:
+        """Initialize the interactor."""
+        self.spark_repository = spark_repository
+        self.bonfire_repository = bonfire_repository
+        self.pubsub_gateway = pubsub_gateway
+        self.logger = logger
+
+    async def execute(self, bonfire_id: str) -> AsyncIterator[BonfireStreamMessage]:
+        """Stream bonfire detail updates (Snapshot + Stream)."""
+        bonfire = await self.bonfire_repository.find_by_id(bonfire_id)
+        if bonfire is None:
+            self._log_bonfire_not_found(bonfire_id)
+            raise AppError(internal_code=1005)
+
+        buffer: asyncio.Queue[PubSubMessage] = asyncio.Queue(maxsize=PUBSUB_BUFFER_SIZE)
+        channel = f"bonfire:{bonfire_id}"
+        pubsub_task = asyncio.create_task(
+            self._run_pubsub_listener(buffer, channel, bonfire_id)
+        )
+
+        try:
+            # Phase 1: Yield snapshot from DB
+            snapshot_ids: set[str] = set()
+            async for output in self._yield_snapshot(bonfire_id, snapshot_ids):
+                yield output
+
+            # Phase 2: Yield deduplicated stream messages
+            async for output in self._yield_stream(buffer, snapshot_ids):
+                yield output
+
+        finally:
+            pubsub_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pubsub_task
+
+    async def _run_pubsub_listener(
+        self,
+        buffer: asyncio.Queue[PubSubMessage],
+        channel: str,
+        bonfire_id: str,
+    ) -> None:
+        """Listen to PubSub and buffer messages."""
+        self.logger.info(
+            LOG_EVENTS.TIMELINE_STREAM_STARTED,
+            "Starting bonfire stream subscription",
+            context={"channel": channel, "bonfire_id": bonfire_id},
+        )
+        async for message in self.pubsub_gateway.subscribe_raw(channel):
+            self.logger.info(
+                LOG_EVENTS.TIMELINE_STREAM_MESSAGE,
+                "Received message from bonfire pub/sub",
+                context={
+                    "bonfire_id": bonfire_id,
+                    "message_type": message.get("type", "unknown"),
+                },
+            )
+            try:
+                buffer.put_nowait(message)
+            except asyncio.QueueFull:
+                self.logger.warning(
+                    LOG_EVENTS.PUBSUB_BUFFER_OVERFLOW,
+                    "Stream buffer overflow, dropping message",
+                    context={"bonfire_id": bonfire_id, "buffer_size": PUBSUB_BUFFER_SIZE},
+                )
+
+    async def _yield_snapshot(
+        self, bonfire_id: str, snapshot_ids: set[str]
+    ) -> AsyncIterator[SparkOutput]:
+        """Yield snapshot replies from DB."""
+        count = 0
+        async for spark in self.spark_repository.find_replies_by_bonfire_id(
+            bonfire_id=bonfire_id,
+        ):
+            snapshot_ids.add(spark.id)
+            count += 1
+            yield SparkOutput(
+                id=spark.id,
+                content=spark.content,
+                user_hash=spark.user_hash[:8],
+                parent_bonfire_id=spark.parent_bonfire_id,
+                field_id=spark.field_id,
+                created_at=spark.created_at,
+                decay_at=spark.decay_at,
+            )
+        self.logger.info(
+            LOG_EVENTS.TIMELINE_SNAPSHOT_LOADED,
+            "Loaded bonfire replies snapshot",
+            context={"bonfire_id": bonfire_id, "count": count},
+        )
+
+    async def _yield_stream(
+        self,
+        buffer: asyncio.Queue[PubSubMessage],
+        snapshot_ids: set[str],
+    ) -> AsyncIterator[BonfireStreamMessage]:
+        """Yield deduplicated stream messages from buffer."""
+        while True:
+            msg = await buffer.get()
+            parsed = self._parse_message(msg)
+            if parsed is None:
+                continue
+            if isinstance(parsed, SparkOutput) and parsed.id in snapshot_ids:
+                continue
+            if isinstance(parsed, SparkOutput):
+                snapshot_ids.add(parsed.id)
+            yield parsed
+
+    def _log_bonfire_not_found(self, bonfire_id: str) -> None:
+        """Log bonfire not found warning."""
+        self.logger.warning(
+            LOG_EVENTS.BONFIRE_NOT_FOUND,
+            "Bonfire not found for streaming",
+            context={"bonfire_id": bonfire_id},
+        )
+
+    def _parse_message(self, message: PubSubMessage) -> BonfireStreamMessage | None:
+        """Parse a raw pub/sub message into typed message using TypeAdapter.
+
+        Args:
+            message: Raw message dict from pub/sub
+
+        Returns:
+            SparkOutput for spark messages, BonfireEvent for events, None for invalid
+
+        """
+        try:
+            parsed = PubSubMessageAdapter.validate_python(message)
+        except ValidationError as e:
+            self.logger.warning(
+                LOG_EVENTS.PUBSUB_DESERIALIZATION_ERROR,
+                "Failed to parse PubSub message",
+                context={"error": str(e), "message": str(message)},
+            )
+            return None
+
+        # Convert to stream message type
+        if isinstance(parsed, RawSparkMessage):
+            return SparkOutput(
+                id=parsed.id,
+                content=parsed.content,
+                user_hash=parsed.user_hash,
+                parent_bonfire_id=parsed.parent_bonfire_id,
+                field_id=parsed.field_id,
+                created_at=parsed.created_at,
+                decay_at=parsed.decay_at,
+            )
+        if isinstance(parsed, RawBonfireDecayedMessage):
+            return BonfireEvent(
+                event_type=BonfireEventType.DECAYED,
+                bonfire_id=parsed.bonfire_id,
+                message=parsed.message,
+            )
+        # RawBonfireExtendedMessage
+        return BonfireEvent(
+            event_type=BonfireEventType.EXTENDED,
+            bonfire_id=parsed.bonfire_id,
+            message=parsed.message,
+        )
+"""Stream Bonfire UseCase Interface.
+
+This module defines the input port for bonfire detail streaming.
+"""
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from datetime import datetime
+from enum import Enum
+from typing import Annotated, Any, Literal, cast
+
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, TypeAdapter
+
+from app.usecase.dto.spark_dto import SparkOutput
+
+
+class BonfireEventType(str, Enum):
+    """Type of bonfire event."""
+
+    DECAYED = "decayed"
+    EXTENDED = "extended"
+
+
+class BonfireEvent(BaseModel):
+    """Event DTO for bonfire state changes."""
+
+    model_config = ConfigDict(frozen=True)
+
+    event_type: BonfireEventType = Field(..., description="Type of event")
+    bonfire_id: str = Field(..., description="Bonfire ID")
+    message: str = Field(default="", description="Optional message")
+
+
+# Union type for stream messages
+BonfireStreamMessage = SparkOutput | BonfireEvent
+
+
+# =============================================================================
+# PubSub Raw Message Types (for TypeAdapter parsing)
+# =============================================================================
+
+
+class RawSparkMessage(BaseModel):
+    """Raw spark message from PubSub."""
+
+    model_config = ConfigDict(frozen=True)
+
+    type: Literal["spark"] = "spark"
+    id: str
+    content: str
+    user_hash: str
+    parent_bonfire_id: str | None = None
+    field_id: str
+    created_at: datetime
+    decay_at: datetime
+
+
+class RawBonfireDecayedMessage(BaseModel):
+    """Raw bonfire decayed event from PubSub."""
+
+    model_config = ConfigDict(frozen=True)
+
+    type: Literal["bonfire_decayed"]
+    bonfire_id: str
+    message: str = ""
+
+
+class RawBonfireExtendedMessage(BaseModel):
+    """Raw bonfire extended event from PubSub."""
+
+    model_config = ConfigDict(frozen=True)
+
+    type: Literal["bonfire_extended"]
+    bonfire_id: str
+    message: str = ""
+
+
+def _get_pubsub_message_discriminator(v: dict[str, Any] | object) -> str:
+    """Discriminator for PubSub messages by 'type' field."""
+    msg_type_str: str = "spark"
+
+    if isinstance(v, dict):
+        raw_type = v.get("type", "spark")
+        msg_type_str = str(raw_type)
+    else:
+        raw_type = getattr(v, "type", "spark")
+        msg_type_str = str(raw_type)
+
+    # Direct mapping
+    type_map = {
+        "bonfire_decayed": "decayed",
+        "bonfire_extended": "extended",
+        "spark": "spark",
+    }
+    return type_map.get(msg_type_str, "spark")
+
+
+# Discriminated union type for PubSub raw messages
+RawPubSubMessage = Annotated[
+    Annotated[RawSparkMessage, Tag("spark")]
+    | Annotated[RawBonfireDecayedMessage, Tag("decayed")]
+    | Annotated[RawBonfireExtendedMessage, Tag("extended")],
+    Discriminator(_get_pubsub_message_discriminator),
+]
+
+# TypeAdapter for parsing PubSub messages
+PubSubMessageAdapter: TypeAdapter[RawPubSubMessage] = TypeAdapter(RawPubSubMessage)
+
+
+class IStreamBonfireUseCase(ABC):
+    """Interface for streaming bonfire detail use case."""
+
+    @abstractmethod
+    async def execute(self, bonfire_id: str) -> AsyncIterator[BonfireStreamMessage]:
+        """Stream bonfire detail updates (Snapshot + Stream).
+
+        First yields existing replies from the database (Snapshot),
+        then yields new replies and bonfire events from pub/sub (Stream).
+
+        Args:
+            bonfire_id: The bonfire ID to stream
+
+        Yields:
+            SparkOutput for replies or BonfireEvent for state changes
+
+        """
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError
+"""Stream Timeline UseCase Implementation.
+
+This module implements the business logic for streaming timeline updates.
+"""
+
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator
+
+from app.domain.constants import LOG_EVENTS, PUBSUB_BUFFER_SIZE
+from app.domain.repository.spark_repository import ISparkRepository
+from app.usecase.dto.spark_dto import SparkOutput
+from app.usecase.dto.timeline_event import SparkPostedEvent, SparkUpdatedEvent, TimelineEvent
+from app.usecase.ports.logger import ILogger
+from app.usecase.ports.pubsub import IPubSubGateway
+from app.usecase.stream_timeline.interface import IStreamTimelineUseCase
+
+
+class StreamTimelineInteractor(IStreamTimelineUseCase):
+    """Interactor for streaming timeline updates."""
+
+    def __init__(
+        self,
+        spark_repository: ISparkRepository,
+        pubsub_gateway: IPubSubGateway,
+        logger: ILogger,
+        active_spark_seconds: int,
+    ) -> None:
+        """Initialize the interactor.
+
+        Args:
+            spark_repository: Repository for spark persistence
+            pubsub_gateway: Gateway for pub/sub messaging
+            logger: Logger for structured logging
+            active_spark_seconds: Seconds to look back for active sparks
+
+        """
+        self.spark_repository = spark_repository
+        self.pubsub_gateway = pubsub_gateway
+        self.logger = logger
+        self.active_spark_seconds = active_spark_seconds
+
+    async def execute(self, field_id: str) -> AsyncIterator[TimelineEvent]:
+        """Stream timeline updates (Snapshot + Stream).
+
+        Prevents race conditions by:
+        1. Starting PubSub subscription first (buffering new messages)
+        2. Fetching DB snapshot
+        3. Yielding snapshot data as SparkPostedEvents
+        4. Yielding buffered + real-time stream (with processing)
+
+        Yields:
+            TimelineEvent messages from both snapshot and stream
+
+        """
+        # Queue for buffering PubSub messages during DB fetch
+        # Use bounded queue to prevent memory leaks (Active User Load Protection)
+        buffer: asyncio.Queue[TimelineEvent] = asyncio.Queue(maxsize=PUBSUB_BUFFER_SIZE)
+
+        # Background task to subscribe to PubSub
+        async def pubsub_listener() -> None:
+            """Listen to PubSub and buffer messages."""
+            # Dynamic channel for the field
+            channel = f"timeline:{field_id}"
+
+            self.logger.info(
+                LOG_EVENTS.TIMELINE_STREAM_STARTED,
+                "Starting timeline stream subscription",
+                context={"channel": channel},
+            )
+
+            # Using subscribe_raw to handle multiple message types (posted/updated)
+            async for raw_msg in self.pubsub_gateway.subscribe_raw([channel]):
+                msg_type = raw_msg.get("type")
+
+                # DEBUG Log
+                self.logger.info(
+                    "DEBUG_TIMELINE_STREAM",
+                    "Received raw message",
+                    context={"msg_type": msg_type, "keys": list(raw_msg.keys())}
+                )
+
+                try:
+                    event: TimelineEvent | None = None
+
+                    if msg_type == "spark_updated":
+                        event = SparkUpdatedEvent(**raw_msg)
+                    elif msg_type == "spark_posted":
+                        if "data" in raw_msg:
+                             # Expected format: { "type": "spark_posted", "data": { ... } }
+                             spark_output = SparkOutput(**raw_msg["data"])
+                             event = SparkPostedEvent(data=spark_output)
+                        else:
+                             # Maybe the message IS the SparkOutput data but with a type field?
+                             # Let's assume standard format first.
+                             pass
+                    else:
+                        # Fallback for legacy messages or implicit types
+                        # If the message looks like a SparkOutput (has id, content)
+                        if "id" in raw_msg and "content" in raw_msg:
+                             spark_output = SparkOutput(**raw_msg)
+                             event = SparkPostedEvent(data=spark_output)
+
+                    if event:
+                        try:
+                            # Try to put in buffer with timeout to drop if full
+                            await asyncio.wait_for(buffer.put(event), timeout=0.1)
+                        except asyncio.TimeoutError:
+                            self.logger.warning(
+                                LOG_EVENTS.PUBSUB_BUFFER_OVERFLOW,
+                                "Buffer full, dropping message",
+                                context={"channel": channel},
+                            )
+                    else:
+                        self.logger.warning(
+                            LOG_EVENTS.PUBSUB_DESERIALIZATION_ERROR,
+                            "Unknown message type received",
+                            context={"raw_msg": raw_msg},
+                        )
+
+                except Exception as e:
+                     self.logger.error(
+                        LOG_EVENTS.PUBSUB_DESERIALIZATION_ERROR,
+                        "Failed to parse timeline event",
+                        error=e,
+                        context={"raw_msg": raw_msg},
+                     )
+
+        # Phase 1: Start PubSub subscription in background
+        pubsub_task = asyncio.create_task(pubsub_listener())
+
+        try:
+            # Phase 2: Fetch active sparks from DB (while PubSub is buffering)
+            snapshot_ids: set[str] = set()
+            snapshot_count = 0
+
+            async for spark in self.spark_repository.find_active_sparks(
+                field_id=field_id,
+                seconds=self.active_spark_seconds,
+            ):
+                snapshot_ids.add(spark.id)
+                snapshot_count += 1
+
+                # Convert domain Spark to SparkOutput -> SparkPostedEvent
+                spark_output = SparkOutput(
+                    id=spark.id,
+                    content=spark.content,
+                    user_hash=spark.user_hash[:8],
+                    field_id=spark.field_id,
+                    created_at=spark.created_at,
+                    decay_at=spark.decay_at,
+                )
+                yield SparkPostedEvent(data=spark_output)
+
+            self.logger.info(
+                LOG_EVENTS.TIMELINE_SNAPSHOT_LOADED,
+                "Loaded active sparks snapshot",
+                context={"count": snapshot_count},
+            )
+
+            # Phase 3: Yield buffered messages (deduplicated for Posted events)
+            while not buffer.empty():
+                event = await buffer.get()
+
+                if isinstance(event, SparkPostedEvent):
+                    if event.data.id not in snapshot_ids:
+                        snapshot_ids.add(event.data.id)
+                        yield event
+                else:
+                    # Always yield updates
+                    yield event
+
+            # Phase 4: Continue yielding real-time stream
+            while True:
+                event = await buffer.get()
+
+                if isinstance(event, SparkPostedEvent):
+                    if event.data.id not in snapshot_ids:
+                        snapshot_ids.add(event.data.id)
+                        yield event
+                else:
+                    yield event
+
+        finally:
+            # Clean up: cancel the background task
+            pubsub_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pubsub_task
+"""Stream Timeline UseCase Interface.
+
+This module defines the input port for timeline streaming.
+"""
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+
+from app.usecase.dto.timeline_event import TimelineEvent
+
+
+class IStreamTimelineUseCase(ABC):
+    """Interface for streaming timeline use case."""
+
+    @abstractmethod
+    async def execute(self, field_id: str) -> AsyncIterator[TimelineEvent]:
+        """Stream timeline updates (Snapshot + Stream).
+
+        First yields active sparks from the database (Snapshot),
+        then yields new sparks from the pub/sub channel (Stream).
+
+        Yields:
+            SparkOutput messages from both snapshot and stream
+
+        """
+        # This is an async generator method
+        # Implementations should yield SparkOutput messages
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc,unreachable]
+        raise NotImplementedError

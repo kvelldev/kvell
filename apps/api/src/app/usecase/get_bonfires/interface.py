@@ -14,6 +14,7 @@ class BonfireDTO(BaseModel):
 
     id: str = Field(..., description="Bonfire ID")
     spark_id: str = Field(..., description="Original spark ID")
+    field_id: str = Field(..., description="Field (Community) ID")
     content: str = Field(..., description="Bonfire content")
     unique_user_count: int = Field(..., description="Number of unique users")
     heat_score: int = Field(..., description="Heat score")
@@ -38,7 +39,7 @@ class IGetActiveBonfiresUseCase(ABC):
     """
 
     @abstractmethod
-    async def execute(self) -> GetActiveBonfiresOutput:
+    async def execute(self, field_id: str) -> GetActiveBonfiresOutput:
         """Get all active bonfires.
 
         Returns:

@@ -50,7 +50,7 @@ class IBonfireRepository(ABC):
         """
 
     @abstractmethod
-    async def find_active_bonfires(self) -> AsyncIterator[Bonfire]:
+    async def find_active_bonfires(self, field_id: str) -> AsyncIterator[Bonfire]:
         """Find all active (non-decayed) bonfires.
 
         Yields:

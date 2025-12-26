@@ -239,7 +239,6 @@ def get_post_spark_usecase(
         decay_after_seconds=settings.spark_decay_after_seconds,
         vanish_after_days=settings.spark_vanish_after_days,
         ng_words=settings.spark_ng_words_list,
-        pubsub_channel="sparks:posted",
     )
 
 
@@ -264,7 +263,6 @@ def get_stream_timeline_usecase(
         pubsub_gateway=pubsub_gateway,
         logger=logger,
         active_spark_seconds=settings.spark_decay_after_seconds,
-        pubsub_channels=["sparks:posted", "sparks:updated"],
     )
 
 

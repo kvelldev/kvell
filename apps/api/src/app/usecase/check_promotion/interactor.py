@@ -158,6 +158,7 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
         elif promotion_result.target_level == SparkLevel.BONFIRE:
             await self._promote_to_bonfire(
                 spark_id=input_data.spark_id,
+                field_id=spark.field_id,
                 content=spark.content,
                 engagement=engagement,
             )
@@ -207,6 +208,7 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
     async def _promote_to_bonfire(
         self,
         spark_id: str,
+        field_id: str,
         content: str,
         engagement: SparkEngagement,
     ) -> None:
@@ -220,6 +222,7 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
         """
         bonfire = Bonfire.create(
             spark_id=spark_id,
+            field_id=field_id,
             content=content,
             unique_user_count=engagement.unique_user_count,
             heat_score=engagement.heat_score,
@@ -270,4 +273,5 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
             "bonfire_id": spark.id if bonfire_created else None,
         }
 
-        await self.pubsub.publish("sparks:updated", event_data)
+        channel = f"timeline:{spark.field_id}"
+        await self.pubsub.publish(channel, event_data)

@@ -5,7 +5,9 @@ This module defines the Bonfire entity representing a promoted spark.
 
 from datetime import UTC, datetime, timedelta
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.domain.constants import VALID_FIELDS
 
 
 class Bonfire(BaseModel):
@@ -19,6 +21,7 @@ class Bonfire(BaseModel):
 
     id: str = Field(..., description="Unique identifier (same as original spark_id)")
     spark_id: str = Field(..., description="Reference to the original spark")
+    field_id: str = Field(..., description="Field ID the bonfire belongs to")
     content: str = Field(..., description="Original spark content")
     unique_user_count: int = Field(..., description="Number of unique users engaged")
     heat_score: int = Field(..., description="Heat score at promotion time")
@@ -31,9 +34,17 @@ class Bonfire(BaseModel):
         description="Timestamp when the bonfire decays",
     )
 
+    @field_validator("field_id")
+    @classmethod
+    def validate_field_id(cls, v: str) -> str:
+        """Validate that field_id is in the allowed list of fields."""
+        if v not in VALID_FIELDS:
+            raise ValueError(f"Invalid field_id: {v}")
+        return v
     @staticmethod
     def create(
         spark_id: str,
+        field_id: str,
         content: str,
         unique_user_count: int,
         heat_score: int,
@@ -42,7 +53,9 @@ class Bonfire(BaseModel):
         """Create a new Bonfire from a promoted Spark.
 
         Args:
+        Args:
             spark_id: Original spark's ID
+            field_id: Field ID
             content: Original spark content
             unique_user_count: Number of unique users at promotion
             heat_score: Heat score at promotion
@@ -56,6 +69,7 @@ class Bonfire(BaseModel):
         return Bonfire(
             id=spark_id,
             spark_id=spark_id,
+            field_id=field_id,
             content=content,
             unique_user_count=unique_user_count,
             heat_score=heat_score,

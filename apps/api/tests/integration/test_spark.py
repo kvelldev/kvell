@@ -55,7 +55,10 @@ class TestSparkRouterIntegration:
         Result: savesToDbAndReturns201 (saves to MongoDB and returns 201)
         """
         # Arrange
-        request_body = {"content": "This is a test spark"}
+        request_body = {
+            "content": "This is a test spark",
+            "field_id": "sakurazaka46",
+        }
 
         # Act
         response = await test_client.post("/api/sparks", json=request_body)
@@ -64,6 +67,7 @@ class TestSparkRouterIntegration:
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data["content"] == "This is a test spark"
+        assert data["field_id"] == "sakurazaka46"
         assert "id" in data
         assert "created_at" in data
 
@@ -71,6 +75,7 @@ class TestSparkRouterIntegration:
         doc = await collection.find_one({"id": data["id"]})
         assert doc is not None
         assert doc["content"] == "This is a test spark"
+        assert doc["field_id"] == "sakurazaka46"
         assert doc["id"] == data["id"]
         assert doc["fuel_count"] == 0  # Default value
         assert "user_hash" in doc
@@ -89,7 +94,10 @@ class TestSparkRouterIntegration:
         Result: returns422 (validation error)
         """
         # Arrange: Create content exceeding max_length
-        request_body = {"content": "x" * (settings.spark_max_length + 1)}
+        request_body = {
+            "content": "x" * (settings.spark_max_length + 1),
+            "field_id": "sakurazaka46",
+        }
 
         # Act
         response = await test_client.post("/api/sparks", json=request_body)
@@ -116,7 +124,10 @@ class TestSparkRouterIntegration:
         """
         # Arrange: Use first NG word from settings
         ng_word = settings.spark_ng_words_list[0]
-        request_body = {"content": f"This contains {ng_word.upper()} in text"}
+        request_body = {
+            "content": f"This contains {ng_word.upper()} in text",
+            "field_id": "sakurazaka46",
+        }
 
         # Act
         response = await test_client.post("/api/sparks", json=request_body)
@@ -144,7 +155,10 @@ class TestSparkRouterIntegration:
         # Arrange: Use rate limit from settings
         # Note: Redis is initialized via test_client fixture dependency
         rate_limit = settings.spark_rate_limit_count
-        request_body = {"content": "Rate limit test spark"}
+        request_body = {
+            "content": "Rate limit test spark",
+            "field_id": "sakurazaka46",
+        }
 
         # Act: Post up to rate limit (should all succeed)
         for i in range(rate_limit):
@@ -177,7 +191,10 @@ class TestSparkRouterIntegration:
         Result: returns422 (validation error from Pydantic)
         """
         # Arrange
-        request_body = {"content": ""}
+        request_body = {
+            "content": "",
+            "field_id": "sakurazaka46",
+        }
 
         # Act
         response = await test_client.post("/api/sparks", json=request_body)
@@ -207,7 +224,11 @@ class TestSparkRouterIntegration:
         saved_ids: list[str] = []
         for spark_content in sparks:
             response = await test_client.post(
-                "/api/sparks", json={"content": spark_content}
+                "/api/sparks",
+                json={
+                    "content": spark_content,
+                    "field_id": "sakurazaka46",
+                },
             )
             assert response.status_code == status.HTTP_201_CREATED
             saved_ids.append(response.json()["id"])
@@ -234,7 +255,10 @@ class TestSparkRouterIntegration:
         Result: savesSuccessfully (boundary condition test)
         """
         # Arrange: Exactly at max_length
-        request_body = {"content": "x" * settings.spark_max_length}
+        request_body = {
+            "content": "x" * settings.spark_max_length,
+            "field_id": "sakurazaka46",
+        }
 
         # Act
         response = await test_client.post("/api/sparks", json=request_body)
@@ -276,6 +300,7 @@ class TestSparkWebSocketIntegration:
             user_hash="user-1",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         spark2 = Spark.create(
             spark_id="ws-snap-2",
@@ -283,6 +308,7 @@ class TestSparkWebSocketIntegration:
             user_hash="user-2",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
 
         await collection.insert_one(
@@ -291,6 +317,7 @@ class TestSparkWebSocketIntegration:
                 "content": spark1.content,
                 "user_hash": spark1.user_hash,
                 "fuel_count": spark1.fuel_count,
+                "field_id": spark1.field_id,
                 "created_at": spark1.created_at,
                 "decay_at": spark1.decay_at,
                 "vanish_at": spark1.vanish_at,
@@ -302,6 +329,7 @@ class TestSparkWebSocketIntegration:
                 "content": spark2.content,
                 "user_hash": spark2.user_hash,
                 "fuel_count": spark2.fuel_count,
+                "field_id": spark2.field_id,
                 "created_at": spark2.created_at,
                 "decay_at": spark2.decay_at,
                 "vanish_at": spark2.vanish_at,
@@ -312,9 +340,12 @@ class TestSparkWebSocketIntegration:
         logger = JsonLogger()
         repository = MongoSparkRepository(test_database, logger)
 
-        # Collect active sparks from async iterator
+        # Collect active sparks from async iterator (filtering by field_id)
         active_sparks: list[Spark] = [
-            spark async for spark in repository.find_active_sparks(seconds=600)
+            spark
+            async for spark in repository.find_active_sparks(
+                field_id="sakurazaka46", seconds=600
+            )
         ]
 
         # Assert: Verify snapshot data retrieval works correctly
@@ -336,7 +367,10 @@ class TestSparkWebSocketIntegration:
         Full streaming behavior is validated through unit tests and E2E tests.
         """
         # Arrange
-        request_body = {"content": "Test spark for pub/sub"}
+        request_body = {
+            "content": "Test spark for pub/sub",
+            "field_id": "sakurazaka46",
+        }
 
         # Act: Post a spark (this should publish to Redis)
         response = await test_client.post("/api/sparks", json=request_body)
@@ -393,6 +427,7 @@ class TestAddFuelIntegration:
             user_hash="author-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         await collection.insert_one(
             {
@@ -400,6 +435,7 @@ class TestAddFuelIntegration:
                 "content": spark.content,
                 "user_hash": spark.user_hash,
                 "fuel_count": 0,
+                "field_id": spark.field_id,
                 "created_at": spark.created_at,
                 "decay_at": spark.decay_at,
                 "vanish_at": spark.vanish_at,
@@ -447,6 +483,7 @@ class TestAddFuelIntegration:
             user_hash="author-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         await collection.insert_one(
             {
@@ -454,6 +491,7 @@ class TestAddFuelIntegration:
                 "content": spark.content,
                 "user_hash": spark.user_hash,
                 "fuel_count": 0,
+                "field_id": spark.field_id,
                 "created_at": spark.created_at,
                 "decay_at": spark.decay_at,
                 "vanish_at": spark.vanish_at,
@@ -506,6 +544,7 @@ class TestAddFuelIntegration:
             user_hash="author-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         await collection.insert_one(
             {
@@ -513,6 +552,7 @@ class TestAddFuelIntegration:
                 "content": spark.content,
                 "user_hash": spark.user_hash,
                 "fuel_count": 0,
+                "field_id": spark.field_id,
                 "created_at": spark.created_at,
                 "decay_at": spark.decay_at,
                 "vanish_at": spark.vanish_at,
@@ -583,6 +623,7 @@ class TestAddFuelIntegration:
             user_hash="author-hash",
             decay_after_seconds=-600,  # Already decayed (negative offset)
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         await collection.insert_one(
             {
@@ -590,6 +631,7 @@ class TestAddFuelIntegration:
                 "content": spark.content,
                 "user_hash": spark.user_hash,
                 "fuel_count": 0,
+                "field_id": spark.field_id,
                 "created_at": spark.created_at,
                 "decay_at": spark.decay_at,
                 "vanish_at": spark.vanish_at,
@@ -621,18 +663,15 @@ class TestAddFuelIntegration:
         """
         # Arrange: Create a spark with known author IP
         # SimpleIPProvider generates same hash for same IP
-        spark = Spark.create(
-            spark_id="test-spark-self",
-            content="Self spark",
-            user_hash="test-hash",  # We'll create this with same IP
-            decay_after_seconds=600,
-            vanish_after_days=30,
-        )
+        # We rely on POST /api/sparks to set up hash, so this part needs update too
 
         # First, create the spark via API (to get correct user_hash)
         response = await test_client.post(
             "/api/sparks",
-            json={"content": "Self spark"},
+            json={
+                "content": "Self spark",
+                "field_id": "sakurazaka46",
+            },
             headers={"X-Forwarded-For": "192.168.1.50"},
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -678,6 +717,7 @@ class TestAddFuelIntegration:
             user_hash="author-hash",
             decay_after_seconds=600,
             vanish_after_days=30,
+            field_id="sakurazaka46",
         )
         await collection.insert_one(
             {
@@ -685,6 +725,7 @@ class TestAddFuelIntegration:
                 "content": spark.content,
                 "user_hash": spark.user_hash,
                 "fuel_count": 0,
+                "field_id": spark.field_id,
                 "created_at": spark.created_at,
                 "decay_at": spark.decay_at,
                 "vanish_at": spark.vanish_at,
