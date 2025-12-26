@@ -10,6 +10,12 @@ export const validDirectImageUrls = [
   "https://pbs.twimg.com/media/F_xxxxx.jpg",
   "https://pbs.twimg.com/media/G_yyyyy.png?format=jpg&name=large",
   "https://instagram.fxxx1-1.fna.fbcdn.net/v/t51.2885-15/e35/p1080x1080/123_456.jpg",
+  // TV Stations
+  "https://statics.tver.jp/images/content/12345.jpg",
+  "https://www.nhk.jp/static/assets/images/icon.png", // NHK short domain
+  "https://www.nhk.or.jp/common/images/logo.png",
+  "https://www.tv-asahi.co.jp/common/images/logo.jpg",
+  "https://tv-tokyo.imgix.net/txcms/media/pg/L/82/95/9d7b2b1c13133706d74285b246a6.jpg?auto=format,compress&w=793&h=447&fill=blur&fit=fill&dpr=2",
 ];
 
 export const validYouTubeUrls = [

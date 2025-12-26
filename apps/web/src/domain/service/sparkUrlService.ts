@@ -27,9 +27,9 @@ const ALLOWLIST_PATTERNS = [
   /^https?:\/\/[a-z0-9.-]+\.cdninstagram\.com\/.*(?:\.jpg|\.jpeg|\.png|\.gif|\.webp)/i,
   /^https?:\/\/[a-z0-9.-]+\.fbcdn\.net\/.*(?:\.jpg|\.jpeg|\.png|\.gif|\.webp)/i,
 
-  // General Direct Image Links (Must end with extension, simple check)
-  // REMOVED: Allowlist policy only permits specific domains.
-  // /^https?:\/\/.*\.(?:jpg|jpeg|png|gif|webp)(?:\?.*)?$/i,
+  // TV Stations (TVer, NHK, Key Stations)
+  // Note: tbs.co.jp is excluded due to rendering issues (even with valid URL structure)
+  /^https?:\/\/(?:.*\.)?(?:tver\.jp|tv-asahi\.co\.jp|ntv\.co\.jp|nhk\.or\.jp|nhk\.jp|tv-tokyo\.imgix\.net|fujitv\.co\.jp)\/.*(?:\.jpg|\.jpeg|\.png|\.gif|\.webp)/i,
 ];
 
 // YouTube Video ID Extraction (Special case)
