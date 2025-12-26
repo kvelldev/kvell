@@ -18,7 +18,7 @@ export type ConnectionStatus =
 const MAX_RETRIES = 3;
 const BASE_DELAY = 1000;
 const MAX_DELAY = 10_000;
-const CONNECTION_TIMEOUT_MS = 1000;
+const CONNECTION_TIMEOUT_MS = 2000;
 
 export const useResilientWebSocket = <T>(
   url: string,
@@ -82,8 +82,6 @@ export const useResilientWebSocket = <T>(
     connectionUrl,
     {
       shouldReconnect: () => {
-        // ★修正点1: Refの最新値を参照する
-        // ★修正点2: '<=' に変更。
         // count=3 (3回失敗) のときも true を返し、3回目のリトライ(Wait->Connect)を実行させる。
         // count=4 (3回目のリトライ失敗) になったら false で止める。
         return retryCountRef.current <= MAX_RETRIES;
