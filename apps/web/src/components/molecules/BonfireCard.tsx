@@ -97,7 +97,7 @@ const BonfireCardComponent = ({ bonfire, onClick }: BonfireCardProps) => {
         {/* Gradient overlay for text readability */}
         <div className="from-night-900/80 absolute inset-0 bg-linear-to-t to-transparent" />
 
-        {/* Heat Score Badge */}
+        {/* Heat Score Badge
         <div
           className={clsx(
             "absolute right-2 bottom-2",
@@ -109,7 +109,7 @@ const BonfireCardComponent = ({ bonfire, onClick }: BonfireCardProps) => {
         >
           <Flame className="size-3" />
           <span>{bonfire.heatScore}</span>
-        </div>
+        </div> */}
       </motion.div>
 
       {/* Content Section - Responsive height with text truncation */}

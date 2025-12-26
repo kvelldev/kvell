@@ -10,7 +10,6 @@ import { TimelinePage } from "@/components/pages/TimelinePage";
 import { AboutPage } from "@/components/pages/AboutPage";
 import { LoggerProvider } from "@/components/LoggerContext";
 import { sentryLogger } from "@/adapter/infra/sentryLogger";
-import { DebugPage } from "./components/pages/debugPage";
 import { FieldList } from "./components/pages/FieldList";
 import { AtmosphereBackground } from "./components/atoms/AtmosphereBackground";
 import { Toaster } from "@/components/ui/sonner";
@@ -35,7 +34,7 @@ function App() {
           />
 
           <Route path="/health" element={<HealthCheckPage />} />
-          <Route path="/debug" element={<DebugPage />} />
+          {/* <Route path="/debug" element={<DebugPage />} /> */}
           <Route path="/about" element={<AboutPage />} />
 
           {/* Catch-all redirect to root */}

@@ -1,1739 +1,967 @@
-/**
- * App Component
- *
- * Root application component with routing and DI providers.
- */
-
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { HealthCheckPage } from "@/components/pages/HealthCheckPage";
-import { TimelinePage } from "@/components/pages/TimelinePage";
-import { LoggerProvider } from "@/components/LoggerContext";
-import { sentryLogger } from "@/adapter/infra/sentryLogger";
-import { DebugPage } from "./components/pages/debugPage";
-import { FieldList } from "./components/pages/FieldList";
-import { AtmosphereBackground } from "./components/atoms/AtmosphereBackground";
-import { Toaster } from "@/components/ui/sonner";
-
-function App() {
-  return (
-    <LoggerProvider logger={sentryLogger}>
-      <AtmosphereBackground />
-      <BrowserRouter>
-        <Routes>
-          {/* Landing: Field Selection */}
-          <Route path="/" element={<FieldList />} />
-
-          {/* Redirect legacy /timeline to root for field selection */}
-          <Route path="/timeline" element={<Navigate to="/" replace />} />
-
-          {/* Field Routes */}
-          <Route path="/field/:fieldId" element={<TimelinePage />} />
-          <Route
-            path="/field/:fieldId/bonfire/:bonfireId"
-            element={<TimelinePage />}
-          />
-
-          <Route path="/health" element={<HealthCheckPage />} />
-          <Route path="/debug" element={<DebugPage />} />
-
-          {/* Catch-all redirect to root */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
-      <Toaster position="bottom-center" />
-    </LoggerProvider>
-  );
-}
-
-export default App;
-/**
- * Bonfire Repository Interface and Implementation
- */
-
-import type { BonfireList } from "@/domain/model/bonfire";
-import { apiClient } from "@/adapter/apiClient";
-import type { IBonfireRepository } from "@/domain/repository/bonfireRepository";
-
-/**
- * API response type for bonfire endpoints (snake_case from backend)
- */
-interface BonfireApiResponse {
-  id: string;
-  spark_id: string;
-  field_id: string;
-  content: string;
-  unique_user_count: number;
-  heat_score: number;
-  created_at: string;
-  decay_at: string;
-}
-
-interface BonfireListApiResponse {
-  bonfires: BonfireApiResponse[];
-  count: number;
-}
-
-class BonfireRepositoryImpl implements IBonfireRepository {
-  async getActiveBonfires(fieldId?: string): Promise<BonfireList> {
-    const searchParams = new URLSearchParams();
-    if (fieldId) {
-      searchParams.append("field_id", fieldId);
-    }
-    const query = searchParams.toString();
-    const url = `/api/bonfires${query ? `?${query}` : ""}`;
-
-    const data = await apiClient<BonfireListApiResponse>(url, {
-      method: "GET",
-    });
-
-    return {
-      bonfires: data.bonfires.map((b) => ({
-        id: b.id,
-        sparkId: b.spark_id,
-        fieldId: b.field_id,
-        content: b.content,
-        uniqueUserCount: b.unique_user_count,
-        heatScore: b.heat_score,
-        createdAt: b.created_at,
-        decayAt: b.decay_at,
-      })),
-      count: data.count,
-    };
-  }
-}
-
-export const bonfireRepository: IBonfireRepository =
-  new BonfireRepositoryImpl();
-/**
- * Spark Repository Implementation
- *
- * Adapter layer implementation of ISparkRepository.
- * Handles API communication for spark operations using apiClient.
- */
-
-import type {
-  AddFuelRequest,
-  PostSparkRequest,
-  Spark,
-} from "@/domain/model/spark";
-import type {
-  ISparkRepository,
-  PostReplyRequest,
-} from "@/domain/repository/sparkRepository";
-import { apiClient } from "@/adapter/apiClient";
-
-/**
- * API response type for spark endpoints (snake_case from backend)
- */
-interface SparkApiResponse {
-  id: string;
-  content: string;
-  user_hash: string;
-  created_at: string;
-  decay_at: string;
-  parent_bonfire_id?: string;
-}
-
-/**
- * Spark Repository implementation
- */
-class SparkRepositoryImpl implements ISparkRepository {
-  async postSpark(request: PostSparkRequest): Promise<Spark> {
-    const data = await apiClient<SparkApiResponse>("/api/sparks", {
-      method: "POST",
-      body: JSON.stringify({
-        content: request.content,
-        field_id: request.fieldId,
-      }),
-    });
-
-    // Transform snake_case API response to camelCase domain model
-    return {
-      id: data.id,
-      content: data.content,
-      userHash: data.user_hash,
-      createdAt: data.created_at,
-      decayAt: data.decay_at,
-    };
-  }
-
-  async postReply(request: PostReplyRequest): Promise<Spark> {
-    const data = await apiClient<SparkApiResponse>("/api/sparks", {
-      method: "POST",
-      body: JSON.stringify({
-        content: request.content,
-        parent_bonfire_id: request.parentBonfireId,
-        field_id: request.fieldId,
-      }),
-    });
-
-    // Transform snake_case API response to camelCase domain model
-    return {
-      id: data.id,
-      content: data.content,
-      userHash: data.user_hash,
-      createdAt: data.created_at,
-      decayAt: data.decay_at,
-      parentBonfireId: data.parent_bonfire_id,
-    };
-  }
-
-  async addFuel(request: AddFuelRequest): Promise<void> {
-    // POST /api/sparks/{sparkId}/fuel
-    // The API returns 204 No Content to hide fuel count from users
-    await apiClient<null>(`/api/sparks/${request.sparkId}/fuel`, {
-      method: "POST",
-    });
-  }
-}
-
-/**
- * Singleton instance of Spark Repository
- */
-export const sparkRepository: ISparkRepository = new SparkRepositoryImpl();
-/**
- * WebSocket Timeline Repository Implementation
- *
- * Adapter layer implementation of ITimelineRepository.
- * Handles WebSocket connection for real-time spark streaming.
- */
-
-import type { Spark } from "@/domain/model/spark";
-import type { ITimelineRepository } from "@/domain/repository/timelineRepository";
-import type { TimelineEvent } from "@/domain/model/timelineEvent";
-
-/**
- * WebSocket message response type (snake_case from backend)
- */
-interface SparkWebSocketMessage {
-  id: string;
-  content: string;
-  user_hash: string;
-  created_at: string;
-  decay_at: string;
-}
-
-interface SparkPostedMessage {
-  type: "spark_posted";
-  data: SparkWebSocketMessage;
-}
-
-interface SparkUpdatedMessage {
-  type: "spark_updated";
-  spark_id: string;
-  level: string;
-  decay_at: string;
-  bonfire_id?: string | null;
-}
-
-type WebSocketMessage =
-  | SparkPostedMessage
-  | SparkUpdatedMessage
-  | SparkWebSocketMessage;
-
-/**
- * WebSocket Timeline Repository Implementation
- */
-class WsTimelineRepositoryImpl implements ITimelineRepository {
-  private readonly _baseUrl: string;
-
-  constructor() {
-    const baseUrl: string =
-      (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-      "http://localhost:8000";
-    // Convert http(s):// to ws(s)://
-    this._baseUrl = baseUrl.replace(/^http/, "ws");
-  }
-
-  getConnectionUrl(fieldId: string): string {
-    return `${this._baseUrl}/api/sparks/${fieldId}/ws`;
-  }
-
-  parseMessage(message: unknown): TimelineEvent | null {
-    try {
-      // In react-use-websocket, message.data is the string content if configured,
-      // but let's assume raw message event or already parsed data depending on usage.
-      // Actually, useWebSocket's lastJsonMessage or manually parsing 'message' usually needed.
-      // If 'message' passed here is the raw MessageEvent.data string:
-
-      // However, let's look at how we'll call it.
-      // If we pass the parsed JSON object directly (from lastJsonMessage), 'message' is an object.
-      // If we pass the raw event data, it's a string.
-      // Let's handle both for robustness, or assume object if we use lastJsonMessage.
-
-      // WsTimelineRepositoryImpl previously parsed JSON.
-      // Let's assume input is the raw string or parsed object.
-      // Safe implementation:
-
-      let data: WebSocketMessage;
-
-      if (typeof message === "string") {
-        data = JSON.parse(message) as WebSocketMessage;
-      } else {
-        data = message as WebSocketMessage;
-      }
-
-      // Determine message type and map to domain models
-      if ("type" in data && data.type === "spark_updated") {
-        // Handle SparkUpdatedEvent
-        return {
-          type: "spark_updated",
-          spark_id: data.spark_id,
-          level: data.level as any,
-          decay_at: data.decay_at,
-          bonfire_id: data.bonfire_id,
-        };
-      } else if (
-        ("type" in data && data.type === "spark_posted") ||
-        ("id" in data && "content" in data)
-      ) {
-        // Handle SparkPostedEvent (Explicit type OR Legacy flat object)
-        const rawSpark =
-          "type" in data && "data" in data
-            ? data.data
-            : (data as SparkWebSocketMessage);
-
-        const spark: Spark = {
-          id: rawSpark.id,
-          content: rawSpark.content,
-          userHash: rawSpark.user_hash,
-          createdAt: rawSpark.created_at,
-          decayAt: rawSpark.decay_at,
-        };
-
-        return {
-          type: "spark_posted",
-          data: spark,
-        };
-      }
-    } catch (error) {
-      console.error("Failed to parse WebSocket message:", error);
-    }
-    return null;
-  }
-}
-
-/**
- * Singleton instance of WebSocket Timeline Repository
- */
-export const wsTimelineRepository: ITimelineRepository =
-  new WsTimelineRepositoryImpl();
-/**
- * BonfireCard Component (Molecule)
- *
- * Displays a single bonfire (promoted spark) with:
- * - Glassmorphism design (translucent background + blur)
- * - Glow effect (shadow-glow)
- * - Default bonfire image
- * - Content with heat score indicator
- * - Shared Element Transition support via Framer Motion layoutId
- *
- * Visual style follows SparkCard patterns and Design Token guidelines.
- * Uses shadcn/ui Card as base component.
- */
-
-import { memo, useState } from "react";
-import clsx from "clsx";
-import { Flame } from "lucide-react";
-import { motion } from "framer-motion";
-import type { BonfireViewModel } from "@/domain/model/bonfire";
-import { Card, CardContent } from "@/components/ui/card";
-import defaultImage from "@/assets/bonfire_default.png";
-
-interface BonfireCardProps {
-  bonfire: BonfireViewModel;
-  onClick?: (bonfire: BonfireViewModel) => void;
-}
-
-/**
- * BonfireCard Component (Memoized)
- *
- * Performance:
- * - Memoized to prevent unnecessary re-renders
- * @returns Rendered bonfire card element
- */
-const BonfireCardComponent = ({ bonfire, onClick }: BonfireCardProps) => {
-  const handleClick = () => {
-    onClick?.(bonfire);
-  };
-
-  const hasCustomImage = !!bonfire.imageUrl?.primaryUrl;
-  const imageUrl = bonfire.imageUrl?.primaryUrl;
-  const [imgError, setImgError] = useState(false);
-
-  return (
-    <Card
-      className={clsx(
-        // Layout & Responsive dimensions (mobile: smaller, md: larger)
-        "h-52 w-52 md:h-72 md:w-72",
-        "flex-none snap-center overflow-hidden transition-all duration-300",
-        "hover:scale-[1.02]",
-
-        // Base Style
-        "text-smoke-100",
-        "bg-night-900/40 backdrop-blur-md",
-        "border border-white/10", // 「ガラスのエッジ」を表現
-        "shadow-lg", // 通常時は黒い影で浮き上がらせる
-
-        // Hover Interaction (点火: 熱量と光)
-        "hover:border-ember-500/30", // 触ると枠が熱くなる
-        "hover:shadow-glow-sm", // 触ると光が漏れる (Design Tokenの影)
-
-        // Clickable
-        onClick && "cursor-pointer",
-      )}
-      data-testid="bonfire-item"
-      onClick={handleClick}
-    >
-      {/* Image Section with layoutId for Shared Element Transition */}
-      <motion.div
-        className="relative h-28 w-full overflow-hidden bg-black/40 md:h-40"
-        layoutId={`bonfire-image-${bonfire.id}`}
-      >
-        {hasCustomImage && !imgError ? (
-          <>
-            {/* Background: Blur & Cover */}
-            <img
-              src={imageUrl}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover opacity-50 blur-xl"
-            />
-            {/* Foreground: Contain & Clear */}
-            <img
-              src={imageUrl}
-              alt="Bonfire"
-              className="relative h-full w-full object-contain transition-transform duration-500 hover:scale-105"
-              onError={() => setImgError(true)}
-            />
-          </>
-        ) : (
-          /* Default Image */
-          <img
-            src={defaultImage}
-            alt="Bonfire"
-            className="h-full w-full object-cover transition-transform duration-500 hover:scale-110"
-          />
-        )}
-        {/* Gradient overlay for text readability */}
-        <div className="from-night-900/80 absolute inset-0 bg-linear-to-t to-transparent" />
-
-        {/* Heat Score Badge */}
-        <div
-          className={clsx(
-            "absolute right-2 bottom-2",
-            "flex items-center gap-1",
-            "rounded-button px-2 py-0.5",
-            "border-ember-500/30 bg-ember-500/10 border backdrop-blur-sm",
-            "text-ember-500 text-xs",
-          )}
-        >
-          <Flame className="size-3" />
-          <span>{bonfire.heatScore}</span>
-        </div>
-      </motion.div>
-
-      {/* Content Section - Responsive height with text truncation */}
-      <CardContent className="h-16 p-3 md:h-20 md:p-4">
-        <p className="font-base text-smoke-100 line-clamp-2 text-sm leading-relaxed">
-          {bonfire.content}
-        </p>
-      </CardContent>
-    </Card>
-  );
-};
-
-export const BonfireCard = memo(BonfireCardComponent);
-import { memo, useState, useCallback } from "react";
-import clsx from "clsx";
-import { Flame } from "lucide-react";
-import type { SparkViewModel } from "@/domain/model/spark";
-import { IgniteEffect } from "@/components/atoms/IgniteEffect";
-import Linkify from "linkify-react";
-import { SparkImageThumbnail } from "./SparkImageThumbnail";
-
-interface SparkCardProps {
-  spark: SparkViewModel;
-  /**
-   * Callback when fuel button is clicked
-   */
-  onAddFuel?: (sparkId: string) => void;
-  /**
-   * Hide the fuel button (used for bonfire replies which cannot be promoted)
-   * @default false
-   */
-  hideFuelButton?: boolean;
-}
-
-/**
- * SparkCard Component (Memoized)
- *
- * Renders a single spark with:
- * - Fade-in animation on mount
- * - Color temperature based heat expression (white→ash transition)
- * - Dynamic glow: Visible when hot, disappears when cooled (Ash)
- * - TTL countdown timer in bottom-right corner
- * - Text truncation for long content
- * - Add fuel button with ignite effect
- *
- * Performance:
- * - Memoized to prevent re-renders when temperature state doesn't change
- * - Only re-renders if spark.id, spark.content, spark.temperature, or spark.remainingTimeInSeconds changes
- * @returns Rendered spark card element
- */
-const SparkCardComponent = ({
-  spark,
-  onAddFuel,
-  hideFuelButton = false,
-}: SparkCardProps) => {
-  const isHot = spark.temperature === "hot";
-  const [showEffect, setShowEffect] = useState(false);
-
-  const shadowClass = isHot ? "shadow-glow-sm" : "shadow-none";
-  // Glassmorphism: soft borders with glow (not hard lines)
-  const borderClass = isHot
-    ? "border border-ember-500/50 ring-1 ring-ember-500/20"
-    : "border border-white/10";
-
-  const handleAddFuel = () => {
-    // Trigger ignite effect
-    setShowEffect(true);
-    // Call parent callback
-    onAddFuel?.(spark.id);
-  };
-
-  // Memoize onComplete to prevent IgniteEffect useEffect from re-firing on every render
-  const handleEffectComplete = useCallback(() => {
-    setShowEffect(false);
-  }, []);
-
-  return (
-    <div
-      className={clsx(
-        // Glassmorphism: translucent background with backdrop blur
-        "rounded-card bg-night-800/40 text-ash-500 p-4 backdrop-blur-md transition-all duration-1000 ease-in-out",
-        shadowClass,
-        borderClass,
-      )}
-      data-testid="spark-item"
-      data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
-    >
-      <p className="font-base text-sm leading-relaxed break-words whitespace-pre-wrap">
-        <Linkify
-          options={{
-            target: "_blank",
-            rel: "noopener noreferrer",
-            className:
-              "text-ember-500/70 hover:underline text-ember-400 font-medium",
-            nl2br: true, // preserve line breaks logic if needed, but 'whitespace-pre-wrap' does it usually. Linkify handles simple strings.
-            format: (value: string) =>
-              value.length > 30 ? value.slice(0, 30) + "..." : value,
-          }}
-        >
-          {spark.content}
-        </Linkify>
-      </p>
-
-      {/* Image Thumbnail */}
-      {spark.imageUrl && (
-        <SparkImageThumbnail
-          key={spark.imageUrl.primaryUrl}
-          image={spark.imageUrl}
-        />
-      )}
-
-      <div className="mt-2 flex items-center justify-between">
-        {/* Add Fuel Button - hidden for bonfire replies */}
-        {!hideFuelButton && (
-          <button
-            onClick={handleAddFuel}
-            className={clsx(
-              "rounded-button relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all",
-              "border-ember-500/30 bg-ember-500/10 text-ember-500 border",
-              "hover:border-ember-500/50 hover:bg-ember-500/20",
-              "focus:ring-ember-500/50 focus:ring-2 focus:outline-none",
-            )}
-            data-testid="add-fuel-button"
-            aria-label="Add fuel to spark"
-          >
-            <Flame className="h-3.5 w-3.5" />
-            <span>薪をくべる</span>
-            <IgniteEffect
-              trigger={showEffect}
-              onComplete={handleEffectComplete}
-            />
-          </button>
-        )}
-        {/* Spacer when fuel button is hidden */}
-        {hideFuelButton && <div />}
-        {/* User Hash */}
-        <span
-          className="text-ash-400 mb-1 block font-mono text-xs"
-          data-testid="spark-user-hash"
-        >
-          @{spark.userHash}
-        </span>
-        {/* TTL Timer */}
-        {/* <span
-          className={clsx("font-mono text-xs transition-colors duration-1000")}
-          data-testid="spark-timer"
-        >
-          {formatTime(spark.remainingTimeInSeconds)}
-        </span> */}
-      </div>
-    </div>
-  );
-};
-
-export const SparkCard = memo(SparkCardComponent);
-/**
- * BonfireDetailPage (Smart Component)
- *
- * Full-screen page for viewing bonfire details and posting replies.
- * Features:
- * - Real-time reply streaming via WebSocket
- * - "Read up to here" marker with LocalStorage persistence
- * - Smart auto-scroll (follows new replies when at bottom)
- * - Share functionality for external SNS
- * - Decay state handling (disables actions when bonfire expires)
- *
- * This is the Smart component that:
- * - Injects dependencies (repositories)
- * - Calls UseCases (hooks)
- * - Passes data and callbacks to Dumb components
- */
-
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { Flame } from "lucide-react";
-import type { BonfireViewModel } from "@/domain/model/bonfire";
-import type { SparkViewModel } from "@/domain/model/spark";
-import { computeSparkViewModel } from "@/domain/service/sparkService";
-
-// Repositories (DIP: inject implementations)
-import { wsBonfireRoomRepository } from "@/adapter/repository/wsBonfireRoomRepository";
-import { localStorageReadMarkerRepository } from "@/adapter/repository/localStorageReadMarkerRepository";
-import { sparkRepository } from "@/adapter/repository/sparkRepository";
-
-// UseCases
-import { useBonfireRoom } from "@/usecase/useBonfireRoom";
-import { useReadMarker } from "@/usecase/useReadMarker";
-import { usePostReply } from "@/usecase/usePostReply";
-import { useAddFuel } from "@/usecase/useAddFuel";
-import { useConnectionToast } from "@/usecase/useConnectionToast";
-
-// UI Components
-import { BonfireDetailTemplate } from "@/components/templates/BonfireDetailTemplate";
-import { BonfireDetailHeader } from "@/components/organisms/BonfireDetailHeader";
-import { ReplyTimeline } from "@/components/organisms/ReplyTimeline";
-import { SparkPostModal } from "@/components/organisms/SparkPostModal";
-import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
-
-// Logger
-import { useLogger } from "@/components/useLogger";
-
-/**
- * System-configured character limit for posts
- */
-const MAX_CONTENT_LENGTH = 500;
-
-interface BonfireDetailPageProps {
-  /**
-   * The bonfire to display (null when not open)
-   */
-  bonfire: BonfireViewModel | null;
-
-  /**
-   * Whether the page is open
-   */
-  isOpen: boolean;
-
-  /**
-   * Callback when the page should close
-   */
-  onClose: () => void;
-}
-
-/**
- * Inner component that receives a guaranteed non-null bonfire.
- * This allows hooks to be called unconditionally.
- * @returns Rendered bonfire detail content
- */
-const BonfireDetailPageInner = ({
-  bonfire,
-  isOpen,
-  onClose,
-}: {
-  bonfire: BonfireViewModel;
-  isOpen: boolean;
-  onClose: () => void;
-}) => {
-  const logger = useLogger();
-
-  // Local UI state
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [postContent, setPostContent] = useState("");
-
-  // UseCases with dependency injection
-  const { sparks, isDecayed, addLocalSpark, status } = useBonfireRoom(
-    bonfire.id,
-    wsBonfireRoomRepository,
-  );
-
-  // Connection Toast
-  useConnectionToast(status);
-
-  // Ref to track the display marker spark ID for persisted index lookup
-  const displayMarkerSparkIdRef = useRef<string | null>(null);
-
-  // Get persisted index for high water mark comparison
-  const getPersistedIndex = useCallback(() => {
-    if (!displayMarkerSparkIdRef.current) return -1;
-    return sparks.findIndex((s) => s.id === displayMarkerSparkIdRef.current);
-  }, [sparks]);
-
-  const { displayMarkerSparkId, reportVisiblePosition, commitToStorage } =
-    useReadMarker(bonfire.id, localStorageReadMarkerRepository, {
-      getPersistedIndex,
-    });
-
-  // Keep display marker spark ID in ref for getPersistedIndex
-  displayMarkerSparkIdRef.current = displayMarkerSparkId;
-
-  // Commit to storage on unmount (page leave)
-  useEffect(() => {
-    return () => {
-      commitToStorage();
-    };
-  }, [commitToStorage]);
-
-  // Handler for tracking scroll position (wiring callback to Dumb component)
-  const handleVisiblePositionChange = useCallback(
-    (sparkId: string, index: number) => {
-      reportVisiblePosition(sparkId, index);
-    },
-    [reportVisiblePosition],
-  );
-
-  const {
-    postReply,
-    isPosting,
-    error: postError,
-  } = usePostReply(bonfire.id, bonfire.fieldId, sparkRepository, logger);
-
-  const { addFuel } = useAddFuel(sparkRepository, logger);
-
-  // Transform Sparks to ViewModels
-  const sparkViewModels: SparkViewModel[] = useMemo(
-    () => sparks.map((spark) => computeSparkViewModel(spark)),
-    [sparks],
-  );
-
-  // Handlers
-  const handleOpenModal = useCallback(() => {
-    setIsModalOpen(true);
-  }, []);
-
-  const handleCloseModal = useCallback(() => {
-    setIsModalOpen(false);
-    setPostContent("");
-  }, []);
-
-  const handleSubmitReply = useCallback(async () => {
-    if (!postContent.trim()) return;
-
-    const result = await postReply(postContent);
-    // Add to local list for optimistic update
-    addLocalSpark(result);
-    setIsModalOpen(false);
-    setPostContent("");
-  }, [postContent, postReply, addLocalSpark]);
-
-  const handleAddFuel = useCallback(() => {
-    void addFuel({ sparkId: bonfire.sparkId });
-  }, [addFuel, bonfire.sparkId]);
-
-  const handleShare = useCallback(() => {
-    // Use Web Share API if available, otherwise copy URL to clipboard
-    const shareUrl = globalThis.location.href;
-    const shareData = {
-      title: bonfire.content.slice(0, 50),
-      text: bonfire.content,
-      url: shareUrl,
-    };
-
-    if (typeof navigator.share === "function") {
-      void navigator.share(shareData).catch((error: unknown) => {
-        // User cancelled or error occurred
-        console.info("Share cancelled:", error);
-      });
-    } else {
-      // Fallback: copy URL to clipboard
-      void navigator.clipboard
-        .writeText(shareUrl)
-        .then(() => {
-          console.info("URL copied to clipboard");
-        })
-        .catch((error: unknown) => {
-          console.error("Failed to copy URL:", error);
-        });
-    }
-  }, [bonfire.content]);
-
-  return (
-    <BonfireDetailTemplate
-      isOpen={isOpen}
-      headerSlot={
-        <BonfireDetailHeader
-          bonfire={bonfire}
-          isDecayed={isDecayed}
-          onClose={onClose}
-          onAddFuel={handleAddFuel}
-          onShare={handleShare}
-        />
-      }
-      timelineSlot={
-        <ReplyTimeline
-          sparks={sparkViewModels}
-          displayMarkerSparkId={displayMarkerSparkId}
-          onVisiblePositionChange={handleVisiblePositionChange}
-        />
-      }
-      fabSlot={
-        !isDecayed && (
-          <FloatingActionButton
-            onClick={handleOpenModal}
-            icon={<Flame className="size-6" />}
-            label="レスを投稿"
-            testId="response-post-fab"
-          />
-        )
-      }
-      modalSlot={
-        <SparkPostModal
-          isOpen={isModalOpen}
-          onClose={handleCloseModal}
-          content={postContent}
-          onContentChange={setPostContent}
-          onSubmit={() => void handleSubmitReply()}
-          isPosting={isPosting}
-          maxLength={MAX_CONTENT_LENGTH}
-          error={postError}
-          submitLabel="レスを投げる"
-        />
-      }
-    />
-  );
-};
-
-export const BonfireDetailPage = ({
-  bonfire,
-  isOpen,
-  onClose,
-}: BonfireDetailPageProps) => {
-  // Guard: return null if no bonfire (hooks cannot be called conditionally)
-  if (!bonfire) {
-    return null;
-  }
-
-  return (
-    <BonfireDetailPageInner
-      bonfire={bonfire}
-      isOpen={isOpen}
-      onClose={onClose}
-    />
-  );
-};
-/**
- * Field List Page (Smart Component)
- *
- * Landing page where users select which field (community) to enter.
- * Displays a list of available fields as cards.
- */
-
-import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Flame } from "lucide-react";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from "@/components/ui/card";
-import { FIELDS } from "@/domain/constants";
-import { AtmosphereBackground } from "@/components/atoms/AtmosphereBackground";
-
-export const FieldList = () => {
-  const navigate = useNavigate();
-
-  return (
-    <div className="relative min-h-screen w-full overflow-hidden text-white/90">
-      {/* Background is handled by App.tsx wrapper, but here we can add overlay if needed */}
-      <AtmosphereBackground />
-
-      <div className="relative z-10 mx-auto max-w-4xl px-4 py-12 md:py-24">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="mb-12 text-center"
-        >
-          <div className="mb-4 flex justify-center">
-            <div className="shadow-glow-lg flex h-16 w-16 items-center justify-center rounded-full bg-white/10 backdrop-blur-md">
-              <Flame size={32} className="drop-shadow-glow text-white" />
-            </div>
-          </div>
-          <h1 className="bg-gradient-to-r from-white to-white/70 bg-clip-text text-4xl font-bold tracking-tight text-transparent drop-shadow-sm md:text-5xl">
-            Kvell
-          </h1>
-          <p className="mt-4 text-lg text-white/60">
-            A BBS for silent majority.
-          </p>
-        </motion.div>
-
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {FIELDS.map((field, index) => (
-            <motion.div
-              key={field.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 * (index + 1), duration: 0.5 }}
-            >
-              <Card
-                className="group hover:shadow-glow-md relative cursor-pointer overflow-hidden border-white/10 bg-black/20 backdrop-blur-md transition-all duration-300 hover:scale-[1.02] hover:border-white/20 hover:bg-black/30"
-                onClick={() => navigate(`/field/${field.id}`)}
-              >
-                <div
-                  className={`absolute inset-0 bg-gradient-to-br ${field.themeColor} opacity-0 transition-opacity duration-300 group-hover:opacity-10`}
-                />
-
-                <CardHeader>
-                  <CardTitle className="text-2xl font-bold text-white group-hover:text-white/90">
-                    {field.label}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription className="text-white/60 group-hover:text-white/80">
-                    {field.description}
-                  </CardDescription>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-/**
- * Timeline Page (Smart Component)
- *
- * Entry point for the Timeline feature.
- * Handles dependency injection and wiring of UseCase to UI components.
- * Includes spark posting functionality with FAB and modal.
- */
-
-import { useState, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { Flame } from "lucide-react";
-import { LayoutGroup } from "framer-motion";
-import { wsTimelineRepository } from "@/adapter/repository/wsTimelineRepository";
-import { bonfireRepository } from "@/adapter/repository/bonfireRepository";
-import { sparkRepository } from "@/adapter/repository/sparkRepository";
-import { triggerHapticFeedback } from "@/adapter/infra/haptic";
-import { useTimelineStream } from "@/usecase/useTimelineStream";
-import { usePostSpark } from "@/usecase/usePostSpark";
-import { useAddFuel } from "@/usecase/useAddFuel";
-import { useBonfire } from "@/usecase/useBonfire";
-import { useConnectionToast } from "@/usecase/useConnectionToast";
-import { TimelineStream } from "@/components/organisms/TimelineStream";
-import { TimelineTemplate } from "@/components/templates/TimelineTemplate";
-import { ErrorStateMessage } from "@/components/molecules/ErrorStateMessage";
-import { FloatingActionButton } from "@/components/atoms/FloatingActionButton";
-import { SparkPostModal } from "@/components/organisms/SparkPostModal";
-import { BonfireCarousel } from "@/components/organisms/BonfireCarousel";
-import { BonfireDetailPage } from "@/components/pages/BonfireDetailPage";
-import { useLogger } from "@/components/useLogger";
-import { settings } from "@/adapter/infra/settings";
-import { LOG_EVENTS } from "@/domain/constants";
-import type { BonfireViewModel } from "@/domain/model/bonfire";
-
-/**
- * Timeline Page Component
- *
- * Responsibilities:
- * - Display real-time timeline of sparks
- * - Provide FAB button to open spark posting modal
- * - Handle spark posting with error display
- * @returns Rendered timeline page with posting capability
- */
-export const TimelinePage = () => {
-  // Routing: Get fieldId and bonfireId from URL params for deep linking support
-  const { fieldId, bonfireId } = useParams<{
-    fieldId: string;
-    bonfireId: string;
-  }>();
-  const navigate = useNavigate();
-
-  // Validate fieldId (redirect to root if invalid)
-  // In a real app, strict validation against FIELDS list would be here
-  if (!fieldId) {
-    // This should ideally be handled by router, but as a safeguard
-    // void navigate("/", { replace: true });
-    // For now, let's assume valid due to routing structure, or hook will fail gracefully
-  }
-
-  // Local UI state for posting
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [content, setContent] = useState("");
-
-  // Dependency Injection: Logger
-  const logger = useLogger();
-
-  // UseCase: Fetch bonfires (Filtered by fieldId)
-  const { bonfires, refetch: refetchBonfires } = useBonfire(
-    bonfireRepository,
-    fieldId,
-  );
-
-  // UseCase: Connect to WebSocket and receive sparks (Scoped to fieldId)
-  const { sparks, status } = useTimelineStream({
-    repository: wsTimelineRepository,
-    fieldId: fieldId!, // Non-null assertion safe because of route param
-    onBonfirePromoted: () => {
-      // Refresh bonfire list when a spark receives promotion event
-      void refetchBonfires();
-    },
-  });
-
-  // UI: Handle connection status with Toast (Custom Hook)
-  useConnectionToast(status);
-
-  // UseCase: Post spark
-  const { postSpark, isPosting, error } = usePostSpark(
-    sparkRepository,
-    logger,
-    fieldId!, // Non-null assertion safe because of route param
-  );
-
-  // UseCase: Add fuel to spark
-  const { addFuel } = useAddFuel(sparkRepository, logger);
-
-  // Derive selected bonfire from URL params (for deep linking & browser back support)
-  const selectedBonfire = useMemo(() => {
-    if (!bonfireId) return null;
-    return bonfires.find((b) => b.id === bonfireId) ?? null;
-  }, [bonfireId, bonfires]);
-
-  // Event Handler: Submit spark
-  const handleSubmit = async () => {
-    const trimmedContent = content.trim();
-    if (!trimmedContent) return;
-
-    try {
-      await postSpark({ content: trimmedContent });
-      // On success: Clear input and close modal
-      setContent("");
-      setIsModalOpen(false);
-    } catch {
-      // Error is already logged by UseCase and stored in error state
-      // UI will display error via SparkPostModal
-    }
-  };
-
-  // Event Handler: Add fuel to spark
-  const handleAddFuel = (sparkId: string) => {
-    // Trigger haptic feedback (UI layer responsibility)
-    const hapticTriggered = triggerHapticFeedback();
-    if (!hapticTriggered) {
-      logger.info("Haptic feedback not supported", {
-        event: LOG_EVENTS.ADD_FUEL.HAPTIC_NOT_SUPPORTED,
-      });
-    }
-
-    // Execute UseCase
-    void addFuel({ sparkId });
-  };
-
-  // Event Handler: Open bonfire detail overlay (navigate to bonfire detail URL)
-  const handleBonfireClick = (bonfire: BonfireViewModel) => {
-    void navigate(`/timeline/bonfire/${bonfire.id}`);
-  };
-
-  // Event Handler: Close bonfire detail overlay (navigate back)
-  const handleBonfireClose = () => {
-    void navigate("/timeline");
-  };
-
-  return (
-    <LayoutGroup>
-      <TimelineTemplate
-        bonfireArea={
-          <BonfireCarousel
-            bonfires={bonfires}
-            onBonfireClick={handleBonfireClick}
-          />
+# Kvell Infrastructure
+
+本番環境のCloudFormationテンプレートおよび運用手順。
+
+## アーキテクチャ
+
+```
+User → CloudFront → S3 (SPA)
+                 → EC2 (Docker: API + MongoDB + Redis)
+```
+
+**特徴:**
+- APIサーバーはEC2上で直接Docker Composeを実行（ECR不使用）。
+- セットアップスクリプト (`setup-prod.sh`) はS3からダウンロードして実行。
+- GitHub PAT等の機密情報は SSM Parameter Store で管理。
+- GitHub PAT等の機密情報は SSM Parameter Store で管理。
+- Elastic IP (EIP) を使用し、インスタンス再作成時もIPを固定（CDN設定変更不要）。
+- データベースのバックアップは日次でS3へ保存。
+
+## ファイル構成
+
+```
+infra/
+├── README.md          # このファイル
+├── network.yml        # VPC, Subnet, IGW
+├── instance.yml       # EC2, Security Group, IAM, Data EBS
+├── cdn.yml            # S3, CloudFront
+└── scripts/
+    ├── setup-prod.sh  # EC2初期構築 & アプリデプロイ
+    └── backup.sh      # MongoDBバックアップ (S3連携)
+```
+
+## デプロイ手順
+
+### 0. 変数設定 (初回のみ)
+
+```bash
+export AWS_PROFILE=kvell
+export AWS_REGION=ap-northeast-1
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+```
+
+### 1. S3バケットの作成 (手動)
+スクリプトとバックアップ用のバケットを先に作成します（CloudFormationの循環参照回避のため）。
+
+```bash
+# バケット名は世界で一意である必要があります。末尾にランダムな数字などを推奨。
+export SCRIPTS_BUCKET="kvell-infra-scripts-prod"
+export BACKUP_BUCKET="kvell-prod-backups-prod"
+
+aws s3 mb s3://$SCRIPTS_BUCKET --region $AWS_REGION
+aws s3 mb s3://$BACKUP_BUCKET --region $AWS_REGION
+```
+
+### 2. SSMパラメータ設定 & スクリプトアップロード
+
+GitHubのReadOnlyトークン (Contents: Read) を取得し、SSMに保存します。
+
+```bash
+aws ssm put-parameter \
+  --name /kvell/prod/github_pat \
+  --value "github_pat_xxxxxxxxxxxx" \
+  --type SecureString \
+  --region $AWS_REGION
+```
+
+インスタンス構築時に実行されるスクリプトをS3バケットに配置します。
+
+```bash
+aws s3 cp infra/scripts/setup-prod.sh s3://$SCRIPTS_BUCKET/setup-prod.sh
+aws s3 cp infra/scripts/backup.sh s3://$SCRIPTS_BUCKET/backup.sh
+```
+
+### 3. Instance Stack デプロイ
+
+```bash
+aws cloudformation deploy \
+  --template-file instance.yml \
+  --stack-name kvell-instance \
+  --parameter-overrides \
+    ScriptsBucketName=$SCRIPTS_BUCKET \
+    BackupS3Bucket=$BACKUP_BUCKET \
+    CorsOrigins=https://kvell.app \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region $AWS_REGION
+```
+
+### 4. CDN Stack デプロイ
+
+Instance StackのOutputにあるIPアドレス (またはEIP) を `ApiOriginDomain` に指定します。
+
+```bash
+API_ORIGIN_IP=$(aws cloudformation describe-stacks --stack-name kvell-instance --query "Stacks[0].Outputs[?OutputKey=='PublicIp'].OutputValue" --output text)
+
+aws cloudformation deploy \
+  --template-file cdn.yml \
+  --stack-name kvell-cdn \
+  --parameter-overrides \
+    ApiOriginDomain=$API_ORIGIN_IP \
+  --capabilities CAPABILITY_IAM \
+  --region $AWS_REGION
+```
+
+## 運用
+
+### アプリケーション更新
+
+ECRを使用せず、EC2上で直接 `git pull` してビルドします。
+
+1. **SSM Session Manager** でインスタンスに接続。
+2. 以下のコマンドを実行:
+
+```bash
+# SSH接続後
+cd /home/ubuntu/ws/kvell
+
+# コード更新
+git pull
+
+# 依存関係更新 (もしあれば)
+cd apps/api
+../../.local/bin/uv sync  # または pip install -r requirements.txt
+
+# DB更新 (もしdocker-compose.ymlが変わっていたら)
+cd ../..
+docker compose up -d mongo redis
+
+# API再起動
+sudo systemctl restart kvell-api
+```
+
+### ログ確認
+
+- **初期セットアップログ**: `/var/log/user-data-bootstrap.log`
+- **アプリケーションログ**: `docker compose logs -f`
+
+### バックアップ復旧
+
+`backup.sh` により日次でS3 (`kvell-prod-backups`) にMongoDBダンプが保存されています。
+
+```bash
+# S3から取得
+aws s3 cp s3://kvell-prod-backups/bonfires-YYYYMMDD-HHMM.bson /tmp/
+
+# MongoDBへリストア
+docker cp /tmp/bonfires.bson kvell-mongo-1:/tmp/
+docker exec kvell-mongo-1 mongorestore \
+  --uri="mongodb://localhost:27017/kvell" \
+  --collection=bonfires /tmp/bonfires.bson
+```
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Kvell S3 Buckets and CloudFront Distribution
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: kvell-prod
+    Description: Environment name prefix
+
+  DomainName:
+    Type: String
+    Description: Custom domain name (e.g., kvell.example.com)
+
+  AcmCertificateArn:
+    Type: String
+    Description: ACM Certificate ARN for HTTPS (must be in us-east-1)
+
+  ApiOriginDomain:
+    Type: String
+    Description: EC2 Public IP or domain for API origin
+
+  BasicAuthCredentials:
+    Type: String
+    Description: Basic auth credentials in base64 (user:password encoded)
+    NoEcho: true
+
+Resources:
+  # S3 Bucket for SPA
+  SpaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-spa"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket for Setup Scripts
+  ScriptsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-scripts"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket for Backups
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-backups"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldBackups
+            Status: Enabled
+            ExpirationInDays: 30
+
+  # CloudFront Origin Access Control for S3
+  S3OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${EnvironmentName}-s3-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # S3 Bucket Policy for CloudFront
+  SpaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SpaBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${SpaBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  # CloudFront Function for Basic Auth (SPA only)
+  BasicAuthFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${EnvironmentName}-basic-auth"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Basic authentication for SPA
+        Runtime: cloudfront-js-2.0
+      FunctionCode: !Sub |
+        function handler(event) {
+          var request = event.request;
+          var headers = request.headers;
+          var authString = 'Basic ${BasicAuthCredentials}';
+
+          if (typeof headers.authorization === 'undefined' || headers.authorization.value !== authString) {
+            return {
+              statusCode: 401,
+              statusDescription: 'Unauthorized',
+              headers: {
+                'www-authenticate': { value: 'Basic realm="Kvell"' },
+                'content-type': { value: 'text/plain' }
+              },
+              body: 'Unauthorized'
+            };
+          }
+
+          return request;
         }
-        sparkArea={
-          // Show ErrorStateMessage ONLY if there are no sparks (initial load failure)
-          status.type === "error" && sparks.length === 0 ? (
-            <ErrorStateMessage
-              title="サーバーに接続できません"
-              description="ネットワーク接続を確認してページを再読み込みしてください"
-              testId="timeline-error-message"
-            />
-          ) : (
-            <TimelineStream sparks={sparks} onAddFuel={handleAddFuel} />
-          )
-        }
-      />
 
-      <FloatingActionButton
-        onClick={() => {
-          setIsModalOpen(true);
-        }}
-        icon={<Flame size={24} />}
-        label="種火をともす"
-        testId="spark-post-fab"
-      />
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${EnvironmentName} distribution"
+        DefaultRootObject: index.html
+        Aliases:
+          - !Ref DomainName
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        # Geo Restriction - Japan Only
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: whitelist
+            Locations:
+              - JP
+        Origins:
+          # S3 Origin for SPA
+          - Id: S3Origin
+            DomainName: !GetAtt SpaBucket.RegionalDomainName
+            OriginAccessControlId: !Ref S3OriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          # EC2 Origin for API (with extended timeouts for WebSocket)
+          - Id: ApiOrigin
+            DomainName: !Ref ApiOriginDomain
+            CustomOriginConfig:
+              HTTPPort: 8000
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60  # Extended for WebSocket
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          Compress: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt BasicAuthFunction.FunctionARN
+        CacheBehaviors:
+          # WebSocket - No Cache
+          - PathPattern: /api/sparks/*/ws
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3  # AllViewer
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+          # GET /api/bonfires - 5 second cache
+          - PathPattern: /api/bonfires
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            CachePolicyId: !Ref BonfiresCachePolicy
+            AllowedMethods:
+              - GET
+              - HEAD
+          # Other API - No Cache
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3  # AllViewer
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+        CustomErrorResponses:
+          # SPA routing - return index.html for 404
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
 
-      <SparkPostModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-        }}
-        content={content}
-        onContentChange={setContent}
-        onSubmit={() => {
-          void handleSubmit();
-        }}
-        isPosting={isPosting}
-        maxLength={settings.sparkMaxLength}
-        error={error}
-      />
+  # Custom Cache Policy for Bonfires (5 second TTL)
+  BonfiresCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${EnvironmentName}-bonfires-cache"
+        DefaultTTL: 5
+        MaxTTL: 30
+        MinTTL: 5
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          HeadersConfig:
+            HeaderBehavior: none
+          CookiesConfig:
+            CookieBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
 
-      <BonfireDetailPage
-        bonfire={selectedBonfire}
-        isOpen={selectedBonfire !== null}
-        onClose={handleBonfireClose}
-      />
-    </LayoutGroup>
-  );
-};
-export const internalStatuses = {
-  // Sucess
-  200: "OK",
-  201: "Created",
-  204: "No Content",
-  // Client Errors
-  400: "Bad Request",
-  401: "Unauthorized",
-  403: "Forbidden",
-  404: "Not Found",
-  409: "Conflict",
-  422: "Unprocessable Entity",
-  // Business Logic Errors
-  1001: "Invalid email format.",
-  // Server Errors
-  500: "Internal Server Error",
-} as const;
+Outputs:
+  SpaBucketName:
+    Description: S3 bucket for SPA deployment
+    Value: !Ref SpaBucket
 
-/**
- * Type representing valid internal status codes.
- */
-export type InternalStatusCodes = keyof typeof internalStatuses;
+  ScriptsBucketName:
+    Description: S3 bucket for setup scripts
+    Value: !Ref ScriptsBucket
 
-/**
- * Log Event IDs for structured logging.
- * Use these constants in logger calls for testable, consistent event tracking.
- */
-export const LOG_EVENTS = {
-  // Health Check
-  HEALTH_CHECK: {
-    FETCH_START: "HEALTH_FETCH_START",
-    FETCH_SUCCESS: "HEALTH_FETCH_SUCCESS",
-    FETCH_ERROR: "HEALTH_FETCH_ERROR",
-    SAVE_START: "HEALTH_SAVE_START",
-    SAVE_SUCCESS: "HEALTH_SAVE_SUCCESS",
-    SAVE_ERROR: "HEALTH_SAVE_ERROR",
-  },
-  // Spark Post
-  SPARK: {
-    POST_START: "SPARK_POST_START",
-    POST_SUCCESS: "SPARK_POST_SUCCESS",
-    POST_ERROR: "SPARK_POST_ERROR",
-  },
-  // Add Fuel (薪をくべる)
-  ADD_FUEL: {
-    START: "ADD_FUEL_START",
-    SUCCESS: "ADD_FUEL_SUCCESS",
-    ERROR: "ADD_FUEL_ERROR",
-    HAPTIC_NOT_SUPPORTED: "ADD_FUEL_HAPTIC_NOT_SUPPORTED",
-  },
-} as const;
+  BackupBucketName:
+    Description: S3 bucket for MongoDB backups
+    Value: !Ref BackupBucket
 
-/**
- * Spark cooling threshold ratio
- * Sparks with less than this percentage of their total lifetime remaining
- * will display as "cooling" (ash)
- *
- * This value is derived from the BDD specification:
- * "システムの '冷却閾値' は 'Decay time' に対して '30%' の割合である"
- */
-export const COOLING_THRESHOLD_RATIO = 0.3;
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !Ref CloudFrontDistribution
 
-/**
- * Available Fields (Communities)
- *
- * Defines the available timeline fields users can join.
- * IDs must match the backend VALID_FIELDS constant.
- */
-export const FIELDS = [
-  {
-    id: "sakurazaka46",
-    label: "櫻坂46",
-    description: "Buddiesが集う、櫻坂46の実況と感想のフィールド",
-    themeColor: "from-pink-400 to-red-400",
-  },
-  {
-    id: "nhk",
-    label: "NHK",
-    description: "NHK番組の実況、ニュースやドキュメンタリーの感想戦",
-    themeColor: "from-blue-400 to-indigo-400",
-  },
-  {
-    id: "wbc",
-    label: "WBC",
-    description: "WBC（ワールド・ベースボール・クラシック）熱狂のフィールド",
-    themeColor: "from-yellow-400 to-orange-400",
-  },
-] as const;
+  CloudFrontDomainName:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Kvell Production EC2 Instance with Docker
 
-export type FieldId = (typeof FIELDS)[number]["id"];
-/**
- * Bonfire Domain Model
- *
- * Represents a promoted spark (焚き火) that appears in the Bonfire Area.
- */
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: kvell-prod
+    Description: Environment name prefix
 
-/**
- * Bonfire interface
- */
-export interface Bonfire {
-  /**
-   * Unique identifier (same as original spark_id)
-   */
-  id: string;
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+    Description: EC2 instance type (t3.small recommended for MongoDB)
 
-  /**
-   * Reference to the original spark ID
-   */
-  sparkId: string;
+  KeyPairName:
+    Type: String
+    Default: ""
+    Description: EC2 Key Pair for SSH access (optional, SSM recommended)
 
-  /**
-   * Field (Community) ID
-   */
-  fieldId: string;
+  GitHubRepo:
+    Type: String
+    Default: your-org/kvell
+    Description: GitHub repository (owner/repo format, e.g., your-org/kvell)
 
-  /**
-   * Bonfire content text
-   */
-  content: string;
+  CorsOrigins:
+    Type: String
+    Default: https://kvellapp.com
+    Description: CORS allowed origins
 
-  /**
-   * Number of unique users engaged at promotion
-   */
-  uniqueUserCount: number;
+  ScriptsBucketName:
+    Type: String
+    Description: S3 bucket containing setup scripts (e.g. kvell-infra-scripts)
 
-  /**
-   * Heat score at promotion
-   */
-  heatScore: number;
+  BackupS3Bucket:
+    Type: String
+    Description: S3 bucket for MongoDB backups
 
-  /**
-   * ISO timestamp when the bonfire was created (promoted)
-   */
-  createdAt: string;
+  DataVolumeSize:
+    Type: Number
+    Default: 10
+    Description: Size of data EBS volume in GB (for MongoDB)
 
-  /**
-   * ISO timestamp when the bonfire decays
-   */
-  decayAt: string;
+  # Dynamic AMI using SSM Parameter Store
+  LatestUbuntuAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id
+    Description: SSM Parameter for latest Ubuntu 22.04 AMI
+
+  # CloudFront Managed Prefix List ID (for restricting SG to CloudFront only)
+  # Get this from: aws ec2 describe-managed-prefix-lists --filters "Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing"
+  CloudFrontPrefixListId:
+    Type: String
+    Default: pl-58a04531  # ap-northeast-1 CloudFront prefix list
+    Description: CloudFront managed prefix list ID for security group
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, ""]]
+
+Resources:
+  # Security Group
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Kvell production instance security group
+      VpcId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-vpc-id"
+      SecurityGroupIngress:
+        # HTTP from CloudFront only (using AWS managed prefix list)
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
+          Description: FastAPI from CloudFront only
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-sg"
+
+  # IAM Role for EC2
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-instance-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+      # ... (AssumeRolePolicyDocument continued)
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: KvellInstancePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # S3 Access for backups and scripts
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${BackupS3Bucket}/*"
+                  - !Sub "arn:aws:s3:::${ScriptsBucketName}/*"
+              # SSM Parameter Store for GitHub token
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/kvell/*"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/kvell/prod/github_pat"
+              # EC2 Volume Access for attaching data volume
+              - Effect: Allow
+                Action:
+                  - ec2:AttachVolume
+                  - ec2:DescribeVolumes
+                Resource: "*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  # Elastic IP for Instance (Fixed IP for CloudFront Origin)
+  InstanceEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-eip"
+
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref Instance
+      AllocationId: !GetAtt InstanceEIP.AllocationId
+
+  # Data EBS Volume (survives instance replacement)
+  DataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Size: !Ref DataVolumeSize
+      VolumeType: gp3
+      Encrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-data-volume"
+
+  # EC2 Instance
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      SubnetId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-public-subnet-id"
+      ImageId: !Ref LatestUbuntuAmiId
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref "AWS::NoValue"]
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 10
+            VolumeType: gp3
+            DeleteOnTermination: true  # OS volume can be deleted
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+
+          # ------------------------------------------------------------------
+          # Configuration
+          # ------------------------------------------------------------------
+          SCRIPT_BUCKET="${ScriptsBucketName}"
+          SCRIPT_KEY="setup-prod.sh"
+          BACKUP_BUCKET_NAME="${BackupS3Bucket}"
+          LOG_FILE="/var/log/user-data-bootstrap.log"
+
+          exec > >(tee -a "$LOG_FILE")
+          exec 2>&1
+
+          echo "$(date): Starting Bootstrap..."
+
+          # 1. Install AWS CLI
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y awscli
+
+          # 2. Download setup script from S3
+          echo "$(date): Downloading setup script from s3://${SCRIPT_BUCKET}/${SCRIPT_KEY}..."
+          aws s3 cp "s3://${SCRIPT_BUCKET}/${SCRIPT_KEY}" /opt/setup.sh || {
+              echo "$(date): Failed to download setup script" >&2
+              exit 1
+          }
+
+          # 3. Make executable
+          chmod +x /opt/setup.sh
+
+          # 4. Execute script with environment variables
+          export BACKUP_BUCKET="${BACKUP_BUCKET_NAME}"
+          export CORS_ORIGINS="${CorsOrigins}"
+
+          echo "$(date): Executing setup script..."
+          /opt/setup.sh
+
+          echo "$(date): Bootstrap finished."
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-instance"
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref Instance
+
+  PublicIp:
+    Description: Public IP address (EIP)
+    Value: !Ref InstanceEIP
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref InstanceSecurityGroup
+
+  DataVolumeId:
+    Description: Data EBS Volume ID (contains MongoDB data)
+    Value: !Ref DataVolume
+#!/bin/bash
+# Kvell MongoDB Backup Script
+# Called by cron daily
+set -euo pipefail
+
+BACKUP_BUCKET="${BACKUP_BUCKET:-kvell-prod-backups}"
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+CONTAINER_NAME="kvell-mongo-1"
+
+# Check if container is running
+if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "$(date): Error - Container ${CONTAINER_NAME} is not running. Skipping backup."
+    exit 1
+fi
+
+# Dump bonfires collection only
+docker exec ${CONTAINER_NAME} mongodump \
+    --uri="mongodb://localhost:27017/kvell" \
+    --collection=bonfires \
+    --out=/tmp/backup
+
+# Upload to S3
+docker cp ${CONTAINER_NAME}:/tmp/backup/kvell/bonfires.bson /tmp/
+aws s3 cp /tmp/bonfires.bson "s3://${BACKUP_BUCKET}/bonfires-${TIMESTAMP}.bson"
+
+# Cleanup
+docker exec ${CONTAINER_NAME} rm -rf /tmp/backup
+rm -f /tmp/bonfires.bson
+
+echo "$(date): Backup completed - bonfires-${TIMESTAMP}.bson"
+#!/bin/bash
+set -euo pipefail
+
+# This script is downloaded and executed by EC2 UserData
+# Environment variables like BACKUP_BUCKET, REPO_URL should be exported by the caller if needed.
+
+readonly TARGET_USER="ubuntu"
+readonly TARGET_HOME="/home/${TARGET_USER}"
+
+# logging settings
+LOG_FILE="/var/log/user-data-script.log"
+exec > >(tee -a "$LOG_FILE")
+exec 2>&1
+
+# utility functions
+mkdir -p /opt/scripts
+cat <<"EOF" > /opt/scripts/common-functions.sh
+error_exit() {
+    echo "$(date): ERROR: $1" >&2
+    exit 1
 }
 
-/**
- * Bonfire List Response
- */
-export interface BonfireList {
-  bonfires: Bonfire[];
-  count: number;
+log_info() {
+    echo "$(date): INFO: $1"
 }
 
-/**
- * Bonfire ViewModel with optional image URL
- */
-export interface BonfireViewModel extends Bonfire {
-  imageUrl?: {
-    primaryUrl: string;
-    fallbackUrl?: string;
-  } | null;
-}
-/**
- * Spark Domain Model
- *
- * Represents a single spark (種火) - the core unit of all topics in Kvell.
- */
-
-import type { SparkTemperature } from "@/domain/service/sparkService";
-
-/**
- * Spark Level Enum
- * Matches backend SparkLevel
- */
-export type SparkLevel = "spark" | "kindling" | "bonfire";
-
-/**
- * Spark interface
- */
-export interface Spark {
-  /**
-   * Unique identifier for the spark
-   */
-  id: string;
-
-  /**
-   * Spark content text
-   */
-  content: string;
-
-  /**
-   * Anonymized user identifier (first 8 characters of hash)
-   * Rotates daily for privacy
-   */
-  userHash: string;
-
-  /**
-   * ISO timestamp when the spark was created
-   */
-  createdAt: string;
-
-  /**
-   * ISO timestamp when the spark decays (becomes invisible)
-   */
-  decayAt: string;
-
-  /**
-   * Parent bonfire ID if this spark is a reply to a bonfire
-   * Undefined for standalone sparks
-   */
-  parentBonfireId?: string;
+log_success() {
+    echo "$(date): SUCCESS: $1"
 }
 
-/**
- * Spark ViewModel with computed temperature state and remaining time
- * Used for UI rendering to avoid recalculation on every render
- */
-export interface SparkViewModel extends Spark {
-  /**
-   * Computed temperature state ('hot' or 'ash')
-   * Determines visual representation (color, border glow)
-   */
-  temperature: SparkTemperature;
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+EOF
+source /opt/scripts/common-functions.sh
 
-  /**
-   * Remaining time until expiration in seconds
-   * Used for countdown timer display (mm:ss format)
-   */
-  remainingTimeInSeconds: number;
+# --------------------------------------------------------------------
+# system settings
+# --------------------------------------------------------------------
 
-  /**
-   * Optional URL of an image detected in the content
-   * If present, the UI should render a thumbnail
-   */
-  imageUrl?: {
-    primaryUrl: string;
-    fallbackUrl?: string;
-  } | null;
+setup_system() {
+    log_info "Setting up system configuration..."
+
+    # timezone
+    timedatectl set-timezone Asia/Tokyo || error_exit "Failed to set timezone"
+    log_success "Timezone set to Asia/Tokyo"
+
+    # apt
+    apt update -y && apt upgrade -y || error_exit "Failed to update packages"
+    log_success "Packages updated"
 }
 
-/**
- * Request payload for posting a new spark
- */
-export interface PostSparkRequest {
-  /**
-   * Spark content text to post
-   */
-  content: string;
+install_essential_packages() {
+    log_info "Installing essential packages..."
 
-  /**
-   * Field (Community) ID
-   */
-  fieldId: string;
+    local packages=(
+        git curl wget unzip build-essential sqlite3 gnupg
+        # Python build deps (optional if using pre-built python via uv, but good to have)
+        libbz2-dev libssl-dev libreadline-dev libffi-dev zlib1g-dev
+        libncurses5-dev libncursesw5-dev libsqlite3-dev libgdbm-dev
+        liblzma-dev tk-dev uuid-dev
+    )
+
+    apt install -y "${packages[@]}" || error_exit "Failed to install essential packages"
+    log_success "Essential packages installed"
 }
 
-/**
- * Request payload for adding fuel to a spark
- */
-export interface AddFuelRequest {
-  /**
-   * Target spark ID to add fuel
-   */
-  sparkId: string;
-}
-/**
- * Bonfire Repository Interface (DIP)
- *
- * Defines the contract for fetching bonfire data.
- */
+# --------------------------------------------------------------------
+# AWS
+# --------------------------------------------------------------------
 
-import { BonfireList } from "@/domain/model/bonfire";
+install_aws_cli() {
+    log_info "Installing AWS CLI (v2)..."
+    if command_exists aws; then
+        log_info "AWS CLI found, skipping install."
+        return 0
+    fi
 
-/**
- * Bonfire Repository Interface
- *
- * Defines the contract for fetching bonfire data.
- */
-export interface IBonfireRepository {
-  /**
-   * Get all active (non-decayed) bonfires
-   * @param fieldId - The field (community) ID
-   * @returns Promise resolving to BonfireList
-   */
-  getActiveBonfires(fieldId?: string): Promise<BonfireList>;
-}
-/**
- * Spark Repository Interface (DIP)
- *
- * Abstract definition of data access operations for Spark entities.
- */
+    local temp_dir="/tmp/aws-cli-install"
+    mkdir -p "$temp_dir" && cd "$temp_dir"
 
-import type {
-  AddFuelRequest,
-  PostSparkRequest,
-  Spark,
-} from "@/domain/model/spark";
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    unzip -o awscliv2.zip
+    ./aws/install --update
 
-/**
- * Request payload for posting a reply to a bonfire
- */
-export interface PostReplyRequest {
-  /**
-   * Reply content text
-   */
-  content: string;
-
-  /**
-   * Parent bonfire ID to reply to
-   */
-  parentBonfireId: string;
-
-  /**
-   * Field (Community) ID
-   */
-  fieldId: string;
+    rm -rf "$temp_dir"
+    log_success "AWS CLI installed"
 }
 
-/**
- * Spark Repository Interface
- */
-export interface ISparkRepository {
-  /**
-   * Post a new spark.
-   * @param request - The spark content to post
-   * @returns The created spark details
-   */
-  postSpark(request: PostSparkRequest): Promise<Spark>;
-
-  /**
-   * Post a reply to a bonfire.
-   * @param request - The reply content and parent bonfire ID
-   * @returns The created reply spark details
-   */
-  postReply(request: PostReplyRequest): Promise<Spark>;
-
-  /**
-   * Add fuel to a spark.
-   * This operation sends an event to the backend but does not return fuel count
-   * to maintain the principle of hiding quantitative evaluation from users.
-   * @param request - The spark ID to add fuel
-   * @returns void (No data returned to hide fuel count)
-   */
-  addFuel(request: AddFuelRequest): Promise<void>;
-}
-/**
- * Timeline Repository Interface (DIP)
- *
- * Abstract definition of real-time timeline data streaming operations.
- * Manages WebSocket connection lifecycle and spark streaming.
- */
-
-import type { TimelineEvent } from "@/domain/model/timelineEvent";
-
-/**
- * Timeline Repository Interface
- *
- * Provides real-time streaming of timeline events via WebSocket connection.
- */
-export interface ITimelineRepository {
-  /**
-   * Establish WebSocket connection and start receiving timeline events.
-   * @param onMessage - Callback invoked when a new event is received
-   * @param onError - Callback invoked when connection fails or closes unexpectedly
-   * @returns Cleanup function to disconnect and close the WebSocket
-   */
-  /**
-   * Get the WebSocket URL for a specific field.
-   * @param fieldId - The field ID to connect to
-   */
-  getConnectionUrl(fieldId: string): string;
-
-  /**
-   * Parse a raw WebSocket message into a domain event.
-   * @param message - The raw message received from the WebSocket
-   * @returns The parsed TimelineEvent, or null if the message is invalid or irrelevant
-   */
-  parseMessage(message: unknown): TimelineEvent | null;
-}
-/**
- * useBonfire Hook
- *
- * Manages bonfire data fetching using SWR.
- */
-
-import useSWR from "swr";
-import { useMemo } from "react";
-import { IBonfireRepository } from "@/domain/repository/bonfireRepository";
-import { BonfireList, BonfireViewModel } from "@/domain/model/bonfire";
-import { detectSparkImage } from "@/domain/service/sparkUrlService";
-
-// SWR key for active bonfires
-const BONFIRE_FETCH_KEY = "/bonfire/active";
-
-export const useBonfire = (
-  repository: IBonfireRepository,
-  fieldId?: string,
-) => {
-  // Use SWR for data fetching and state management
-  const { data, error, isLoading, mutate } = useSWR<BonfireList, Error>(
-    fieldId ? [BONFIRE_FETCH_KEY, fieldId] : null,
-    () => repository.getActiveBonfires(fieldId),
-  );
-
-  // Transform to ViewModel (derive state)
-  const bonfires: BonfireViewModel[] = useMemo(() => {
-    if (!data?.bonfires) return [];
-    return data.bonfires.map((bonfire) => ({
-      ...bonfire,
-      imageUrl: detectSparkImage(bonfire.content),
-    }));
-  }, [data?.bonfires]);
-
-  return {
-    bonfires,
-    count: data?.count ?? 0,
-    isLoading,
-    error,
-    refetch: mutate, // Expose mutate as refetch
-  };
-};
-/**
- * Post Reply UseCase Hook
- *
- * Custom hook for posting a reply to a bonfire using SWR Mutation.
- * Depends on ISparkRepository (Domain Interface) following DIP.
- */
-
-import useSWRMutation from "swr/mutation";
-import type { Spark } from "@/domain/model/spark";
-import type {
-  ISparkRepository,
-  PostReplyRequest,
-} from "@/domain/repository/sparkRepository";
-import type { ILogger } from "@/usecase/ports/ILogger";
-import { LOG_EVENTS } from "@/domain/constants";
-
-/**
- * SWR key generator for reply mutation
- * @param bonfireId - The bonfire ID
- * @returns SWR mutation key string
- */
-const getReplyKey = (bonfireId: string) => `/bonfire/${bonfireId}/reply`;
-
-/**
- * UseCase Hook for posting a reply to a bonfire (Mutation).
- * @param bonfireId - The bonfire ID to reply to
- * @param repository - Repository implementation (injected from outside)
- * @param logger - Logger implementation (injected from outside)
- * @returns Mutation state and trigger function
- */
-export const usePostReply = (
-  bonfireId: string,
-  fieldId: string,
-  repository: ISparkRepository,
-  logger: ILogger,
-) => {
-  const { trigger, isMutating, error } = useSWRMutation<
-    Spark,
-    Error,
-    string,
-    string // content only, bonfireId and fieldId come from hook arguments
-  >(
-    getReplyKey(bonfireId),
-    async (_key: string, { arg: content }: { arg: string }) => {
-      try {
-        logger.info("Posting reply to bonfire", {
-          event: LOG_EVENTS.SPARK.POST_START,
-          bonfireId,
-          contentLength: content.length,
-          fieldId,
-        });
-        const request: PostReplyRequest = {
-          content,
-          parentBonfireId: bonfireId,
-          fieldId,
-        };
-        const createdSpark = await repository.postReply(request);
-        logger.info("Successfully posted reply", {
-          event: LOG_EVENTS.SPARK.POST_SUCCESS,
-          sparkId: createdSpark.id,
-          bonfireId,
-        });
-        return createdSpark;
-      } catch (error_) {
-        logger.error(error_, {
-          event: LOG_EVENTS.SPARK.POST_ERROR,
-          context: "usePostReply",
-          bonfireId,
-          fieldId,
-        });
-        throw error_;
-      }
-    },
-  );
-
-  return {
-    postReply: trigger,
-    isPosting: isMutating,
-    error: error ?? null,
-  };
-};
-/**
- * Post Spark UseCase Hook
- *
- * Custom hook for posting a new spark using SWR Mutation.
- * Depends on ISparkRepository (Domain Interface) following DIP.
- */
-
-import useSWRMutation from "swr/mutation";
-import type { PostSparkRequest, Spark } from "@/domain/model/spark";
-import type { ISparkRepository } from "@/domain/repository/sparkRepository";
-import type { ILogger } from "@/usecase/ports/ILogger";
-import { SWR_KEYS } from "@/usecase/constants";
-import { LOG_EVENTS } from "@/domain/constants";
-
-/**
- * UseCase Hook for posting a spark (Mutation).
- * @param repository - Repository implementation (injected from outside)
- * @param logger - Logger implementation (injected from outside)
- * @param fieldId - Current field ID (context)
- * @returns Mutation state and trigger function
- */
-export const usePostSpark = (
-  repository: ISparkRepository,
-  logger: ILogger,
-  fieldId: string,
-) => {
-  const { trigger, isMutating, error } = useSWRMutation<
-    Spark,
-    Error,
-    string,
-    Omit<PostSparkRequest, "fieldId">
-  >(
-    SWR_KEYS.SPARK_POST,
-    async (
-      _key: string,
-      { arg }: { arg: Omit<PostSparkRequest, "fieldId"> },
-    ) => {
-      try {
-        logger.info("Posting spark", {
-          event: LOG_EVENTS.SPARK.POST_START,
-          contentLength: arg.content.length,
-          fieldId,
-        });
-        const createdSpark = await repository.postSpark({
-          ...arg,
-          fieldId,
-        });
-        logger.info("Successfully posted spark", {
-          event: LOG_EVENTS.SPARK.POST_SUCCESS,
-          sparkId: createdSpark.id,
-        });
-        return createdSpark;
-      } catch (error_) {
-        logger.error(error_, {
-          event: LOG_EVENTS.SPARK.POST_ERROR,
-          context: "usePostSpark",
-          contentLength: arg.content.length,
-          fieldId,
-        });
-        throw error_;
-      }
-    },
-  );
-
-  return {
-    postSpark: trigger,
-    isPosting: isMutating,
-    error: error ?? null,
-  };
-};
-/**
- * Timeline Stream UseCase
- *
- * Business logic for real-time timeline spark streaming.
- * Manages WebSocket connection, spark accumulation, deduplication, TTL cleanup,
- * and temperature calculation for UI rendering.
- *
- * Implements batching for incoming events to reduce render frequency.
- */
-
-import type { ITimelineRepository } from "@/domain/repository/timelineRepository";
-import { useResilientWebSocket } from "./useResilientConnection";
-import { useSparkBatcher } from "./useSparkBatcher";
-import { useSparkTransformer } from "./useSparkTransformer";
-
-interface UseTimelineStreamProps {
-  repository: ITimelineRepository;
-  fieldId: string;
-  onBonfirePromoted?: () => void;
+install_ssm_agent() {
+    log_info "Installing SSM Agent..."
+    if snap list 2>/dev/null | grep -q amazon-ssm-agent; then
+        return 0
+    fi
+    snap install amazon-ssm-agent --classic
+    snap start amazon-ssm-agent
+    log_success "SSM Agent installed"
 }
 
-/**
- * Timeline Stream Custom Hook
- * @param props - Hook properties
- * @param props.repository - Timeline repository implementation (DIP)
- * @param props.fieldId - The field (community) ID to stream from
- * @param props.onBonfirePromoted - Callback triggers when a spark is promoted to Bonfire
- * @returns Object containing current spark ViewModels and connection error state
- */
-export const useTimelineStream = ({
-  repository,
-  fieldId,
-  onBonfirePromoted,
-}: UseTimelineStreamProps) => {
-  // 1. Data Management (Buffering & State Updates)
-  const { sparks, pushEvent } = useSparkBatcher(onBonfirePromoted);
+# --------------------------------------------------------------------
+# Application Setup (uv, git, venv)
+# --------------------------------------------------------------------
 
-  // 2. Connection Management (Connection & Reconnection)
-  const status = useResilientWebSocket(
-    repository.getConnectionUrl(fieldId),
-    (message) => repository.parseMessage(message),
-    pushEvent,
-  );
+install_uv() {
+    log_info "Installing uv for user ${TARGET_USER}..."
 
-  // 3. View Transformation (TTL & Temperature)
-  const viewModels = useSparkTransformer(sparks);
+    # Run installer as ubuntu user
+    # uv installs to ~/.local/bin or ~/.cargo/bin depending on version,
+    # forcing standard install script
+    sudo -u "${TARGET_USER}" curl -LsSf https://astral.sh/uv/install.sh | sudo -u "${TARGET_USER}" sh
 
-  return { sparks: viewModels, status };
-};
+    log_success "uv installed"
+}
 
-export { type ConnectionStatus } from "./useResilientConnection";
+setup_kvell_app() {
+    log_info "Setting up Kvell application..."
+
+    # Default Repo URL (Can be overridden by env var)
+    local REPO_URL="${REPO_URL:-https://github.com/kvelldev/kvell.git}"
+    local WS_DIR="${TARGET_HOME}/ws"
+    local APP_DIR="${WS_DIR}/kvell/apps/api"
+    local PARAM_NAME="/kvell/prod/github_pat"
+
+
+    # 1. Clone Repository (as ubuntu user)
+    # 1-a. Get PAT from SSM
+    log_info "Fetching GitHub PAT from SSM..."
+    local GITHUB_TOKEN
+    GITHUB_TOKEN=$(aws ssm get-parameter --name "${PARAM_NAME}" --with-decryption --query "Parameter.Value" --output text) || error_exit "Failed to get PAT from SSM"
+
+    # 1-b. Git auth configuration (setup for ubuntu user)
+    log_info "Configuring Git authentication..."
+    sudo -u "${TARGET_USER}" git config --global url."https://${GITHUB_TOKEN}:@github.com/".insteadOf "https://github.com/"
+
+    # 1-c. clone.
+    sudo -u "${TARGET_USER}" mkdir -p "${WS_DIR}"
+
+    if [ ! -d "${WS_DIR}/kvell" ]; then
+        log_info "Cloning ${REPO_URL}..."
+        sudo -u "${TARGET_USER}" git clone "${REPO_URL}" "${WS_DIR}/kvell"
+    else
+        log_info "Repository exists, pulling latest..."
+        cd "${WS_DIR}/kvell"
+        sudo -u "${TARGET_USER}" git pull
+    fi
+
+    # 1.5 Create .env file based on example
+    log_info "Creating .env file from example..."
+    if [ -f "${APP_DIR}/.env.example" ]; then
+        cp "${APP_DIR}/.env.example" "${APP_DIR}/.env"
+    elif [ -f "${WS_DIR}/kvell/.env.example" ]; then
+         cp "${WS_DIR}/kvell/.env.example" "${APP_DIR}/.env"
+    else
+        log_info "No .env.example found, creating empty .env"
+        touch "${APP_DIR}/.env"
+    fi
+
+    # Append production settings
+    cat <<EOF >> "${APP_DIR}/.env"
+
+# Production Settings (Appended by setup script)
+ENV=production
+MONGO_URI=mongodb://localhost:27017
+MONGO_DB=kvell
+REDIS_URI=redis://localhost:6379/0
+CORS_ORIGINS="${CORS_ORIGINS:-https://kvell.app}"
+# Add other env vars here as needed (OR rely on systemd Environment)
+EOF
+    chown "${TARGET_USER}:${TARGET_USER}" "${APP_DIR}/.env"
+
+    # 1.6 Start DB Containers
+    log_info "Starting Database containers..."
+    if [ -f "${WS_DIR}/kvell/docker-compose.yml" ]; then
+        cd "${WS_DIR}/kvell"
+        # Start mongo and redis only
+        sudo -u "${TARGET_USER}" docker compose up -d mongo redis || log_info "Failed to start DB containers (maybe compose file differs?)"
+    else
+        log_info "No docker-compose.yml found, skipping DB start."
+    fi
+
+    # 2. Setup Python Environment with uv (as ubuntu user)
+    if [ -d "${APP_DIR}" ]; then
+        log_info "Setting up virtualenv in ${APP_DIR}..."
+        cd "${APP_DIR}"
+
+        # Path to uv executable (check both .local/bin and .cargo/bin)
+        local UV_BIN="${TARGET_HOME}/.local/bin/uv"
+        if [ ! -f "${UV_BIN}" ]; then
+            UV_BIN="${TARGET_HOME}/.cargo/bin/uv"
+        fi
+
+        # Verify uv exists
+        if [ ! -f "${UV_BIN}" ]; then
+             error_exit "uv executable not found at ${UV_BIN} or .local/bin"
+        fi
+
+        # Initialize venv
+        sudo -u "${TARGET_USER}" "${UV_BIN}" venv
+
+        # Install dependencies
+        # Assuming requirements.txt exists. If pyproject.toml is used, use 'uv sync'
+        if [ -f "requirements.txt" ]; then
+             sudo -u "${TARGET_USER}" "${UV_BIN}" pip install -r requirements.txt
+        elif [ -f "pyproject.toml" ]; then
+             sudo -u "${TARGET_USER}" "${UV_BIN}" sync
+        else
+             log_info "No requirements found, installing minimal deps..."
+             sudo -u "${TARGET_USER}" "${UV_BIN}" pip install uvicorn fastapi
+        fi
+
+        log_success "Python environment created"
+    else
+        error_exit "App directory not found: ${APP_DIR}"
+    fi
+}
+
+setup_systemd_service() {
+    log_info "Configuring Systemd service..."
+
+    # Write the service file
+    cat <<EOF > /etc/systemd/system/kvell-api.service
+[Unit]
+Description=Kvell API
+After=network.target
+
+[Service]
+User=${TARGET_USER}
+Group=${TARGET_USER}
+WorkingDirectory=${TARGET_HOME}/ws/kvell/apps/api
+Environment="PATH=${TARGET_HOME}/ws/kvell/apps/api/.venv/bin:/usr/local/bin:/usr/bin"
+Environment="PYTHONPATH=${TARGET_HOME}/ws/kvell/apps/api/src"
+ExecStart=${TARGET_HOME}/ws/kvell/apps/api/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Enable and start
+    systemctl daemon-reload
+    systemctl enable kvell-api
+    systemctl start kvell-api
+
+    log_success "Kvell API service started"
+}
+
+# --------------------------------------------------------------------
+# Docker & Backup (Existing)
+# --------------------------------------------------------------------
+
+install_docker() {
+    log_info "Installing Docker..."
+    if command_exists docker; then return 0; fi
+
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    apt update -y
+    apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+    usermod -aG docker "${TARGET_USER}"
+    log_success "Docker installed"
+}
+
+setup_backup() {
+    log_info "Setting up backup script..."
+    if [ -z "${SCRIPT_BUCKET:-}" ]; then
+        log_info "SCRIPT_BUCKET not set, skipping backup script download."
+        return 0
+    fi
+
+    aws s3 cp "s3://${SCRIPT_BUCKET}/backup.sh" /opt/scripts/backup.sh
+    chmod +x /opt/scripts/backup.sh
+    ln -sf /opt/scripts/backup.sh /etc/cron.daily/kvell-backup
+    log_success "Backup configured"
+}
+
+main() {
+    log_info "Starting Setup..."
+
+    setup_system
+    install_essential_packages
+    install_aws_cli
+    install_ssm_agent
+    install_docker
+
+    # New App Setup Steps
+    install_uv
+    setup_kvell_app
+    setup_systemd_service
+
+    setup_backup
+
+    log_info "Setup Completed"
+    echo "Setup finished at $(date)" | tee /etc/motd
+}
+
+main "$@"

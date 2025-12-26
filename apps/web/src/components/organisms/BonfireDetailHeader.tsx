@@ -81,13 +81,13 @@ export const BonfireDetailHeader = ({
         </p>
         {/* Actions Row */}
         <div className="flex items-center justify-between">
-          {/* Heat Score (勢い) */}
+          {/* Heat Score (勢い)
           <div className={clsx("flex items-center gap-2", "text-ember-500")}>
             <Flame className="size-5" />
             <span className="text-sm font-medium">
               勢い: {bonfire.heatScore}
             </span>
-          </div>
+          </div> */}
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 # Kvell Infrastructure
 
-本番環境のCloudFormationテンプレート。
+本番環境のCloudFormationテンプレートおよび運用手順。
 
 ## アーキテクチャ
 
@@ -8,6 +8,13 @@
 User → CloudFront → S3 (SPA)
                  → EC2 (Docker: API + MongoDB + Redis)
 ```
+
+**特徴:**
+- APIサーバーはEC2上で直接Docker Composeを実行（ECR不使用）。
+- セットアップスクリプト (`setup-prod.sh`) はS3からダウンロードして実行。
+- GitHub PAT等の機密情報は SSM Parameter Store で管理。
+- Elastic IP (EIP) を使用し、インスタンス再作成時もIPを固定（CDN設定変更不要）。
+- データベースのバックアップは日次でS3へ保存。
 
 ## ファイル構成
 
@@ -18,50 +25,58 @@ infra/
 ├── instance.yml       # EC2, Security Group, IAM, Data EBS
 ├── cdn.yml            # S3, CloudFront
 └── scripts/
-    ├── setup-prod.sh  # EC2起動時に実行
-    └── backup.sh      # Cronで毎時実行
+    ├── setup-prod.sh  # EC2初期構築 & アプリデプロイ
+    └── backup.sh      # MongoDBバックアップ (S3連携)
 ```
 
-## デプロイ順序
+## デプロイ手順
 
-### 0. 変数設定
+### 0. 変数設定 (初回のみ)
 
 ```bash
-# 最初に1回だけ実行
 export AWS_PROFILE=kvell
 export AWS_REGION=ap-northeast-1
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export ECR_REPO="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/kvell-api"
-
 ```
 
-### 1. 事前準備
+### 1. Storage Stack デプロイ
+S3バケット (Setup Scripts, Backups, CloudFront Logs) を作成します。
 
 ```bash
-# ACM証明書の作成 (us-east-1, AWSコンソールで)
+# バケット名はパラメータで上書き可能ですが、デフォルトは kvell-prod-{scripts,backups,logs} となります。
+# 既に同名のバケットが他にある場合は作成に失敗するので注意してください。
 
-# ECRリポジトリの作成
-aws ecr create-repository --repository-name kvell-api --region $AWS_REGION
+aws cloudformation deploy \
+  --template-file storage.yml \
+  --stack-name kvell-storage \
+  --region $AWS_REGION
 
-# GitHubトークンをSSM Parameter Storeに保存
-# (GitHub Settings → Developer settings → Fine-grained tokens)
-# Repository: kvell のみ, Permissions: Contents (read-only)
+# 作成されたバケット名・ドメインを変数に格納 (後続のステップで使用)
+export SCRIPTS_BUCKET=$(aws cloudformation describe-stacks --stack-name kvell-storage --query "Stacks[0].Outputs[?OutputKey=='ScriptsBucketName'].OutputValue" --output text)
+export BACKUP_BUCKET=$(aws cloudformation describe-stacks --stack-name kvell-storage --query "Stacks[0].Outputs[?OutputKey=='BackupBucketName'].OutputValue" --output text)
+export LOGS_BUCKET_DOMAIN=$(aws cloudformation describe-stacks --stack-name kvell-storage --query "Stacks[0].Outputs[?OutputKey=='LogsBucketDomainName'].OutputValue" --output text)
+```
+
+### 2. SSMパラメータ設定 & スクリプトアップロード
+
+GitHubのReadOnlyトークン (Contents: Read) を取得し、SSMに保存します。
+
+```bash
 aws ssm put-parameter \
-  --name /kvell/github-token \
+  --name /kvell/prod/github_pat \
   --value "github_pat_xxxxxxxxxxxx" \
   --type SecureString \
   --region $AWS_REGION
-
-# APIイメージをビルド・プッシュ
-cd apps/api
-aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
-docker build -t kvell-api .
-docker tag kvell-api:latest $ECR_REPO:latest
-docker push $ECR_REPO:latest
 ```
 
-### 2. ネットワーク
+インスタンス構築時に実行されるスクリプトをS3バケットに配置します。
 
+```bash
+aws s3 cp infra/scripts/setup-prod.sh s3://$SCRIPTS_BUCKET/setup-prod.sh
+aws s3 cp infra/scripts/backup.sh s3://$SCRIPTS_BUCKET/backup.sh
+```
+
+### 2.5 Network Stack デプロイ
 ```bash
 aws cloudformation deploy \
   --template-file network.yml \
@@ -69,112 +84,121 @@ aws cloudformation deploy \
   --region $AWS_REGION
 ```
 
-### 3. S3/CloudFront
-
-```shell
-export ACM_CERT_ARN=ARN
-export DOMAIN_NAME=domain
-# Basic認証: user:password をbase64エンコード
-export BASIC_AUTH=$(echo -n 'user:password' | base64)
-```
-してから実行
-
-```bash
-aws cloudformation deploy \
-  --template-file cdn.yml \
-  --stack-name kvell-cdn \
-  --parameter-overrides \
-    DomainName=$DOMAIN_NAME \
-    AcmCertificateArn=$ACM_CERT_ARN \
-    ApiOriginDomain=dummy.local \
-    BasicAuthCredentials=$BASIC_AUTH \
-  --capabilities CAPABILITY_IAM \
-  --region $AWS_REGION
-```
-
-### 4. EC2インスタンス
+### 3. Instance Stack デプロイ
 
 ```bash
 aws cloudformation deploy \
   --template-file instance.yml \
   --stack-name kvell-instance \
   --parameter-overrides \
-    GitHubRepo=kvelldev/kvell \
-    EcrRepository=$ECR_REPO \
-    CorsOrigins=$DOMAIN_NAME \
-    BackupS3Bucket=kvell-prod-backups \
+    ScriptsBucketName=$SCRIPTS_BUCKET \
+    BackupS3Bucket=$BACKUP_BUCKET \
+    CorsOrigins=https://kvellapp.com \
+    KeyPairName=kvellkey \
   --capabilities CAPABILITY_NAMED_IAM \
   --region $AWS_REGION
 ```
 
-### 5. CloudFront Origin更新
+### 4. CDN Stack デプロイ
 
-EC2のPublic DNSを取得してcdn.ymlを再デプロイ（IPアドレスはCloudFrontで使用不可）：
+Instance StackのOutputにあるIPアドレス (またはEIP) を `ApiOriginDomain` に指定します。
 
 ```bash
-# EC2のPublic DNSを取得
-INSTANCE_ID=$(aws cloudformation describe-stacks \
-  --stack-name kvell-instance \
-  --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
-  --output text)
+# ドメイン名の設定
+export DOMAIN_NAME="kvellapp.com"
 
-PUBLIC_DNS=$(aws ec2 describe-instances \
-  --instance-ids $INSTANCE_ID \
-  --query 'Reservations[0].Instances[0].PublicDnsName' \
-  --output text)
+# ACM証明書ARNの取得 (us-east-1から取得する必要あり)
+export ACM_CERT_ARN=$(aws acm list-certificates --region us-east-1 --query "CertificateSummaryList[?DomainName=='$DOMAIN_NAME'].CertificateArn" --output text)
 
-echo "Public DNS: $PUBLIC_DNS"
+API_ORIGIN_DOMAIN=$(aws cloudformation describe-stacks --stack-name kvell-instance --query "Stacks[0].Outputs[?OutputKey=='PublicDnsName'].OutputValue" --output text)
+```
 
-# cdn.ymlを再デプロイ
+```bash
 aws cloudformation deploy \
   --template-file cdn.yml \
   --stack-name kvell-cdn \
   --parameter-overrides \
+    ApiOriginDomain=$API_ORIGIN_DOMAIN \
+    LogsBucketDomainName=$LOGS_BUCKET_DOMAIN \
     DomainName=$DOMAIN_NAME \
     AcmCertificateArn=$ACM_CERT_ARN \
-    ApiOriginDomain=$PUBLIC_DNS \
-    BasicAuthCredentials=$BASIC_AUTH \
   --capabilities CAPABILITY_IAM \
   --region $AWS_REGION
 ```
 
-### 6. SPA デプロイ
+> [!NOTE]
+> Route 53のレコード作成（エイリアス設定）はCloudFormationには含まれていません。
+> CloudFrontのデプロイ完了後、マネジメントコンソールの「関数の関連付け」設定や「代替ドメイン名」設定画面から「Route 53 レコードを作成」ボタン等を使用して自動設定を行ってください。
+
+> [!IMPORTANT]
+> `AcmCertificateArn` は必ず **us-east-1 (バージニア北部)** リージョンで作成された証明書のARNを指定してください（CloudFrontの制約）。
+
+### 5. SPA デプロイ
+
+Webアプリケーション (React) をビルドし、S3バケットに同期します。
 
 ```bash
-# CloudFront Distribution IDを取得
-DISTRIBUTION_ID=$(aws cloudformation describe-stacks \
-  --stack-name kvell-cdn \
-  --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' \
-  --output text)
+# 変数設定 (CDN StackのOutputから取得)
+export SPA_BUCKET=$(aws cloudformation describe-stacks --stack-name kvell-cdn --query "Stacks[0].Outputs[?OutputKey=='SpaBucketName'].OutputValue" --output text)
+export CLOUDFRONT_ID=$(aws cloudformation describe-stacks --stack-name kvell-cdn --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" --output text)
 
-cd apps/web && npm run build
-aws s3 sync dist/ s3://kvell-prod-spa/ --delete
-aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+# ビルド
+cd apps/web
+npm ci
+npm run build
+
+# S3へ同期 (distフォルダの内容をアップロード)
+aws s3 sync dist s3://$SPA_BUCKET --delete
+
+# キャッシュ削除 (古いコンテンツが残らないように)
+aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_ID --paths "/*"
+
+cd ../..
 ```
+
 
 ## 運用
 
-### 新バージョンデプロイ
+### アプリケーション更新
+
+ECRを使用せず、EC2上で直接 `git pull` してビルドします。
+
+1. **SSM Session Manager** でインスタンスに接続。
+2. 以下のコマンドを実行:
 
 ```bash
-# イメージをビルド・プッシュ
-aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
-docker build -t kvell-api apps/api
-docker tag kvell-api:latest $ECR_REPO:v1.2.3
-docker push $ECR_REPO:v1.2.3
+# SSH接続後
+cd /home/ubuntu/ws/kvell
 
-# EC2でイメージ更新
-aws ssm start-session --target i-xxxx
-cd /opt/kvell
+# コード更新
 git pull
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+
+# 依存関係更新 (もしあれば)
+cd apps/api
+../../.local/bin/uv sync  # または pip install -r requirements.txt
+
+# DB更新 (もしdocker-compose.ymlが変わっていたら)
+cd ../..
+docker compose up -d mongo redis
+
+# API再起動
+sudo systemctl restart kvell-api
 ```
+
+### ログ確認
+
+- **初期セットアップログ**: `/var/log/user-data-bootstrap.log`
+- **アプリケーションログ**: `docker compose logs -f`
 
 ### バックアップ復旧
 
+`backup.sh` により日次でS3 (`kvell-prod-backups`) にMongoDBダンプが保存されています。
+
 ```bash
+# S3から取得
 aws s3 cp s3://kvell-prod-backups/bonfires-YYYYMMDD-HHMM.bson /tmp/
+
+# MongoDBへリストア
 docker cp /tmp/bonfires.bson kvell-mongo-1:/tmp/
 docker exec kvell-mongo-1 mongorestore \
   --uri="mongodb://localhost:27017/kvell" \

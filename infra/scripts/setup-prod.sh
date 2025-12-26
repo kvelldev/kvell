@@ -1,152 +1,304 @@
 #!/bin/bash
 set -euo pipefail
 
+# This script is downloaded and executed by EC2 UserData
+# Environment variables like BACKUP_BUCKET, REPO_URL should be exported by the caller if needed.
+
+export AWS_DEFAULT_REGION="ap-northeast-1"
+readonly TARGET_USER="ubuntu"
+readonly TARGET_HOME="/home/${TARGET_USER}"
+
+# logging settings
+LOG_FILE="/var/log/user-data-script.log"
+exec > >(tee -a "$LOG_FILE")
+exec 2>&1
+
+# utility functions
+mkdir -p /opt/scripts
+cat <<"EOF" > /opt/scripts/common-functions.sh
+error_exit() {
+    echo "$(date): ERROR: $1" >&2
+    exit 1
+}
+
+log_info() {
+    echo "$(date): INFO: $1"
+}
+
+log_success() {
+    echo "$(date): SUCCESS: $1"
+}
+
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+EOF
+source /opt/scripts/common-functions.sh
+
 # --------------------------------------------------------------------
-# 設定・定数
+# system settings
 # --------------------------------------------------------------------
-readonly KVELL_HOME="/opt/kvell"
-readonly LOG_FILE="/var/log/setup-prod.log"
-# UserDataから渡された環境変数がもしあれば使うが、基本はここで定義またはSSMから取得
-readonly REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 
-exec > >(tee -a "$LOG_FILE") 2>&1
+setup_system() {
+    log_info "Setting up system configuration..."
 
-log_info() { echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $1"; }
-log_error() { echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $1" >&2; }
+    # timezone
+    timedatectl set-timezone Asia/Tokyo || error_exit "Failed to set timezone"
+    log_success "Timezone set to Asia/Tokyo"
+
+    # apt
+    apt update -y && apt upgrade -y || error_exit "Failed to update packages"
+    log_success "Packages updated"
+}
+
+install_essential_packages() {
+    log_info "Installing essential packages..."
+
+    local packages=(
+        git curl wget unzip build-essential sqlite3 gnupg
+        # Python build deps (optional if using pre-built python via uv, but good to have)
+        libbz2-dev libssl-dev libreadline-dev libffi-dev zlib1g-dev
+        libncurses5-dev libncursesw5-dev libsqlite3-dev libgdbm-dev
+        liblzma-dev tk-dev uuid-dev
+    )
+
+    apt install -y "${packages[@]}" || error_exit "Failed to install essential packages"
+    log_success "Essential packages installed"
+}
 
 # --------------------------------------------------------------------
-# 1. EBSボリュームのマウント (MongoDB用)
+# AWS
 # --------------------------------------------------------------------
-setup_volume() {
-    log_info "Setting up data volume..."
 
-    # マウントポイント作成
-    mkdir -p /data
-
-    # 既にマウント済みか確認
-    if mountpoint -q /data; then
-        log_info "Volume already mounted at /data"
+install_aws_cli() {
+    log_info "Installing AWS CLI (v2)..."
+    if command_exists aws; then
+        log_info "AWS CLI found, skipping install."
         return 0
     fi
 
-    # NVMeデバイスを探す (AWSのGP3ボリュームはNVMeとして認識される)
-    # 実際には blkid でUUIDを確認してマウントするのが確実ですが、
-    # ここではシンプルに「まだフォーマットされていないディスクがあれば使う」ロジック例
-    # ※本番では CloudFormation で指定した VolumeID を元に特定するのがベスト
+    local temp_dir="/tmp/aws-cli-install"
+    mkdir -p "$temp_dir" && cd "$temp_dir"
 
-    # 簡易版: /dev/nvme1n1 (通常、ルートの次に来るEBS) を対象とする
-    TARGET_DEV="/dev/nvme1n1"
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    unzip -o awscliv2.zip
+    ./aws/install --update
 
-    if [ -b "$TARGET_DEV" ]; then
-        # ファイルシステムがなければ作成
-        if ! blkid "$TARGET_DEV"; then
-            log_info "Formatting $TARGET_DEV..."
-            mkfs.ext4 "$TARGET_DEV"
+    rm -rf "$temp_dir"
+    log_success "AWS CLI installed"
+}
+
+install_ssm_agent() {
+    log_info "Installing SSM Agent..."
+    if snap list 2>/dev/null | grep -q amazon-ssm-agent; then
+        return 0
+    fi
+    snap install amazon-ssm-agent --classic
+    snap start amazon-ssm-agent
+    log_success "SSM Agent installed"
+}
+
+# --------------------------------------------------------------------
+# Application Setup (uv, git, venv)
+# --------------------------------------------------------------------
+
+install_uv() {
+    log_info "Installing uv for user ${TARGET_USER}..."
+
+    # Run installer as ubuntu user
+    # uv installs to ~/.local/bin or ~/.cargo/bin depending on version,
+    # forcing standard install script
+    sudo -u "${TARGET_USER}" curl -LsSf https://astral.sh/uv/install.sh | sudo -u "${TARGET_USER}" sh
+
+    log_success "uv installed"
+}
+
+setup_kvell_app() {
+    log_info "Setting up Kvell application..."
+
+    # Default Repo URL (Can be overridden by env var)
+    local REPO_URL="${REPO_URL:-https://github.com/kvelldev/kvell.git}"
+    local WS_DIR="${TARGET_HOME}/ws"
+    local APP_DIR="${WS_DIR}/kvell/apps/api"
+    local PARAM_NAME="/kvell/prod/github_pat"
+
+
+    # 1. Clone Repository (as ubuntu user)
+    # 1-a. Get PAT from SSM
+    log_info "Fetching GitHub PAT from SSM..."
+    local GITHUB_TOKEN
+    GITHUB_TOKEN=$(aws ssm get-parameter --region ap-northeast-1 --name "${PARAM_NAME}" --with-decryption --query "Parameter.Value" --output text) || error_exit "Failed to get PAT from SSM"
+
+    # 1-b. Git auth configuration (setup for ubuntu user)
+    log_info "Configuring Git authentication..."
+    sudo -u "${TARGET_USER}" git config --global url."https://${GITHUB_TOKEN}:@github.com/".insteadOf "https://github.com/"
+
+    # 1-c. clone.
+    sudo -u "${TARGET_USER}" mkdir -p "${WS_DIR}"
+
+    if [ ! -d "${WS_DIR}/kvell" ]; then
+        log_info "Cloning ${REPO_URL}..."
+        sudo -u "${TARGET_USER}" git clone "${REPO_URL}" "${WS_DIR}/kvell"
+    else
+        log_info "Repository exists, pulling latest..."
+        cd "${WS_DIR}/kvell"
+        sudo -u "${TARGET_USER}" git pull
+    fi
+
+    # 1.5 Create .env file based on example
+    log_info "Creating .env file from example..."
+    if [ -f "${APP_DIR}/.env.example" ]; then
+        cp "${APP_DIR}/.env.example" "${APP_DIR}/.env"
+    elif [ -f "${WS_DIR}/kvell/.env.example" ]; then
+         cp "${WS_DIR}/kvell/.env.example" "${APP_DIR}/.env"
+    else
+        log_info "No .env.example found, creating empty .env"
+        touch "${APP_DIR}/.env"
+    fi
+
+    # Append production settings
+    cat <<EOF >> "${APP_DIR}/.env"
+
+# Production Settings (Appended by setup script)
+ENV=production
+MONGO_URI=mongodb://localhost:27017
+MONGO_DB=kvell
+REDIS_URI=redis://localhost:6379
+CORS_ORIGINS="${CORS_ORIGINS:-https://kvellapp.com}"
+# Add other env vars here as needed (OR rely on systemd Environment)
+EOF
+    chown "${TARGET_USER}:${TARGET_USER}" "${APP_DIR}/.env"
+
+    # 1.6 Start DB Containers
+    log_info "Starting Database containers..."
+    if [ -f "${WS_DIR}/kvell/docker-compose.yml" ]; then
+        cd "${WS_DIR}/kvell"
+        # Start mongo and redis only
+        sudo -u "${TARGET_USER}" docker compose up -d mongo redis || log_info "Failed to start DB containers (maybe compose file differs?)"
+        log_info "Waiting for DB to initialize..."
+        sleep 15
+    else
+        log_info "No docker-compose.yml found, skipping DB start."
+    fi
+
+
+
+    # 2. Setup Python Environment with uv (as ubuntu user)
+    if [ -d "${APP_DIR}" ]; then
+        log_info "Setting up virtualenv in ${APP_DIR}..."
+        cd "${APP_DIR}"
+
+        # Path to uv executable (check both .local/bin and .cargo/bin)
+        local UV_BIN="${TARGET_HOME}/.local/bin/uv"
+        if [ ! -f "${UV_BIN}" ]; then
+            UV_BIN="${TARGET_HOME}/.cargo/bin/uv"
         fi
 
-        mount "$TARGET_DEV" /data
-        echo "$TARGET_DEV /data ext4 defaults,nofail 0 2" >> /etc/fstab
-        log_info "Mounted $TARGET_DEV to /data"
+        # Verify uv exists
+        if [ ! -f "${UV_BIN}" ]; then
+             error_exit "uv executable not found at ${UV_BIN} or .local/bin"
+        fi
+
+        # Initialize venv
+        sudo -u "${TARGET_USER}" "${UV_BIN}" venv
+
+        # Install dependencies
+        # Assuming requirements.txt exists. If pyproject.toml is used, use 'uv sync'
+        if [ -f "requirements.txt" ]; then
+             sudo -u "${TARGET_USER}" "${UV_BIN}" pip install -r requirements.txt
+        elif [ -f "pyproject.toml" ]; then
+             sudo -u "${TARGET_USER}" "${UV_BIN}" sync
+        else
+             log_info "No requirements found, installing minimal deps..."
+             sudo -u "${TARGET_USER}" "${UV_BIN}" pip install uvicorn fastapi
+        fi
+
+        log_success "Python environment created"
     else
-        log_error "Data volume device not found!"
-        # 初回起動でEBSアタッチに時間がかかっている場合の待機ロジックが必要なら追加
+        error_exit "App directory not found: ${APP_DIR}"
     fi
 }
 
-# --------------------------------------------------------------------
-# 2. Python環境構築 (uv を使用)
-# --------------------------------------------------------------------
-setup_python() {
-    log_info "Setting up Python with uv..."
+setup_systemd_service() {
+    log_info "Configuring Systemd service..."
 
-    # uv のインストール
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
-
-    cd "$KVELL_HOME/apps/api"
-
-    # システムのPythonではなく、uv管理下のPythonを使って仮想環境作成 (爆速)
-    # コンパイル不要。バイナリをダウンロードしてくるだけ。
-    uv venv .venv --python 3.11
-
-    # 依存関係のインストール
-    uv sync --frozen
-
-    # 権限修正
-    chown -R ubuntu:ubuntu "$KVELL_HOME"
-    log_info "Python setup completed."
-}
-
-# --------------------------------------------------------------------
-# 3. ミドルウェア起動 (Docker)
-# --------------------------------------------------------------------
-setup_docker_services() {
-    log_info "Starting MongoDB & Redis..."
-
-    # データディレクトリの準備
-    mkdir -p /data/mongo
-    chown -R 999:999 /data/mongo # MongoDB container user ID
-
-    cd "$KVELL_HOME"
-
-    # Dockerインストール確認 (UserDataで入れているはずだが念のため)
-    if ! command -v docker &> /dev/null; then
-        # 必要ならここでインストール
-        log_error "Docker not found!"
-        exit 1
-    fi
-
-    # コンテナ起動
-    docker compose -f docker-compose.db.yml up -d
-
-    log_info "Database services started."
-}
-
-# --------------------------------------------------------------------
-# 4. Systemd サービス登録 (FastAPI)
-# --------------------------------------------------------------------
-setup_systemd() {
-    log_info "Configuring systemd for FastAPI..."
-
-    cat > /etc/systemd/system/kvell-api.service <<EOF
+    # Write the service file
+    cat <<EOF > /etc/systemd/system/kvell-api.service
 [Unit]
 Description=Kvell API
-After=network.target docker.service
+After=network.target
 
 [Service]
-User=ubuntu
-Group=ubuntu
-WorkingDirectory=$KVELL_HOME/apps/api
-Environment="PATH=$KVELL_HOME/apps/api/.venv/bin:/usr/local/bin:/usr/bin"
-Environment="PYTHONUNBUFFERED=1"
-# 環境変数はここに追加するか、EnvironmentFile=/opt/kvell/.env を使う
-ExecStart=$KVELL_HOME/apps/api/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+User=${TARGET_USER}
+Group=${TARGET_USER}
+WorkingDirectory=${TARGET_HOME}/ws/kvell/apps/api
+Environment="PATH=${TARGET_HOME}/ws/kvell/apps/api/.venv/bin:/usr/local/bin:/usr/bin"
+Environment="PYTHONPATH=${TARGET_HOME}/ws/kvell/apps/api/src"
+ExecStart=${TARGET_HOME}/ws/kvell/apps/api/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+    # Enable and start
     systemctl daemon-reload
-    systemctl enable --now kvell-api
-    log_info "Kvell API service started."
+    systemctl enable kvell-api
+    systemctl start kvell-api
+
+    log_success "Kvell API service started"
 }
 
 # --------------------------------------------------------------------
-# メイン処理
+# Docker & Backup (Existing)
 # --------------------------------------------------------------------
+
+install_docker() {
+    log_info "Installing Docker..."
+    if command_exists docker; then return 0; fi
+
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    apt update -y
+    apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+    usermod -aG docker "${TARGET_USER}"
+    log_success "Docker installed"
+}
+
+setup_backup() {
+    log_info "Setting up backup script..."
+    if [ -z "${SCRIPT_BUCKET:-}" ]; then
+        log_info "SCRIPT_BUCKET not set, skipping backup script download."
+        return 0
+    fi
+
+    aws s3 cp "s3://${SCRIPT_BUCKET}/backup.sh" /opt/scripts/backup.sh
+    chmod +x /opt/scripts/backup.sh
+    ln -sf /opt/scripts/backup.sh /etc/cron.daily/kvell-backup
+    log_success "Backup configured"
+}
+
 main() {
-    log_info "Starting Kvell Production Setup..."
+    log_info "Starting Setup..."
 
-    # System update (UserDataで済んでいればスキップ可)
-    export DEBIAN_FRONTEND=noninteractive
+    setup_system
+    install_essential_packages
+    install_aws_cli
+    install_ssm_agent
+    install_docker
 
-    setup_volume
-    setup_python
-    setup_docker_services
-    setup_systemd
+    # New App Setup Steps
+    install_uv
+    setup_kvell_app
+    setup_systemd_service
 
-    log_info "Setup Completed Successfully!"
+    setup_backup
+
+    log_info "Setup Completed"
+    echo "Setup finished at $(date)" | tee /etc/motd
 }
 
-main
+main "$@"

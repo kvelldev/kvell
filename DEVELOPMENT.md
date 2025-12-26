@@ -26,7 +26,7 @@ git diff ${対象ディレクトリ} > diff.txt
 
 変更されたファイルの中身をすべて取得
 ```shell
-{ git diff HEAD --name-only --diff-filter=d apps/web/src; git ls-files --others --exclude-standard apps/web/src; } | sort | uniq | xargs -I{} cat "{}" > diff.txt
+{ git diff HEAD --name-only --diff-filter=d infra; git ls-files --others --exclude-standard infra; } | sort | uniq | xargs -I{} cat "{}" > diff.txt
 ```
 
 対象ディレクトリの実装ファイルをすべて取得
@@ -69,7 +69,8 @@ curl -s -X POST http://localhost:8000/api/sparks -H "Content-Type: application/j
     - そもそもUX的にもbonfire生成はある程度リアルタイムがいいけど、消滅はいつでもいい
     - decay直前にRESTで最新のdecayAtを取りに行くとかも考えたが、通信失敗時のフォールバックが大変なので採用せず。
     - bonfire詳細に入ったら更新される(RESTで取るため。けどこれfastapiのdocsにエンドポイント見当たらないな。)んだよね...?ここは要確認。
-- 焚き火化閾値の調整
+- cloudwatch設定 -> errは取れるようにしときたいかも
+- ec2 ipv6への移行。eipがタダになる
 
 
 
