@@ -51,32 +51,6 @@ export const BonfireCarousel = ({
   bonfires,
   onBonfireClick,
 }: BonfireCarouselProps) => {
-  // Empty State: Show placeholder card in carousel
-  if (bonfires.length === 0) {
-    return (
-      <section
-        className="group relative w-full px-4 py-4 md:px-12"
-        data-testid="bonfire-carousel"
-        aria-label="焚き火エリア"
-      >
-        <Carousel
-          opts={{
-            align: "center",
-            loop: false,
-            dragFree: false,
-          }}
-          className="w-full"
-        >
-          <CarouselContent className="-ml-4 overflow-visible">
-            <CarouselItem className="basis-auto py-4 pl-4">
-              <BonfirePlaceholderCard message="たくさんの薪がくべられると焚き火になります" />
-            </CarouselItem>
-          </CarouselContent>
-        </Carousel>
-      </section>
-    );
-  }
-
   return (
     <section
       className="group relative w-full px-4 py-4 md:px-12"
@@ -97,6 +71,10 @@ export const BonfireCarousel = ({
               <BonfireCard bonfire={bonfire} onClick={onBonfireClick} />
             </CarouselItem>
           ))}
+          {/* Always show placeholder at the end to encourage creating more bonfires */}
+          <CarouselItem className="basis-auto py-4 pl-4">
+            <BonfirePlaceholderCard message="たくさんの薪がくべられると焚き火になります" />
+          </CarouselItem>
         </CarouselContent>
 
         {/* Navigation buttons: hidden on mobile, hover-visible on desktop */}
