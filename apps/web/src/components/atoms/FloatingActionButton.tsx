@@ -24,8 +24,8 @@ export const FloatingActionButton = ({
   return (
     <Button
       onClick={onClick}
-      size="lg"
-      className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-glow-md transition-all hover:scale-110 hover:shadow-glow-md"
+      size="icon"
+      className="shadow-glow-md hover:shadow-glow-md fixed right-4 bottom-4 h-12 w-12 rounded-full opacity-40 transition-all hover:scale-110 hover:opacity-100 sm:right-6 sm:bottom-6 sm:h-14 sm:w-14"
       data-testid={testId}
       aria-label={label}
     >

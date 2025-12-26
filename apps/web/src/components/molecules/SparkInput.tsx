@@ -14,6 +14,8 @@ interface SparkInputProps {
   maxLength: number;
   disabled?: boolean;
   testId?: string;
+  className?: string;
+  autoFocus?: boolean;
 }
 
 export const SparkInput = ({
@@ -22,6 +24,8 @@ export const SparkInput = ({
   maxLength,
   disabled = false,
   testId,
+  className,
+  autoFocus = false,
 }: SparkInputProps) => {
   const currentLength = value.length;
   const isOverLimit = currentLength > maxLength;
@@ -35,7 +39,7 @@ export const SparkInput = ({
       : "text-ash-500"; // Normal: ash (neutral)
 
   return (
-    <div className="w-full">
+    <div className="flex w-full flex-col">
       <Textarea
         value={value}
         onChange={(e) => {
@@ -44,7 +48,11 @@ export const SparkInput = ({
         placeholder="種火をともす..."
         disabled={disabled}
         data-testid={testId}
-        className="caret-ember-500 text-smoke-100 placeholder:text-ash-500 max-h-[40dvh] min-h-[96px] resize-none border-none bg-transparent focus:ring-0 focus:outline-none"
+        autoFocus={autoFocus}
+        className={clsx(
+          "caret-ember-500 text-smoke-100 placeholder:text-ash-500 min-h-[96px] resize-none border-none bg-transparent focus:ring-0 focus:outline-none",
+          className,
+        )}
       />
       <div className="mt-2 flex justify-end">
         <span
