@@ -54,7 +54,11 @@ export const SparkInput = ({
           className,
         )}
       />
-      <div className="mt-2 flex justify-end">
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <span className="text-ash-500 text-xs font-light">
+          薪がないと、時間で消えます
+        </span>
+
         <span
           className={clsx("text-sm font-light", counterColorClass)}
           data-testid={testId ? `${testId}-counter` : undefined}

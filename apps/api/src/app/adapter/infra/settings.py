@@ -54,7 +54,7 @@ class Settings(BaseSettings):
         description="Rate limit window duration in seconds",
     )
     spark_decay_after_seconds: int = Field(
-        default=3600,
+        default=86400,
         description="Duration in seconds until a spark decays (becomes invisible)",
     )
     spark_vanish_after_days: int = Field(

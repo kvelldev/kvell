@@ -34,8 +34,8 @@ InternalStatusCode = int
 # Fixed Values (Specification-defined, not dynamically adjustable)
 # -----------------------------------------------------------------------------
 KINDLING_THRESHOLD_UU: Final[int] = 3  # Fixed: 3 unique users for kindling
-KINDLING_DECAY_HOURS: Final[int] = 3  # TTL extension when promoted to kindling
-BONFIRE_INITIAL_TTL_HOURS: Final[int] = 24  # Initial TTL for new bonfire
+KINDLING_DECAY_HOURS: Final[int] = 72  # TTL extension when promoted to kindling
+BONFIRE_INITIAL_TTL_HOURS: Final[int] = 120  # Initial TTL for new bonfire
 BONFIRE_FUEL_EXTENSION_MINUTES: Final[int] = 10  # TTL extension per fuel
 BONFIRE_REPLY_EXTENSION_HOURS: Final[int] = 3  # TTL extension per reply
 FUEL_WEIGHT: Final[int] = 1  # Weight for fuel in heat score
@@ -45,7 +45,7 @@ PUBSUB_BUFFER_SIZE: Final[int] = 100  # Size of buffer for PubSub messages
 # -----------------------------------------------------------------------------
 # Fallback Values (Used when Redis is unavailable)
 # -----------------------------------------------------------------------------
-FALLBACK_BONFIRE_THRESHOLD_UU: Final[int] = 10  # DAU-based, fallback=10
+FALLBACK_BONFIRE_THRESHOLD_UU: Final[int] = 5  # DAU-based, fallback=10
 FALLBACK_HEAT_SCORE_THRESHOLD: Final[int] = 0  # 0 until reply feature
 
 
@@ -53,9 +53,13 @@ FALLBACK_HEAT_SCORE_THRESHOLD: Final[int] = 0  # 0 until reply feature
 # Valid Fields (Communities)
 # -----------------------------------------------------------------------------
 VALID_FIELDS: Final[list[str]] = [
-    "sakurazaka46",
     "nhk",
-    "wbc",
+    "ntv",
+    "tvasahi",
+    "tbs",
+    "fujitv",
+    "tvtokyo",
+    "sakurazaka46",
 ]
 
 

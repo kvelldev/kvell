@@ -68,22 +68,48 @@ export const COOLING_THRESHOLD_RATIO = 0.3;
  */
 export const FIELDS = [
   {
-    id: "sakurazaka46",
-    label: "櫻坂46",
-    description: "",
-    themeColor: "from-pink-400 to-red-400",
-  },
-  {
     id: "nhk",
     label: "NHK",
-    description: "",
-    themeColor: "from-blue-400 to-indigo-400",
+    description: "紅白歌合戦、ゆく年くる年、大河ドラマ",
+    themeColor: "from-gray-500 to-gray-700",
   },
   {
-    id: "wbc",
-    label: "WBC",
-    description: "",
-    themeColor: "from-yellow-400 to-orange-400",
+    id: "ntv",
+    label: "日テレ",
+    description: "箱根駅伝、高校サッカー、金曜ロードショー",
+    themeColor: "from-yellow-400 to-orange-500",
+  },
+  {
+    id: "tvasahi",
+    label: "テレ朝",
+    description: "芸能人格付けチェック、M-1、アメトーーク",
+    themeColor: "from-pink-500 to-rose-500",
+  },
+  {
+    id: "tbs",
+    label: "TBS",
+    description:
+      "日本レコード大賞、ザ・イロモネア、ニューイヤー駅伝、ドリーム東西ネタ合戦",
+    themeColor: "from-blue-400 to-cyan-400",
+  },
+  {
+    id: "fujitv",
+    label: "フジテレビ",
+    description: "ドッキリGP、新しいカギ、ミリオネア、レッドカーペット、逃走中",
+    themeColor: "from-teal-400 to-emerald-400",
+  },
+  {
+    id: "tvtokyo",
+    label: "テレ東",
+    description:
+      "路線バス、あちこちオードリー、孤独のグルメ大晦日SP、出川哲朗の充電旅、家ついて行ってイイですか？",
+    themeColor: "from-red-500 to-red-700",
+  },
+  {
+    id: "sakurazaka46",
+    label: "櫻坂46",
+    description: "櫻坂46に関する話題ならなんでも。",
+    themeColor: "from-pink-400 to-red-400",
   },
 ] as const;
 
