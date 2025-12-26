@@ -23,6 +23,11 @@ export interface PostReplyRequest {
    * Parent bonfire ID to reply to
    */
   parentBonfireId: string;
+
+  /**
+   * Field (Community) ID
+   */
+  fieldId: string;
 }
 
 /**

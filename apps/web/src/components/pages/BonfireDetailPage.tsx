@@ -130,7 +130,7 @@ const BonfireDetailPageInner = ({
     postReply,
     isPosting,
     error: postError,
-  } = usePostReply(bonfire.id, sparkRepository, logger);
+  } = usePostReply(bonfire.id, bonfire.fieldId, sparkRepository, logger);
 
   const { addFuel } = useAddFuel(sparkRepository, logger);
 

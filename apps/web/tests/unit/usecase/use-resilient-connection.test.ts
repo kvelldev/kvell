@@ -1,8 +1,19 @@
 import { renderHook, act } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
-import { useResilientConnection } from "@/usecase/useResilientConnection";
+import { useResilientWebSocket } from "@/usecase/useResilientConnection";
 import type { ITimelineRepository } from "@/domain/repository/timelineRepository";
+import type {
+  SparkPostedEvent,
+  SparkUpdatedEvent,
+} from "@/domain/model/timelineEvent";
 import { ReadyState } from "react-use-websocket";
+
+interface WebSocketOptions {
+  onOpen: () => void;
+  onClose: () => void;
+  shouldReconnect: () => boolean;
+  reconnectInterval: (attempt: number) => number;
+}
 
 // Mock react-use-websocket
 const mockUseWebSocket = vi.fn();
@@ -11,33 +22,41 @@ vi.mock("react-use-websocket", async (importOriginal) => {
   return {
     ...actual,
     __esModule: true,
-    default: (...args: any[]) => mockUseWebSocket(...args),
+    default: (...args: unknown[]) => mockUseWebSocket(...args) as unknown,
   };
 });
 
-describe("useResilientConnection", () => {
+// Helper to simulate hook return values
+const setMockState = (
+  readyState: ReadyState,
+  lastMessage: MessageEvent | null = null,
+) => {
+  mockUseWebSocket.mockReturnValue({
+    lastMessage,
+    readyState,
+  });
+};
+
+const getLastOptions = () => {
+  const calls = mockUseWebSocket.mock.calls;
+  const lastCall = calls.at(-1);
+  if (!lastCall) throw new Error("useWebSocket not called");
+  return lastCall[1] as WebSocketOptions;
+};
+
+describe("useResilientWebSocket", () => {
   let repository: ITimelineRepository;
   let onMessageMock: ReturnType<typeof vi.fn>;
   let parseMessageMock: ReturnType<typeof vi.fn>;
-
-  // Helper to simulate hook return values
-  const setMockState = (
-    readyState: ReadyState,
-    lastMessage: MessageEvent | null = null,
-  ) => {
-    mockUseWebSocket.mockReturnValue({
-      lastMessage,
-      readyState,
-    });
-  };
 
   beforeEach(() => {
     vi.useFakeTimers();
     onMessageMock = vi.fn();
     parseMessageMock = vi.fn();
 
+    // Mock repository with getConnectionUrl
     repository = {
-      connectionUrl: "ws://test.com",
+      getConnectionUrl: vi.fn().mockReturnValue("ws://test.com"),
       parseMessage: parseMessageMock,
     } as unknown as ITimelineRepository;
 
@@ -50,13 +69,20 @@ describe("useResilientConnection", () => {
     vi.restoreAllMocks();
   });
 
+  const renderResilientHook = () =>
+    renderHook(() =>
+      useResilientWebSocket(
+        repository.getConnectionUrl("test-field"),
+        repository.parseMessage,
+        onMessageMock as (event: SparkPostedEvent | SparkUpdatedEvent) => void,
+      ),
+    );
+
   it("should initially be disconnected (during initial connecting phase)", () => {
     setMockState(ReadyState.CONNECTING);
 
     // First render with CONNECTING (retryCount=0)
-    const { result } = renderHook(() =>
-      useResilientConnection(repository, onMessageMock),
-    );
+    const { result } = renderResilientHook();
 
     expect(result.current.type).toBe("disconnected");
   });
@@ -64,9 +90,7 @@ describe("useResilientConnection", () => {
   it("should be connected when readyState is OPEN", () => {
     setMockState(ReadyState.OPEN);
 
-    const { result } = renderHook(() =>
-      useResilientConnection(repository, onMessageMock),
-    );
+    const { result } = renderResilientHook();
 
     expect(result.current.type).toBe("connected");
   });
@@ -75,7 +99,7 @@ describe("useResilientConnection", () => {
     setMockState(ReadyState.OPEN, { data: "test-message" } as MessageEvent);
     parseMessageMock.mockReturnValue({ type: "mapped-event" });
 
-    renderHook(() => useResilientConnection(repository, onMessageMock));
+    renderResilientHook();
 
     expect(repository.parseMessage).toHaveBeenCalledWith("test-message");
     expect(onMessageMock).toHaveBeenCalledWith({ type: "mapped-event" });
@@ -84,18 +108,12 @@ describe("useResilientConnection", () => {
   it("should show reconnecting status with attempt count", () => {
     // 1. Start connected
     setMockState(ReadyState.OPEN);
-    const { result, rerender } = renderHook(() =>
-      useResilientConnection(repository, onMessageMock),
-    );
+    const { result, rerender } = renderResilientHook();
     expect(result.current.type).toBe("connected");
-
-    // Capture the onClose callback passed to useWebSocket
-    const options =
-      mockUseWebSocket.mock.calls[mockUseWebSocket.mock.calls.length - 1][1];
 
     // 2. Simulate connection close (trigger onClose)
     act(() => {
-      options.onClose();
+      getLastOptions().onClose();
     });
 
     // 3. Change state to CONNECTING (reconnecting)
@@ -109,11 +127,7 @@ describe("useResilientConnection", () => {
 
     // 4. Simulate fail again
     act(() => {
-      // Library would call duplicate onClose or similar depending on flow,
-      // but here we just simulate the retry loop logic manually triggering onClose
-      // In reality, useWebSocket triggers reconnectInterval then tries to connect.
-      // If it fails, onClose is called again.
-      options.onClose();
+      getLastOptions().onClose();
     });
 
     setMockState(ReadyState.CONNECTING);
@@ -126,12 +140,7 @@ describe("useResilientConnection", () => {
 
   it("should error after max retries", () => {
     setMockState(ReadyState.OPEN);
-    const { result, rerender } = renderHook(() =>
-      useResilientConnection(repository, onMessageMock),
-    );
-
-    const getLastOptions = () =>
-      mockUseWebSocket.mock.calls[mockUseWebSocket.mock.calls.length - 1][1];
+    const { result, rerender } = renderResilientHook();
 
     // Fail 3 times
     act(() => {
@@ -143,6 +152,9 @@ describe("useResilientConnection", () => {
     act(() => {
       getLastOptions().onClose();
     }); // count -> 3
+    act(() => {
+      getLastOptions().onClose();
+    }); // count -> 4
 
     setMockState(ReadyState.CLOSED);
     rerender();
@@ -153,12 +165,7 @@ describe("useResilientConnection", () => {
 
   it("should reset retry count on successful open", () => {
     setMockState(ReadyState.OPEN);
-    const { result, rerender } = renderHook(() =>
-      useResilientConnection(repository, onMessageMock),
-    );
-
-    const getLastOptions = () =>
-      mockUseWebSocket.mock.calls[mockUseWebSocket.mock.calls.length - 1][1];
+    const { result, rerender } = renderResilientHook();
 
     // Fail once
     act(() => {

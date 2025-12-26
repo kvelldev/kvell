@@ -20,9 +20,10 @@ export interface ITimelineRepository {
    * @returns Cleanup function to disconnect and close the WebSocket
    */
   /**
-   * The WebSocket URL to connect to.
+   * Get the WebSocket URL for a specific field.
+   * @param fieldId - The field ID to connect to
    */
-  readonly connectionUrl: string;
+  getConnectionUrl(fieldId: string): string;
 
   /**
    * Parse a raw WebSocket message into a domain event.

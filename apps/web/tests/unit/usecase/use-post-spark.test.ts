@@ -47,7 +47,7 @@ describe("usePostSpark", () => {
 
     // Act: Render hook and trigger mutation
     const { result } = renderHook(() =>
-      usePostSpark(mockRepository, mockLogger),
+      usePostSpark(mockRepository, mockLogger, "test-field"),
     );
 
     // Trigger post spark
@@ -65,12 +65,14 @@ describe("usePostSpark", () => {
     expect(mockRepository.postSpark).toHaveBeenCalledTimes(1);
     expect(mockRepository.postSpark).toHaveBeenCalledWith({
       content: "Test spark content",
+      fieldId: "test-field",
     });
 
     // Assert: Verify logger was called with correct events
     expect(mockLogger.info).toHaveBeenCalledWith("Posting spark", {
       event: LOG_EVENTS.SPARK.POST_START,
       contentLength: 18,
+      fieldId: "test-field",
     });
     expect(mockLogger.info).toHaveBeenCalledWith("Successfully posted spark", {
       event: LOG_EVENTS.SPARK.POST_SUCCESS,
@@ -89,7 +91,7 @@ describe("usePostSpark", () => {
 
     // Act: Render hook and trigger mutation
     const { result } = renderHook(() =>
-      usePostSpark(mockRepository, mockLogger),
+      usePostSpark(mockRepository, mockLogger, "test-field"),
     );
 
     // Trigger post spark (expect it to fail)
@@ -114,6 +116,7 @@ describe("usePostSpark", () => {
       event: LOG_EVENTS.SPARK.POST_ERROR,
       context: "usePostSpark",
       contentLength: 12,
+      fieldId: "test-field",
     });
 
     // Assert: Verify error state
@@ -142,7 +145,7 @@ describe("usePostSpark", () => {
 
     // Act: Render hook and trigger mutation
     const { result } = renderHook(() =>
-      usePostSpark(mockRepository, mockLogger),
+      usePostSpark(mockRepository, mockLogger, "test-field"),
     );
 
     // Initial state

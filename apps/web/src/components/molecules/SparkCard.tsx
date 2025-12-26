@@ -19,12 +19,6 @@ interface SparkCardProps {
   hideFuelButton?: boolean;
 }
 
-const formatTime = (totalSeconds: number): string => {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-};
-
 /**
  * SparkCard Component (Memoized)
  *
@@ -78,7 +72,7 @@ const SparkCardComponent = ({
       data-testid="spark-item"
       data-temperature={spark.temperature} // テスト用に状態をDOMに出しておく
     >
-      <p className="font-base text-sm leading-relaxed break-words whitespace-pre-wrap">
+      <p className="font-base text-smoke-100 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap">
         <Linkify
           options={{
             target: "_blank",

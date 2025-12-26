@@ -1,13 +1,19 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { BonfireCarousel } from "@/components/organisms/BonfireCarousel";
 import { BonfireViewModel } from "@/domain/model/bonfire";
 
 // Mock child components to isolate tests
 vi.mock("@/components/molecules/BonfireCard", () => ({
-  BonfireCard: ({ bonfire, onClick }: { bonfire: any; onClick?: any }) => (
-    <div data-testid="bonfire-card" onClick={() => onClick && onClick(bonfire)}>
-      {bonfire.title}
+  BonfireCard: ({
+    bonfire,
+    onClick,
+  }: {
+    bonfire: BonfireViewModel;
+    onClick?: (b: BonfireViewModel) => void;
+  }) => (
+    <div data-testid="bonfire-card" onClick={() => onClick?.(bonfire)}>
+      {bonfire.content}
     </div>
   ),
 }));
@@ -36,10 +42,13 @@ vi.mock("@/components/ui/carousel", () => ({
 describe("BonfireCarousel", () => {
   const mockBonfire: BonfireViewModel = {
     id: "bonfire-1",
-    title: "Test Bonfire",
-    sparkCount: 5,
-    expiresAt: new Date(),
-    isLit: true,
+    sparkId: "spark-1",
+    fieldId: "test-field",
+    content: "Test Bonfire",
+    uniqueUserCount: 5,
+    heatScore: 100,
+    createdAt: new Date().toISOString(),
+    decayAt: new Date().toISOString(),
   } as unknown as BonfireViewModel;
 
   it("renders only generic placeholder when bonfires list is empty", () => {
@@ -51,8 +60,8 @@ describe("BonfireCarousel", () => {
 
   it("renders bonfires and appends placeholder at the end when list is not empty", () => {
     const bonfires = [
-      { ...mockBonfire, id: "1", title: "B1" },
-      { ...mockBonfire, id: "2", title: "B2" },
+      { ...mockBonfire, id: "1", content: "B1" },
+      { ...mockBonfire, id: "2", content: "B2" },
     ];
 
     render(<BonfireCarousel bonfires={bonfires} />);

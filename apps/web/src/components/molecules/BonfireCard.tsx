@@ -41,9 +41,6 @@ const BonfireCardComponent = ({ bonfire, onClick }: BonfireCardProps) => {
   const imageUrl = bonfire.imageUrl?.primaryUrl;
   const [imgError, setImgError] = useState(false);
 
-  // Fallback to default image if error or no custom image
-  const displayImage = hasCustomImage && !imgError ? imageUrl : defaultImage;
-
   return (
     <Card
       className={clsx(

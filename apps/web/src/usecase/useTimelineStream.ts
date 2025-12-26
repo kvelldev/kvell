@@ -15,6 +15,7 @@ import { useSparkTransformer } from "./useSparkTransformer";
 
 interface UseTimelineStreamProps {
   repository: ITimelineRepository;
+  fieldId: string;
   onBonfirePromoted?: () => void;
 }
 
@@ -22,11 +23,13 @@ interface UseTimelineStreamProps {
  * Timeline Stream Custom Hook
  * @param props - Hook properties
  * @param props.repository - Timeline repository implementation (DIP)
+ * @param props.fieldId - The field (community) ID to stream from
  * @param props.onBonfirePromoted - Callback triggers when a spark is promoted to Bonfire
  * @returns Object containing current spark ViewModels and connection error state
  */
 export const useTimelineStream = ({
   repository,
+  fieldId,
   onBonfirePromoted,
 }: UseTimelineStreamProps) => {
   // 1. Data Management (Buffering & State Updates)
@@ -34,7 +37,7 @@ export const useTimelineStream = ({
 
   // 2. Connection Management (Connection & Reconnection)
   const status = useResilientWebSocket(
-    repository.connectionUrl,
+    repository.getConnectionUrl(fieldId),
     (message) => repository.parseMessage(message),
     pushEvent,
   );

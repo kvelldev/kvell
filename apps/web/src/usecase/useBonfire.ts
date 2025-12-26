@@ -13,11 +13,14 @@ import { detectSparkImage } from "@/domain/service/sparkUrlService";
 // SWR key for active bonfires
 const BONFIRE_FETCH_KEY = "/bonfire/active";
 
-export const useBonfire = (repository: IBonfireRepository) => {
+export const useBonfire = (
+  repository: IBonfireRepository,
+  fieldId?: string,
+) => {
   // Use SWR for data fetching and state management
   const { data, error, isLoading, mutate } = useSWR<BonfireList, Error>(
-    BONFIRE_FETCH_KEY,
-    () => repository.getActiveBonfires(),
+    fieldId ? [BONFIRE_FETCH_KEY, fieldId] : null,
+    () => repository.getActiveBonfires(fieldId),
   );
 
   // Transform to ViewModel (derive state)

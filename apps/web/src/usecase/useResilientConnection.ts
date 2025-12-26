@@ -109,13 +109,15 @@ export const useResilientWebSocket = <T>(
 
   // 接続タイムアウト（5秒で諦めて次へ）
   useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     if (readyState === ReadyState.CONNECTING) {
       timeoutId = setTimeout(() => {
         const socket = getWebSocket();
+        if (!socket) return;
+
         // ★修正: まだ繋がっていない(CONNECTING)場合のみ切断する
-        if (socket?.readyState === 0) {
+        if (socket.readyState === 0) {
           // 0 is WebSocket.CONNECTING
           socket.close(); // onClose を発火させる
         }

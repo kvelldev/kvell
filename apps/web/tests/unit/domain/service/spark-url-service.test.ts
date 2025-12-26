@@ -4,7 +4,7 @@ import {
   generatePollutedTestCases,
   generateYouTubeTestCases,
   type URLTestCase,
-} from "./fixtures/urlTestCases";
+} from "./fixtures/url-test-cases";
 
 describe("sparkUrlService", () => {
   const directImageCases = generatePollutedTestCases();

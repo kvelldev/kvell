@@ -39,16 +39,7 @@ const YOUTUBE_PATTERNS = [
 ];
 
 /**
- * Detects if the spark content contains a renderable image URL.
- * Returns the first matching URL found, or null if none.
- *
- * Strategy:
- * 1. Extract all URL-like strings from content.
- * 2. Check each URL against the allowlist patterns.
- * 3. Return the first match.
- *
- * @param content - Spark content text
- * @returns The image URL string or null
+ * Detected image result object.
  */
 export interface DetectedImage {
   primaryUrl: string;
@@ -66,7 +57,7 @@ export interface DetectedImage {
  * 4. Return the first match with optional fallback.
  *
  * @param content - Spark content text
- * @returns {DetectedImage | null}
+ * @returns The detected image result or null
  */
 export const detectSparkImage = (content: string): DetectedImage | null => {
   if (!content) return null;
@@ -95,7 +86,7 @@ export const detectSparkImage = (content: string): DetectedImage | null => {
     // Primary: maxresdefault (High Res), Fallback: hqdefault (Standard)
     for (const ytPattern of YOUTUBE_PATTERNS) {
       const match = url.match(ytPattern);
-      if (match && match[1]) {
+      if (match?.[1]) {
         return {
           primaryUrl: `https://img.youtube.com/vi/${match[1]}/maxresdefault.jpg`,
           fallbackUrl: `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg`,

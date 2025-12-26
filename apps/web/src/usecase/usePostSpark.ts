@@ -16,23 +16,35 @@ import { LOG_EVENTS } from "@/domain/constants";
  * UseCase Hook for posting a spark (Mutation).
  * @param repository - Repository implementation (injected from outside)
  * @param logger - Logger implementation (injected from outside)
+ * @param fieldId - Current field ID (context)
  * @returns Mutation state and trigger function
  */
-export const usePostSpark = (repository: ISparkRepository, logger: ILogger) => {
+export const usePostSpark = (
+  repository: ISparkRepository,
+  logger: ILogger,
+  fieldId: string,
+) => {
   const { trigger, isMutating, error } = useSWRMutation<
     Spark,
     Error,
     string,
-    PostSparkRequest
+    Omit<PostSparkRequest, "fieldId">
   >(
     SWR_KEYS.SPARK_POST,
-    async (_key: string, { arg }: { arg: PostSparkRequest }) => {
+    async (
+      _key: string,
+      { arg }: { arg: Omit<PostSparkRequest, "fieldId"> },
+    ) => {
       try {
         logger.info("Posting spark", {
           event: LOG_EVENTS.SPARK.POST_START,
           contentLength: arg.content.length,
+          fieldId,
         });
-        const createdSpark = await repository.postSpark(arg);
+        const createdSpark = await repository.postSpark({
+          ...arg,
+          fieldId,
+        });
         logger.info("Successfully posted spark", {
           event: LOG_EVENTS.SPARK.POST_SUCCESS,
           sparkId: createdSpark.id,
@@ -43,6 +55,7 @@ export const usePostSpark = (repository: ISparkRepository, logger: ILogger) => {
           event: LOG_EVENTS.SPARK.POST_ERROR,
           context: "usePostSpark",
           contentLength: arg.content.length,
+          fieldId,
         });
         throw error_;
       }

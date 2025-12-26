@@ -42,18 +42,18 @@ type WebSocketMessage =
  * WebSocket Timeline Repository Implementation
  */
 class WsTimelineRepositoryImpl implements ITimelineRepository {
-  private readonly _connectionUrl: string;
-
-  get connectionUrl(): string {
-    return this._connectionUrl;
-  }
+  private readonly _baseUrl: string;
 
   constructor() {
     const baseUrl: string =
       (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
       "http://localhost:8000";
     // Convert http(s):// to ws(s)://
-    this._connectionUrl = baseUrl.replace(/^http/, "ws") + "/api/sparks/ws";
+    this._baseUrl = baseUrl.replace(/^http/, "ws");
+  }
+
+  getConnectionUrl(fieldId: string): string {
+    return `${this._baseUrl}/api/sparks/${fieldId}/ws`;
   }
 
   parseMessage(message: unknown): TimelineEvent | null {

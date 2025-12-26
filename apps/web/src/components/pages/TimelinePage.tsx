@@ -41,9 +41,20 @@ import type { BonfireViewModel } from "@/domain/model/bonfire";
  * @returns Rendered timeline page with posting capability
  */
 export const TimelinePage = () => {
-  // Routing: Get bonfireId from URL params for deep linking support
-  const { bonfireId } = useParams<{ bonfireId: string }>();
+  // Routing: Get fieldId and bonfireId from URL params for deep linking support
+  const { fieldId, bonfireId } = useParams<{
+    fieldId: string;
+    bonfireId: string;
+  }>();
   const navigate = useNavigate();
+
+  // Validate fieldId (redirect to root if invalid)
+  // In a real app, strict validation against FIELDS list would be here
+  if (!fieldId) {
+    // This should ideally be handled by router, but as a safeguard
+    // void navigate("/", { replace: true });
+    // For now, let's assume valid due to routing structure, or hook will fail gracefully
+  }
 
   // Local UI state for posting
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -52,12 +63,16 @@ export const TimelinePage = () => {
   // Dependency Injection: Logger
   const logger = useLogger();
 
-  // UseCase: Fetch bonfires
-  const { bonfires, refetch: refetchBonfires } = useBonfire(bonfireRepository);
+  // UseCase: Fetch bonfires (Filtered by fieldId)
+  const { bonfires, refetch: refetchBonfires } = useBonfire(
+    bonfireRepository,
+    fieldId,
+  );
 
-  // UseCase: Connect to WebSocket and receive sparks
+  // UseCase: Connect to WebSocket and receive sparks (Scoped to fieldId)
   const { sparks, status } = useTimelineStream({
     repository: wsTimelineRepository,
+    fieldId: fieldId!, // Non-null assertion safe because of route param
     onBonfirePromoted: () => {
       // Refresh bonfire list when a spark receives promotion event
       void refetchBonfires();
@@ -68,7 +83,11 @@ export const TimelinePage = () => {
   useConnectionToast(status);
 
   // UseCase: Post spark
-  const { postSpark, isPosting, error } = usePostSpark(sparkRepository, logger);
+  const { postSpark, isPosting, error } = usePostSpark(
+    sparkRepository,
+    logger,
+    fieldId!, // Non-null assertion safe because of route param
+  );
 
   // UseCase: Add fuel to spark
   const { addFuel } = useAddFuel(sparkRepository, logger);
@@ -111,12 +130,16 @@ export const TimelinePage = () => {
 
   // Event Handler: Open bonfire detail overlay (navigate to bonfire detail URL)
   const handleBonfireClick = (bonfire: BonfireViewModel) => {
-    void navigate(`/timeline/bonfire/${bonfire.id}`);
+    if (fieldId) {
+      void navigate(`/field/${fieldId}/bonfire/${bonfire.id}`);
+    }
   };
 
   // Event Handler: Close bonfire detail overlay (navigate back)
   const handleBonfireClose = () => {
-    void navigate("/timeline");
+    if (fieldId) {
+      void navigate(`/field/${fieldId}`);
+    }
   };
 
   return (

@@ -59,3 +59,35 @@ export const LOG_EVENTS = {
  * "システムの '冷却閾値' は 'Decay time' に対して '30%' の割合である"
  */
 export const COOLING_THRESHOLD_RATIO = 0.3;
+
+/**
+ * Available Fields (Communities)
+ *
+ * Defines the available timeline fields users can join.
+ * IDs must match the backend VALID_FIELDS constant.
+ */
+export const FIELDS = [
+  {
+    id: "sakurazaka46",
+    label: "櫻坂46",
+    description: "Buddiesが集う、櫻坂46の実況と感想のフィールド",
+    themeColor: "from-pink-400 to-red-400",
+  },
+  {
+    id: "nhk",
+    label: "NHK",
+    description: "NHK番組の実況、ニュースやドキュメンタリーの感想戦",
+    themeColor: "from-blue-400 to-indigo-400",
+  },
+  {
+    id: "wbc",
+    label: "WBC",
+    description: "WBC（ワールド・ベースボール・クラシック）熱狂のフィールド",
+    themeColor: "from-yellow-400 to-orange-400",
+  },
+] as const;
+
+/**
+ * Field ID type derived from the VALID_FIELDS constant.
+ */
+export type FieldId = (typeof FIELDS)[number]["id"];

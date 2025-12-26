@@ -29,11 +29,17 @@ export const validYouTubeUrls = [
 
 export const pollutionSuffixes = ["!", "?", ".", ",", ")", "...", "!?", ")."];
 
+/**
+ * Detected image result interface
+ */
 export interface DetectedImage {
   primaryUrl: string;
   fallbackUrl?: string;
 }
 
+/**
+ * URL Test Case interface
+ */
 export interface URLTestCase {
   name: string;
   input: string;
@@ -42,87 +48,72 @@ export interface URLTestCase {
 
 /**
  * Generates test cases by combining valid URLs with pollution suffixes.
+ * @returns Array of URLTestCase
  */
 export const generatePollutedTestCases = (): URLTestCase[] => {
-  const cases: URLTestCase[] = [];
-
-  // Direct Image URLs
-  validDirectImageUrls.forEach((url) => {
+  return validDirectImageUrls.flatMap((url) => {
     const expected = { primaryUrl: url };
 
-    // 1. Clean
-    cases.push({
-      name: `[Direct] Clean: ${url}`,
-      input: url,
-      expected: expected,
-    });
-
-    // 2. Polluted
-    pollutionSuffixes.forEach((suffix) => {
-      cases.push({
+    return [
+      // 1. Clean
+      {
+        name: `[Direct] Clean: ${url}`,
+        input: url,
+        expected,
+      },
+      // 2. Polluted
+      ...pollutionSuffixes.map((suffix) => ({
         name: `[Direct] Polluted with '${suffix}': ${url}`,
         input: `${url}${suffix}`,
-        expected: expected,
-      });
-    });
-
-    // 3. Embedded in text
-    cases.push({
-      name: `[Direct] Embedded in text: ${url}`,
-      input: `Check this out: ${url} !`,
-      expected: expected,
-    });
-
-    // 4. Concatenated (Edge case)
-    // "url1.jpghttps://url2.jpg" -> "url1.jpg"
-    cases.push({
-      name: `[Direct] Concatenated: ${url}`,
-      input: `${url}https://example.com/next`,
-      expected: expected,
-    });
+        expected,
+      })),
+      // 3. Embedded in text
+      {
+        name: `[Direct] Embedded in text: ${url}`,
+        input: `Check this out: ${url} !`,
+        expected,
+      },
+      // 4. Concatenated (Edge case)
+      {
+        name: `[Direct] Concatenated: ${url}`,
+        input: `${url}https://example.com/next`,
+        expected,
+      },
+    ];
   });
-
-  return cases;
 };
 
 /**
  * Generates test cases for YouTube URLs (Clean & Polluted)
  * Note: YouTube URLs are transformed to thumbnail URLs
+ * @returns Array of URLTestCase
  */
 export const generateYouTubeTestCases = (): URLTestCase[] => {
-  const cases: URLTestCase[] = [];
-
-  validYouTubeUrls.forEach(({ input, videoId }) => {
+  return validYouTubeUrls.flatMap(({ input, videoId }) => {
     const expected = {
       primaryUrl: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
       fallbackUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
     };
 
-    // 1. Clean
-    cases.push({
-      name: `[YouTube] Clean: ${input}`,
-      input: input,
-      expected: expected,
-    });
-
-    // 2. Polluted
-    pollutionSuffixes.forEach((suffix) => {
-      cases.push({
+    return [
+      // 1. Clean
+      {
+        name: `[YouTube] Clean: ${input}`,
+        input,
+        expected,
+      },
+      // 2. Polluted
+      ...pollutionSuffixes.map((suffix) => ({
         name: `[YouTube] Polluted with '${suffix}': ${input}`,
         input: `${input}${suffix}`,
-        expected: expected,
-      });
-    });
-
-    // 3. With Params (time, etc) - regex should handle if match logic is good
-    // "https://youtu.be/ID?t=1s"
-    const inputWithParam = `${input}?t=10s`;
-    cases.push({
-      name: `[YouTube] With Params: ${inputWithParam}`,
-      input: inputWithParam,
-      expected: expected,
-    });
+        expected,
+      })),
+      // 3. With Params (time, etc)
+      {
+        name: `[YouTube] With Params: ${input}?t=10s`,
+        input: `${input}?t=10s`,
+        expected,
+      },
+    ];
   });
-
-  return cases;
 };

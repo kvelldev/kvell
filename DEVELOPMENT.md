@@ -26,7 +26,7 @@ git diff ${対象ディレクトリ} > diff.txt
 
 変更されたファイルの中身をすべて取得
 ```shell
-{ git diff HEAD --name-only --diff-filter=d apps/api/src; git ls-files --others --exclude-standard apps/api/src; } | sort | uniq | xargs -I{} cat "{}" > diff.txt
+{ git diff HEAD --name-only --diff-filter=d apps/web/src; git ls-files --others --exclude-standard apps/web/src; } | sort | uniq | xargs -I{} cat "{}" > diff.txt
 ```
 
 対象ディレクトリの実装ファイルをすべて取得

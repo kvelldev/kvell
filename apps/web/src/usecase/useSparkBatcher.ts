@@ -24,14 +24,15 @@ export const useSparkBatcher = (onBonfirePromoted?: () => void) => {
         const updatedSparks = [...currentSparks];
         let bonfirePromoted = false;
 
-        events.forEach((event) => {
+        for (const event of events) {
           if (event.type === "spark_posted") {
             const newSpark = event.data;
             // Deduplication
             if (!updatedSparks.some((s) => s.id === newSpark.id)) {
               updatedSparks.push(newSpark);
             }
-          } else if (event.type === "spark_updated") {
+          } else {
+            // Must be "spark_updated"
             const { spark_id, level, decay_at } = event;
 
             // Find spark to update
@@ -52,11 +53,10 @@ export const useSparkBatcher = (onBonfirePromoted?: () => void) => {
               }
             }
           }
-        });
+        }
 
         if (bonfirePromoted && onBonfirePromoted) {
-          // Trigger callback (outside check to avoid state update loops if possible,
-          // but here needs setTimeout to break render cycle potentially)
+          // Trigger callback
           setTimeout(onBonfirePromoted, 0);
         }
 
@@ -65,7 +65,9 @@ export const useSparkBatcher = (onBonfirePromoted?: () => void) => {
     };
 
     const timer = setInterval(processBatch, BATCH_INTERVAL_MS);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+    };
   }, [onBonfirePromoted]);
 
   return { sparks, pushEvent };

@@ -24,12 +24,14 @@ const getReplyKey = (bonfireId: string) => `/bonfire/${bonfireId}/reply`;
 /**
  * UseCase Hook for posting a reply to a bonfire (Mutation).
  * @param bonfireId - The bonfire ID to reply to
+ * @param fieldId - The field ID (Community)
  * @param repository - Repository implementation (injected from outside)
  * @param logger - Logger implementation (injected from outside)
  * @returns Mutation state and trigger function
  */
 export const usePostReply = (
   bonfireId: string,
+  fieldId: string,
   repository: ISparkRepository,
   logger: ILogger,
 ) => {
@@ -37,7 +39,7 @@ export const usePostReply = (
     Spark,
     Error,
     string,
-    string // content only, bonfireId comes from hook argument
+    string // content only, bonfireId and fieldId come from hook arguments
   >(
     getReplyKey(bonfireId),
     async (_key: string, { arg: content }: { arg: string }) => {
@@ -46,10 +48,12 @@ export const usePostReply = (
           event: LOG_EVENTS.SPARK.POST_START,
           bonfireId,
           contentLength: content.length,
+          fieldId,
         });
         const request: PostReplyRequest = {
           content,
           parentBonfireId: bonfireId,
+          fieldId,
         };
         const createdSpark = await repository.postReply(request);
         logger.info("Successfully posted reply", {
@@ -63,6 +67,7 @@ export const usePostReply = (
           event: LOG_EVENTS.SPARK.POST_ERROR,
           context: "usePostReply",
           bonfireId,
+          fieldId,
         });
         throw error_;
       }

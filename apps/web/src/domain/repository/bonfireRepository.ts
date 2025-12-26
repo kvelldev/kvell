@@ -14,7 +14,8 @@ import { BonfireList } from "@/domain/model/bonfire";
 export interface IBonfireRepository {
   /**
    * Get all active (non-decayed) bonfires
+   * @param fieldId - The field (community) ID
    * @returns Promise resolving to BonfireList
    */
-  getActiveBonfires(): Promise<BonfireList>;
+  getActiveBonfires(fieldId?: string): Promise<BonfireList>;
 }

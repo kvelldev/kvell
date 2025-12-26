@@ -29,8 +29,8 @@ describe("useLogger", () => {
 
   it("should throw error when used outside LoggerProvider", () => {
     // Spy on console methods to suppress error logs during this test
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockReturnValue();
+    const warnSpy = vi.spyOn(console, "warn").mockReturnValue();
 
     expect(() => {
       renderHook(() => useLogger());

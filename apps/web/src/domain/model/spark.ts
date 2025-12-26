@@ -84,6 +84,11 @@ export interface PostSparkRequest {
    * Spark content text to post
    */
   content: string;
+
+  /**
+   * Field (Community) ID
+   */
+  fieldId: string;
 }
 
 /**

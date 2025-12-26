@@ -19,7 +19,7 @@ export const useSparkTransformer = (rawSparks: Spark[]) => {
     setViewModels(
       rawSparks
         .filter((s) => now < new Date(s.decayAt).getTime())
-        .map(computeSparkViewModel),
+        .map((s) => computeSparkViewModel(s)),
     );
   }, [rawSparks]);
 
@@ -32,13 +32,15 @@ export const useSparkTransformer = (rawSparks: Spark[]) => {
 
       const activeViewModels = currentSparks
         .filter((s) => now < new Date(s.decayAt).getTime())
-        .map(computeSparkViewModel);
+        .map((s) => computeSparkViewModel(s));
 
       // ここで State 更新（中身が変わっていなくても残り時間のために再レンダリングが必要）
       setViewModels(activeViewModels);
     }, UPDATE_INTERVAL_MS);
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+    };
   }, []); // 空配列！これでタイマーはマウント中ずっと生き続ける
 
   return viewModels;

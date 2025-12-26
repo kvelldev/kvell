@@ -35,7 +35,10 @@ class SparkRepositoryImpl implements ISparkRepository {
   async postSpark(request: PostSparkRequest): Promise<Spark> {
     const data = await apiClient<SparkApiResponse>("/api/sparks", {
       method: "POST",
-      body: JSON.stringify({ content: request.content }),
+      body: JSON.stringify({
+        content: request.content,
+        field_id: request.fieldId,
+      }),
     });
 
     // Transform snake_case API response to camelCase domain model
@@ -54,6 +57,7 @@ class SparkRepositoryImpl implements ISparkRepository {
       body: JSON.stringify({
         content: request.content,
         parent_bonfire_id: request.parentBonfireId,
+        field_id: request.fieldId,
       }),
     });
 

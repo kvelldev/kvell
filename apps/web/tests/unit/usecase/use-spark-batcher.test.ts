@@ -18,7 +18,7 @@ describe("useSparkBatcher", () => {
     content: "Hello",
     userHash: "abc",
     createdAt: new Date().toISOString(),
-    decayAt: new Date(Date.now() + 10000).toISOString(),
+    decayAt: new Date(Date.now() + 10_000).toISOString(),
   };
 
   it("should buffer events and process them in batch", () => {
@@ -69,7 +69,7 @@ describe("useSparkBatcher", () => {
     });
 
     // Update event
-    const newDecay = new Date(Date.now() + 20000).toISOString();
+    const newDecay = new Date(Date.now() + 20_000).toISOString();
     const updateEvent: TimelineEvent = {
       type: "spark_updated",
       spark_id: "1",

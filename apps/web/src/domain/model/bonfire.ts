@@ -19,6 +19,11 @@ export interface Bonfire {
   sparkId: string;
 
   /**
+   * Field (Community) ID
+   */
+  fieldId: string;
+
+  /**
    * Bonfire content text
    */
   content: string;
