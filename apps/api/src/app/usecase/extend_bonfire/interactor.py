@@ -46,6 +46,11 @@ class ExtendBonfireInteractor(IExtendBonfireUseCase):
     async def execute(self, input_data: ExtendBonfireInput) -> ExtendBonfireOutput:
         """Extend bonfire TTL.
 
+        FIXME: This usecase is currently dead code (detached).
+        When enabling this logic (e.g. for Reply extension), you MUST also implement
+        Spark-Bonfire decay synchronization here to prevent Ghost Bonfires.
+        Refer to CheckPromotionInteractor and AddFuelInteractor for implementation details.
+
         Extension Rules:
         - Fuel: Adds fixed minutes to current decay_at
         - Reply: Sets decay_at to now + extension_hours if remaining TTL is shorter

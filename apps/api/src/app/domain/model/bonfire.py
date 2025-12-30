@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.domain.constants import VALID_FIELDS
+from app.domain.constants import BONFIRE_INITIAL_TTL_HOURS, VALID_FIELDS
 
 
 class Bonfire(BaseModel):
@@ -48,7 +48,7 @@ class Bonfire(BaseModel):
         content: str,
         unique_user_count: int,
         heat_score: int,
-        initial_decay_hours: int = 3,
+        initial_decay_hours: int = BONFIRE_INITIAL_TTL_HOURS,
     ) -> "Bonfire":
         """Create a new Bonfire from a promoted Spark.
 

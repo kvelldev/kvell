@@ -232,6 +232,10 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
 
         await self.bonfire_repository.save(bonfire)
 
+        # Sync spark decay_at with bonfire decay_at to prevent ghost bonfires
+        # Note: This is sequential and non-transactional but acceptable for this use case
+        await self.spark_repository.update_decay_at(spark_id, bonfire.decay_at)
+
         self.logger.info(
             LOG_EVENTS.PROMOTION_TO_BONFIRE,
             "Spark promoted to bonfire",

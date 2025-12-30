@@ -151,3 +151,9 @@ class TestCheckPromotionInteractor:
         assert abs(time_diff.total_seconds()) < 1.0, \
             f"Bonfire decay_at {saved_bonfire.decay_at} is not ~120h from now"
 
+        # Verify Spark decay_at was also updated (Ghost Bonfire prevention)
+        mock_spark_repo.update_decay_at.assert_any_call(
+            spark_id,
+            saved_bonfire.decay_at,
+        )
+

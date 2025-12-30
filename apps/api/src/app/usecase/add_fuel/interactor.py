@@ -252,6 +252,15 @@ class AddFuelInteractor(IAddFuelUseCase):
         )
 
         if was_extended:
+            # Sync spark decay_at with bonfire decay_at to prevent ghost bonfires
+            await self.spark_repository.update_decay_at(
+                spark_id, extended_bonfire.decay_at
+            )
+            # TODO: ここにbonfire_repositoryのupdateも必要では? entend_bonfire.interactor
+            # にそれに相当する処理はあるっぽいけど、デットコードになってそう。
+            # 責務的にはbonfire延長に伴う元のsparkの延長もそっちに含めたほうが良いのかも
+            # しれないが...二重処理にならないように気をつける必要がある。
+
             self.logger.info(
                 LOG_EVENTS.BONFIRE_EXTENDED,
                 "Bonfire TTL extended by fuel",
