@@ -70,7 +70,7 @@ export const FIELDS = [
   {
     id: "nhk",
     label: "NHK",
-    description: "紅白歌合戦、ゆく年くる年、大河ドラマ",
+    description: "有馬記念、紅白歌合戦、ゆく年くる年、大河ドラマ",
     themeColor: "from-gray-500 to-gray-700",
   },
   {
@@ -89,20 +89,19 @@ export const FIELDS = [
     id: "tbs",
     label: "TBS",
     description:
-      "日本レコード大賞、ザ・イロモネア、ニューイヤー駅伝、ドリーム東西ネタ合戦",
+      "レコ大、ザ・イロモネア、ニューイヤー駅伝、ドリーム東西ネタ合戦",
     themeColor: "from-blue-400 to-cyan-400",
   },
   {
     id: "fujitv",
     label: "フジテレビ",
-    description: "ドッキリGP、新しいカギ、ミリオネア、レッドカーペット、逃走中",
+    description: "ドッキリGP、新しいカギ、ミリオネア、逃走中",
     themeColor: "from-teal-400 to-emerald-400",
   },
   {
     id: "tvtokyo",
     label: "テレ東",
-    description:
-      "路線バス、あちこちオードリー、孤独のグルメ大晦日SP、出川哲朗の充電旅、家ついて行ってイイですか？",
+    description: "路線バス、あちこちオードリー、出川哲朗の充電旅",
     themeColor: "from-red-500 to-red-700",
   },
   {

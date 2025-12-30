@@ -67,6 +67,48 @@ install_essential_packages() {
 }
 
 # --------------------------------------------------------------------
+# Performance Tuning (Swap & File Descriptors)
+# --------------------------------------------------------------------
+
+tune_system_performance() {
+    log_info "Tuning system performance (Swap & Limits)..."
+
+    # 1. Swap Setup (2GB) for t3.medium
+    if [ ! -f /swapfile ]; then
+        log_info "Creating 2GB swapfile..."
+        fallocate -l 2G /swapfile
+        chmod 600 /swapfile
+        mkswap /swapfile
+        swapon /swapfile
+        echo '/swapfile none swap sw 0 0' >> /etc/fstab
+        log_success "Swap created"
+    else
+        log_info "Swapfile already exists. Skipping."
+    fi
+
+    # 2. Tune File Descriptors (OS Level)
+    log_info "Tuning file descriptors for WebSockets..."
+
+    # System-wide limit
+    if ! grep -q "fs.file-max = 100000" /etc/sysctl.conf; then
+        echo "fs.file-max = 100000" >> /etc/sysctl.conf
+        sysctl -p
+    fi
+
+    # User limits (hard & soft)
+    if ! grep -q "* soft nofile 100000" /etc/security/limits.conf; then
+        cat <<EOF >> /etc/security/limits.conf
+* soft nofile 100000
+* hard nofile 100000
+root soft nofile 100000
+root hard nofile 100000
+EOF
+    fi
+
+    log_success "System performance tuning completed"
+}
+
+# --------------------------------------------------------------------
 # AWS
 # --------------------------------------------------------------------
 
@@ -255,17 +297,46 @@ EOF
 
 install_docker() {
     log_info "Installing Docker..."
-    if command_exists docker; then return 0; fi
 
-    install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-    apt update -y
-    apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    if ! command_exists docker; then
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-    usermod -aG docker "${TARGET_USER}"
-    log_success "Docker installed"
+        apt update -y
+        apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+        usermod -aG docker "${TARGET_USER}"
+    fi
+
+    # Docker Daemon Configuration
+    # WebSocket用にulimitを緩和し、ログ肥大化を防ぐ設定を入れる
+    if [ ! -f /etc/docker/daemon.json ]; then
+        log_info "Configuring Docker daemon (ulimits & logs)..."
+        mkdir -p /etc/docker
+        cat <<EOF > /etc/docker/daemon.json
+{
+  "default-ulimits": {
+    "nofile": {
+      "Name": "nofile",
+      "Hard": 65535,
+      "Soft": 65535
+    }
+  },
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+EOF
+        # 設定反映のため再起動
+        systemctl restart docker
+        log_success "Docker configured and restarted"
+    fi
+
+
+    log_success "Docker installed/verified"
 }
 
 setup_backup() {
@@ -281,10 +352,61 @@ setup_backup() {
     log_success "Backup configured"
 }
 
+setup_data_volume() {
+    log_info "Mounting Data Volume..."
+
+    # 1. デバイス名の特定
+    # Nitro系(t3など)は /dev/nvme1n1、旧世代は /dev/xvdf
+    local DEVICE=""
+
+    if [ -b "/dev/nvme1n1" ]; then
+        DEVICE="/dev/nvme1n1"
+    elif [ -b "/dev/xvdf" ]; then
+        DEVICE="/dev/xvdf"
+    else
+        # 【変更点】 デバイスが見つからない場合はここで処理を強制終了(Panic)させる
+        # これにより Cloud-init が失敗ステータスとなり、異常に気づけます
+        error_exit "CRITICAL: Data Volume device not found! Expected /dev/nvme1n1 or /dev/xvdf."
+    fi
+
+    log_info "Target device found: $DEVICE"
+
+    # 2. フォーマット（冪等性あり）
+    # blkid が失敗する(=未フォーマット)時だけ実行
+    if ! blkid "$DEVICE" > /dev/null 2>&1; then
+        log_info "Formatting $DEVICE..."
+        mkfs -t xfs "$DEVICE" || error_exit "Failed to format $DEVICE"
+    fi
+
+    # マウントポイント作成
+    mkdir -p /data
+
+    # 3. マウント（冪等性あり）
+    # すでにマウントされていない場合のみ mount コマンドを実行
+    if ! mountpoint -q /data; then
+        mount "$DEVICE" /data || error_exit "Failed to mount $DEVICE"
+        log_success "Mounted $DEVICE to /data"
+    else
+        log_info "/data is already mounted. Skipping."
+    fi
+
+    # 4. fstabへの追記（冪等性あり）
+    # UUIDではなくデバイス名で書く簡易方式（再起動後も同じデバイス名である前提）
+    if ! grep -q "$DEVICE /data xfs" /etc/fstab; then
+        echo "$DEVICE /data xfs defaults,nofail 0 2" >> /etc/fstab
+        log_success "Added entry to /etc/fstab"
+    fi
+
+    # Docker用のディレクトリ作成
+    mkdir -p /data/mongo /data/redis
+}
+
 main() {
     log_info "Starting Setup..."
 
     setup_system
+    setup_data_volume
+    tune_system_performance
     install_essential_packages
     install_aws_cli
     install_ssm_agent

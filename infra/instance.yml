@@ -9,7 +9,7 @@ Parameters:
 
   InstanceType:
     Type: String
-    Default: t3.medium
+    Default: t3.small
     AllowedValues:
       - t3.micro
       - t3.small
@@ -156,6 +156,13 @@ Resources:
         - Key: Name
           Value: !Sub "${EnvironmentName}-data-volume"
 
+  DataVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/sdf
+      InstanceId: !Ref Instance
+      VolumeId: !Ref DataVolume
+
   # EC2 Instance
   Instance:
     Type: AWS::EC2::Instance
@@ -172,7 +179,7 @@ Resources:
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
-            VolumeSize: 10
+            VolumeSize: 30
             VolumeType: gp3
             DeleteOnTermination: true  # OS volume can be deleted
       UserData:

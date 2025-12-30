@@ -7,6 +7,7 @@ spark promotions (Spark -> Kindling -> Bonfire).
 from datetime import UTC, datetime, timedelta
 
 from app.domain.constants import (
+    BONFIRE_INITIAL_TTL_HOURS,
     FUEL_WEIGHT,
     KINDLING_DECAY_HOURS,
     KINDLING_THRESHOLD_UU,
@@ -226,6 +227,7 @@ class CheckPromotionInteractor(ICheckPromotionUseCase):
             content=content,
             unique_user_count=engagement.unique_user_count,
             heat_score=engagement.heat_score,
+            initial_decay_hours=BONFIRE_INITIAL_TTL_HOURS,
         )
 
         await self.bonfire_repository.save(bonfire)

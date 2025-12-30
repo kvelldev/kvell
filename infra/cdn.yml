@@ -207,7 +207,9 @@ Resources:
           CookiesConfig:
             CookieBehavior: none
           QueryStringsConfig:
-            QueryStringBehavior: none
+            QueryStringBehavior: whitelist
+            QueryStrings:
+              - field_id
 
 Outputs:
   SpaBucketName:
