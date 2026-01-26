@@ -1,0 +1,21 @@
+# .editorconfig
+root = true
+
+[*]
+indent_style = space
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Python files
+[*.py]
+indent_size = 4
+
+# JavaScript/React files
+[*.{js,jsx,ts,tsx,json,css,scss,html}]
+indent_size = 2
+
+# Markdown
+[*.md]
+trim_trailing_whitespace = false

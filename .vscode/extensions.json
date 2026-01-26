@@ -1,0 +1,19 @@
+{
+  "recommendations": [
+    // Python (Modern Stack)
+    "charliermarsh.ruff", // Ruff公式
+    "ms-python.python", // Python基本
+    "ms-python.vscode-pylance", // Pyrightベースの型チェック (Pyrightの上位互換的な動きをします)
+
+    // React (Frontend)
+    "dbaeumer.vscode-eslint", // ESLint
+    "esbenp.prettier-vscode", // Prettier (フォーマット用)
+    "dsznajder.es7-react-js-snippets", // React補完
+
+    // Common
+    "editorconfig.editorconfig",
+    "bierner.markdown-mermaid",
+    "shd101wyy.markdown-preview-enhanced",
+    "bradlc.vscode-tailwindcss"
+  ]
+}

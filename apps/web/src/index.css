@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   AREA 1: Kvell Design System (Kvellの素材)
+   ========================================================================== */
+/* Kvell独自のトークン定義（night-900, ember-500など）を読み込みます。
+   自動生成されたファイルなので、ここを直接編集はしません。 */
+@import "../../../packages/design_token/dist/theme.gen.css";
+
+
+/* ==========================================================================
+   AREA 2: Shadcn System Configuration (Shadcnのシステム設定)
+   ========================================================================== */
+/* ここは「Shadcnを動かすための配線工事」です。
+   「--backgroundという変数を、bg-backgroundというクラスで使えるようにする」
+   という設定をTailwindに登録しています。
+   ★基本的には、一度書いたら二度と触る必要はありません。 */
+
+@theme {
+  /* --- Colors (Shadcnのセマンティックカラーをクラス化) --- */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* --- Radius (Shadcnの角丸システムをクラス化) --- */
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+
+/* ==========================================================================
+   AREA 3: Theme Binding (Kvellの色をShadcnに適用)
+   ========================================================================== */
+/* ★ここがデザイン調整のメインエリアです。
+   「Shadcnの役割（左側）」に「Kvellの素材（右側）」を代入します。 */
+
+@layer base {
+  :root {
+    /* --- Base Colors --- */
+    /* アプリ全体の背景色 → Night-900 */
+    --background: var(--color-night-900);
+    /* アプリ全体の文字色 → Smoke-100 */
+    --foreground: var(--color-smoke-100);
+
+    /* --- UI Component Colors --- */
+    /* カードの背景 → Night-900 (背景と同化させ、枠線で区切るスタイル) */
+    --card: var(--color-night-900);
+    --card-foreground: var(--color-smoke-100);
+
+    /* ポップオーバー → Night-800 (少し浮かせる) */
+    --popover: var(--color-night-800);
+    --popover-foreground: var(--color-smoke-100);
+
+    /* --- Action Colors --- */
+    /* Primary (実行ボタン等) → Ember-500 (焚き火のオレンジ) */
+    --primary: var(--color-ember-500);
+    --primary-foreground: var(--color-white);
+
+    /* Secondary (キャンセル等) → Ash-500 (灰) */
+    --secondary: var(--color-ash-500);
+    --secondary-foreground: var(--color-white);
+
+    /* Destructive (削除等) → 赤 (Kvell定義外のため直接指定) */
+    --destructive: #ef4444;
+    --destructive-foreground: var(--color-white);
+
+    /* --- State Colors --- */
+    /* Muted (無効化/控えめ) → Night-800 / Ash-500 */
+    --muted: var(--color-night-800);
+    --muted-foreground: var(--color-ash-500);
+
+    /* Accent (ホバー/選択中) → Night-800 */
+    --accent: var(--color-night-800);
+    --accent-foreground: var(--color-smoke-100);
+
+    /* --- Borders & Effects --- */
+    /* 境界線 → 白の透明度15% (ガラス感) */
+    --border: rgba(255, 255, 255, 0.15);
+    --input: rgba(255, 255, 255, 0.15);
+
+    /* フォーカスリング → Ember-500 */
+    --ring: var(--color-ember-500);
+
+    /* 角丸の基準値 → Card (16px) */
+    --radius: var(--radius-card);
+  }
+
+  /* ダークモード時も同じ定義を使う (常夜設定) */
+  .dark {
+    --background: var(--color-night-900);
+    --foreground: var(--color-smoke-100);
+  }
+}
+
