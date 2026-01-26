@@ -25,11 +25,15 @@ For full product thinking and UX rationale, see the
 
 ## Technical Highlights
 
+- **Infrastructure as Code:** Fully automated AWS infrastructure using CloudFormation.
+  - *(Note: IaC templates are excluded from this public repository for security reasons, but are available for review during interviews.)*
 - Simple and cost-aware architecture (FastAPI + React on AWS)
 - Anonymous-by-design with minimal persistent user identity
 - WebSocket-based real-time updates with load-shedding strategies
 - Clean Architecture to keep AI-assisted code generation maintainable
 - Solid prompts that force AI-generated code to remain consistent, testable, and maintainable (see [.prompts/](.prompts/) and other for details)
+
+
 
 
 ## License
