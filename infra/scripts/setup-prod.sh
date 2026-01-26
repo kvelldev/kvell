@@ -1,4 +1,5 @@
 #!/bin/bash
+# TODO: netstat対応
 set -euo pipefail
 
 # This script is downloaded and executed by EC2 UserData

@@ -95,9 +95,13 @@ aws cloudformation deploy \
     BackupS3Bucket=$BACKUP_BUCKET \
     CorsOrigins=https://kvellapp.com \
     KeyPairName=kvellkey \
+    NotificationEmail="your-email@example.com" \
   --capabilities CAPABILITY_NAMED_IAM \
   --region $AWS_REGION
 ```
+
+> [!IMPORTANT]
+> `NotificationEmail` に指定したメールアドレスにAWSSNSから確認メールが届きます。**リンクを必ずクリックして承認**してください。
 
 ### 4. CDN Stack デプロイ
 

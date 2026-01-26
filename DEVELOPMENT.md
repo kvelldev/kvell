@@ -71,6 +71,7 @@ curl -s -X POST http://localhost:8000/api/sparks -H "Content-Type: application/j
     - bonfire詳細に入ったら更新される(RESTで取るため。けどこれfastapiのdocsにエンドポイント見当たらないな。)んだよね...?ここは要確認。
 - cloudwatch設定 -> errは取れるようにしときたいかも
 - ec2 ipv6への移行。eipがタダになる
+- bonfire延長時の元のspark並びに子スパークのdecayat延長。そもそもbonfireエンティティとsparkエンティティを分ける必要があるのか?というとこから考えたい。
 
 
 

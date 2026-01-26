@@ -44,6 +44,11 @@ Parameters:
     Default: 10
     Description: Size of data EBS volume in GB (for MongoDB)
 
+  NotificationEmail:
+    Type: String
+    Description: Email address to receive CloudWatch alarm notifications
+
+
   # Dynamic AMI using SSM Parameter Store
   LatestUbuntuAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -226,6 +231,65 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-instance"
+
+  # ------------------------------------------------------------------
+  # Monitoring & Alerting
+  # ------------------------------------------------------------------
+  MonitoringTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${EnvironmentName}-monitoring-topic"
+
+  MonitoringSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref NotificationEmail
+      Protocol: email
+      TopicArn: !Ref MonitoringTopic
+
+  # 1. Death Check (Status Check Failed)
+  # Alarm if StatusCheckFailed >= 1 for 1 minute
+  StatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-death-check"
+      AlarmDescription: "Alarm when EC2 Status Check fails (instance unresponsive)"
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref Instance
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref MonitoringTopic
+      OKActions:
+        - !Ref MonitoringTopic
+
+  # 2. CPU High (CPU Utilization > 80%)
+  # Alarm if CPU > 80% for 5 minutes (Basic Monitoring period)
+  CPUHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-cpu-high"
+      AlarmDescription: "Alarm when CPU exceeds 80%"
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref Instance
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 80
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref MonitoringTopic
+      OKActions:
+        - !Ref MonitoringTopic
 
 Outputs:
   InstanceId:
